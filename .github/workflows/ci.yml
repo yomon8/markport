@@ -27,6 +27,9 @@ jobs:
         run: choco install make --yes --no-progress
       - run: make setup
       - run: make test
+      - name: Linux installer tests
+        if: runner.os == 'Linux'
+        run: sh scripts/test-install-linux.sh
       - run: make lint
       - run: make build VERSION=ci
       - name: Browser acceptance tests

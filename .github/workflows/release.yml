@@ -27,6 +27,9 @@ jobs:
         run: choco install make --yes --no-progress
       - run: make setup
       - run: make test
+      - name: Linux installer tests
+        if: runner.os == 'Linux'
+        run: sh scripts/test-install-linux.sh
       - run: make lint
       - run: make build VERSION="$GITHUB_REF_NAME"
       - name: Browser acceptance tests
@@ -91,4 +94,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" dist/markport_* dist/checksums_*.txt
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME" dist/markport_* dist/checksums_*.txt

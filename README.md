@@ -11,15 +11,23 @@ Markport is a CLI for browsing Markdown, HTML, code, and images created by AI ag
 
 ## Usage
 
+On Linux, install the latest release for your CPU with the installer:
+
+```sh
+curl -fsSLo install-markport.sh https://raw.githubusercontent.com/yomon8/markport/main/scripts/install-linux.sh && sh install-markport.sh
+```
+
+It installs `markport` in `~/.local/bin`. Run the same command again to replace an older version. The installer checks the release checksum before replacing the binary, so a failed download or check leaves the installed version in place. Add `~/.local/bin` to your `PATH` if needed, then run `markport ./notes`.
+
 Download the executable for your OS and CPU from the GitHub Releases page. Builds are available for Linux, macOS, and Windows on `amd64` (x64) and `arm64`. The Windows executable has a `.exe` extension. You do not need Go, Node.js, npm, or separate web assets to run it, but you do need a browser.
 
 To verify a download, place `checksums_<version>.txt` from the release alongside the executable. Run `sha256sum --check checksums_<version>.txt` on Linux or `shasum -a 256 -c checksums_<version>.txt` on macOS. On Windows, use `Get-FileHash` to check an individual file.
 
 ```sh
-./markport_v0.1.1_linux_amd64 ./notes --port 3000
-./markport_v0.1.1_linux_amd64 ./notes --host 0.0.0.0 --port 3000
-./markport_v0.1.1_linux_amd64 --help
-./markport_v0.1.1_linux_amd64 --version
+./markport_v0.1.2_linux_amd64 ./notes --port 3000
+./markport_v0.1.2_linux_amd64 ./notes --host 0.0.0.0 --port 3000
+./markport_v0.1.2_linux_amd64 --help
+./markport_v0.1.2_linux_amd64 --version
 ```
 
 With no arguments, Markport serves the current directory on port 3000. Open the `http://127.0.0.1:<port>/` URL printed at startup. Press `Ctrl+C` to stop the server. By default, it listens only on `127.0.0.1`. To allow devices on the same LAN to connect, use `--host 0.0.0.0` and open `http://<this-machine-LAN-IP>:<port>/` on those devices. You can also bind to a specific IPv4 address with `--host`. The LAN mode has no authentication or TLS; anyone who can reach the port can browse the selected directory, including dotfiles other than the excluded directories.
@@ -50,7 +58,7 @@ make run DIR=./testdata HOST=0.0.0.0 PORT=3000  # Allow LAN access
 make test                  # Run Go and UI tests
 make test-e2e             # Run Chromium browser tests (requires Playwright browser setup)
 make lint                  # Run go vet, TypeScript checks, and ESLint
-make dist VERSION=v0.1.1  # Build six executables and SHA-256 checksums
+make dist VERSION=v0.1.2  # Build six executables and SHA-256 checksums
 ```
 
 After `make setup`, you can run `make lint` on its own. Each relevant Make target builds the web UI and embeds it in the executable. During development, Vite proxies API requests to Go.
