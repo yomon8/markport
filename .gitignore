@@ -1,0 +1,7 @@
+/internal/web/dist/
+/dist/
+/web/node_modules/
+/web/coverage/
+/web/test-results/
+/web/playwright-report/
+*.test

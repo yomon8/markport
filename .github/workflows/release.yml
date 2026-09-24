@@ -1,0 +1,94 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install Make on Windows
+        if: runner.os == 'Windows'
+        run: choco install make --yes --no-progress
+      - run: make setup
+      - run: make test
+      - run: make lint
+      - run: make build VERSION="$GITHUB_REF_NAME"
+      - name: Browser acceptance tests
+        if: runner.os == 'Linux'
+        run: |
+          cd web && npx playwright install --with-deps chromium
+          cd .. && make test-e2e VERSION="$GITHUB_REF_NAME"
+      - name: Native version and help
+        run: |
+          binary=./dist/markport
+          if [ "$RUNNER_OS" = Windows ]; then binary=./dist/markport.exe; fi
+          test "$("$binary" --version)" = "$GITHUB_REF_NAME"
+          "$binary" --help
+  package:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: make setup
+      - run: make dist VERSION="$GITHUB_REF_NAME"
+      - name: Verify release files
+        run: |
+          set -eu
+          test "$(find dist -maxdepth 1 -type f -name "markport_${GITHUB_REF_NAME}_*" | wc -l)" -eq 6
+          for os in linux darwin windows; do
+            for arch in amd64 arm64; do
+              suffix=''; if [ "$os" = windows ]; then suffix=.exe; fi
+              binary="dist/markport_${GITHUB_REF_NAME}_${os}_${arch}${suffix}"
+              test -s "$binary"
+              go version -m "$binary" | grep -F "CGO_ENABLED=0"
+              go version -m "$binary" | grep -F "internal/cli.Version=${GITHUB_REF_NAME}"
+              LC_ALL=C strings "$binary" | grep -q 'markport-diagram'
+            done
+          done
+          test "$(dist/markport_${GITHUB_REF_NAME}_linux_amd64 --version)" = "$GITHUB_REF_NAME"
+          cd dist && sha256sum --check "checksums_${GITHUB_REF_NAME}.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: |
+            dist/markport_*
+            dist/checksums_*.txt
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+      - name: Publish existing tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" dist/markport_* dist/checksums_*.txt

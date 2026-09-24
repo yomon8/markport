@@ -1,0 +1,30 @@
+{
+  "name": "markport",
+  "image": "mcr.microsoft.com/devcontainers/go:1.27-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:2": {
+      "version": "24"
+    }
+  },
+  "forwardPorts": [3000, 5173],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // Utility
+        "mutantdino.resourcemonitor",
+        "tombonnike.vscode-status-bar-format-toggle",
+        // Docs
+        "DavidAnson.vscode-markdownlint",
+        "shd101wyy.markdown-preview-enhanced",
+        "hediet.vscode-drawio",
+        "yzhang.markdown-all-in-one",
+        "bierner.github-markdown-preview",
+        "bierner.markdown-mermaid",
+        // Go
+        "golang.go",
+        // DevTools
+        "github.vscode-github-actions"
+      ]
+    }
+  }
+}

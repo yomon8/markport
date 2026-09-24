@@ -1,0 +1,50 @@
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install Make on Windows
+        if: runner.os == 'Windows'
+        run: choco install make --yes --no-progress
+      - run: make setup
+      - run: make test
+      - run: make lint
+      - run: make build VERSION=ci
+      - name: Browser acceptance tests
+        if: runner.os == 'Linux'
+        run: |
+          cd web && npx playwright install --with-deps chromium
+          cd .. && make test-e2e VERSION=ci
+      - name: Executable smoke check
+        run: |
+          binary=./dist/markport
+          if [ "$RUNNER_OS" = Windows ]; then binary=./dist/markport.exe; fi
+          "$binary" --help
+          test "$("$binary" --version)" = ci
+          "$binary" testdata --port 39876 > server.log 2>&1 & server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in {1..30}; do
+            if curl --fail --silent --output /dev/null http://127.0.0.1:39876/; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:39876/api/tree > tree.json
+          test -s tree.json
