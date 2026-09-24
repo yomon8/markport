@@ -1,126 +1,256 @@
 import './style.css';
 import { drawMermaid } from './mermaid';
+import { TreeView, type Node } from './tree';
+import { initTheme } from './theme';
 
-type Node = { name: string; path: string; type: 'directory' | 'file'; children?: Node[] };
 type FileReply = { path: string; type: string; html: string };
 type ApiError = { error?: string; message?: string };
-
+class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
-app.innerHTML = `<header><h1>markport</h1><span id="connection" role="status">接続中…</span><button id="reload" type="button">再読み込み</button></header><div class="layout"><aside><label for="search">ファイル名で検索</label><input id="search" type="search" placeholder="ファイル名"><nav id="tree" aria-label="ファイル一覧"></nav></aside><main><div id="file-title"></div><article id="content"><p class="hint">ファイルを選択してください。</p></article></main></div>`;
+app.innerHTML = `<a class="skip-link" href="#content">本文へ移動</a><header><button id="drawer-toggle" type="button" aria-label="ファイル一覧を開く">☰</button><button id="sidebar-toggle" type="button" aria-label="サイドバーを折りたたむ" aria-expanded="true">☰</button><span class="brand">markport</span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">接続中…</span></span><button id="theme-toggle" type="button"></button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> 最新を取得</button></header><div class="layout"><aside id="sidebar"><form role="search" onsubmit="return false"><label for="search">ファイルを検索</label><input id="search" type="search" placeholder="パス・ファイル名 /"><span id="result-count"></span></form><nav id="tree" aria-label="ファイル一覧"></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="サイドバーの幅を変更" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="目次" hidden></nav></div></main></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">閉じる ×</button><div id="overlay-content"></div></div>`;
 const tree = document.querySelector<HTMLElement>('#tree')!;
 const content = document.querySelector<HTMLElement>('#content')!;
 const title = document.querySelector<HTMLElement>('#file-title')!;
 const search = document.querySelector<HTMLInputElement>('#search')!;
+const count = document.querySelector<HTMLElement>('#result-count')!;
 const connection = document.querySelector<HTMLElement>('#connection')!;
+const banner = document.querySelector<HTMLElement>('#connection-banner')!;
 const reload = document.querySelector<HTMLButtonElement>('#reload')!;
-
-let nodes: Node[] = [];
-let revision = 0;
-let pending = false;
-let running = false;
-let renderedRevision = 0;
+const main = document.querySelector<HTMLElement>('#main')!;
+const progress = document.querySelector<HTMLElement>('#progress')!;
+const outline = document.querySelector<HTMLElement>('#outline')!;
+const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
+const drawerToggle = document.querySelector<HTMLButtonElement>('#drawer-toggle')!;
+const sidebarToggle = document.querySelector<HTMLButtonElement>('#sidebar-toggle')!;
+const view = new TreeView(tree, search, count, selected);
+let revision = 0; let pending = false; let running = false;
+let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = false;
+let rootName = ''; let outlineObserver: IntersectionObserver | undefined;
+let loadingTimer: ReturnType<typeof setTimeout> | undefined;
+let updatedTimer: ReturnType<typeof setTimeout> | undefined;
+const savedWidth = Number(localStorage.getItem('markport-sidebar-width'));
+if (savedWidth >= 200 && savedWidth <= 480) document.documentElement.style.setProperty('--sidebar-width', `${savedWidth}px`);
 
 function selected(): string { return new URL(location.href).searchParams.get('path') ?? ''; }
 function fileURL(path: string): string { return `/?path=${encodeURIComponent(path)}`; }
-function setStatus(message: string, bad = false): void { connection.textContent = message; connection.classList.toggle('bad', bad); }
-
-function visible(node: Node, filter: string): boolean {
-  if (!filter) return true;
-  if (node.type === 'file') return node.name.toLocaleLowerCase().includes(filter);
-  return !!node.children?.some((child) => visible(child, filter));
-}
-function appendNodes(parent: HTMLElement, items: Node[], filter: string): void {
-  const list = document.createElement('ul');
-  for (const node of items) {
-    if (!visible(node, filter)) continue;
-    const item = document.createElement('li');
-    if (node.type === 'directory') {
-      const details = document.createElement('details'); details.open = true;
-      const summary = document.createElement('summary'); summary.textContent = node.name;
-      details.append(summary); appendNodes(details, node.children ?? [], filter); item.append(details);
-    } else {
-      const link = document.createElement('a'); link.href = fileURL(node.path); link.textContent = node.name;
-      if (selected() === node.path) link.setAttribute('aria-current', 'page');
-      item.append(link);
-    }
-    list.append(item);
+function saveScroll(): void { history.replaceState({ scroll: main.scrollTop }, '', location.href); }
+function navigate(url: string): void { saveScroll(); history.pushState({ scroll: 0 }, '', url); sourceMode = false; sidebar.classList.remove('open'); requestRefresh(); }
+function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
+  connection.querySelector<HTMLElement>('.connection-label')!.textContent = message; connection.dataset.state = state; connection.title = message;
+  banner.hidden = state === 'ok'; banner.replaceChildren();
+  if (state !== 'ok') {
+    banner.append(document.createTextNode(state === 'error' ? '監視エラーが発生しました。自動更新が不完全です。' : '接続が切れています。再接続すると最新の状態を反映します。'));
+    if (state === 'error') { const button = document.createElement('button'); button.textContent = '手動で最新を取得'; button.addEventListener('click', requestRefresh); banner.append(button); }
   }
-  parent.append(list);
 }
-function renderTree(): void { tree.replaceChildren(); appendNodes(tree, nodes, search.value.trim().toLocaleLowerCase()); }
-
 async function getJSON<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+  let response: Response;
+  try { response = await fetch(url); } catch { throw new RequestError('network', '接続できません'); }
   const body = await response.json() as T & ApiError;
-  if (!response.ok) throw new Error(body.message || body.error || `HTTP ${response.status}`);
+  if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
   return body;
 }
-
-function requestRefresh(): void {
-  revision++; pending = true;
-  if (!running) void refreshLoop();
+function showTitle(path: string, kind = '', missing = false): void {
+  title.replaceChildren();
+  if (!path) { title.textContent = rootName || 'markport'; document.title = 'markport'; return; }
+  const crumbs = document.createElement('div'); crumbs.className = 'breadcrumbs';
+  const parts = path.split('/');
+  parts.forEach((part, index) => {
+    if (index) crumbs.append(document.createTextNode(' / '));
+    if (index < parts.length - 1) {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'crumb'; button.textContent = part;
+      button.addEventListener('click', () => { view.reveal(parts.slice(0, index + 1).join('/')); sidebar.classList.add('open'); }); crumbs.append(button);
+    } else { const label = document.createElement('strong'); label.textContent = part; if (missing) label.className = 'missing'; crumbs.append(label); }
+  });
+  title.append(crumbs);
+  const actions = document.createElement('div'); actions.className = 'title-actions';
+  if (kind) {
+    const badge = document.createElement('span'); badge.className = 'kind-badge';
+    const extension = path.split('.').at(-1)?.toLowerCase() ?? '';
+    const languages: Record<string, string> = { py: 'Python', go: 'Go', js: 'JavaScript', ts: 'TypeScript', tsx: 'TypeScript', jsx: 'JavaScript', rs: 'Rust', java: 'Java', sh: 'Shell', html: 'HTML', css: 'CSS', json: 'JSON', yaml: 'YAML', yml: 'YAML' };
+    badge.textContent = kind === 'markdown' ? 'Markdown' : ((languages[extension] ?? extension.toUpperCase()) || 'Code'); actions.append(badge);
+  }
+  const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'パスをコピー'; copy.addEventListener('click', () => { void navigator.clipboard.writeText(path).then(() => { copy.textContent = 'コピーしました'; setTimeout(() => { copy.textContent = 'パスをコピー'; }, 2000); }); }); actions.append(copy);
+  if (kind === 'markdown') { const source = document.createElement('button'); source.type = 'button'; source.textContent = sourceMode ? '整形表示' : 'ソース'; source.addEventListener('click', () => { sourceMode = !sourceMode; requestRefresh(); }); actions.append(source); }
+  const toc = document.createElement('button'); toc.type = 'button'; toc.id = 'outline-toggle'; toc.textContent = '目次'; toc.hidden = outline.hidden; toc.addEventListener('click', () => outline.classList.toggle('open')); actions.append(toc);
+  title.append(actions); document.title = `${parts.at(-1)} — markport`;
 }
+function showEmpty(): void {
+  content.replaceChildren(); const box = document.createElement('div'); box.className = 'empty-state';
+  const heading = document.createElement('h2'); heading.textContent = 'ファイルを選択してください';
+  const detail = document.createElement('p'); detail.textContent = `${rootName || '閲覧ルート'}に${view.fileCount()}ファイルあります。/ キーで検索できます。`;
+  box.append(heading, detail); content.append(box); outline.hidden = true;
+}
+function showError(error: unknown, path: string): void {
+  const code = error instanceof RequestError ? error.code : 'network';
+  const messages: Record<string, [string, string]> = {
+    not_found: ['ファイルが見つかりません', 'このファイルは削除されたか、移動されました。'],
+    too_large: ['ファイルが大きすぎます', '10 MiBを超えるため表示できません。'],
+    binary: ['表示できないファイルです', 'バイナリファイルのため表示できません。'],
+    unreadable: ['ファイルを読み取れません', 'このファイルは読み取れません。'],
+    not_regular: ['ファイルを読み取れません', 'このファイルは読み取れません。'],
+    network: ['接続できません', 'サーバーに接続できません。markportが起動しているか確認してください。'],
+  };
+  const [heading, description] = messages[code] ?? ['ファイルを表示できません', 'もう一度お試しください。'];
+  content.replaceChildren(); const box = document.createElement('div'); box.className = 'file-error'; box.setAttribute('role', 'alert');
+  const icon = document.createElement('span'); icon.textContent = '⚠'; icon.setAttribute('aria-hidden', 'true');
+  const h = document.createElement('h2'); h.textContent = heading; const p = document.createElement('p');
+  const actualSize = code === 'too_large' && error instanceof RequestError ? error.message.match(/actual (\d+(?:\.\d+)? MiB)/)?.[1] : undefined;
+  p.textContent = actualSize ? `10 MiBを超えるため表示できません（${actualSize}）。` : description;
+  const button = document.createElement('button'); button.type = 'button'; button.textContent = code === 'not_found' ? 'ルートへ戻る' : '再試行'; button.addEventListener('click', () => code === 'not_found' ? navigate('/') : requestRefresh());
+  box.append(icon, h, p, button); content.append(box); showTitle(path, '', code === 'not_found'); outline.hidden = true;
+}
+function decorateContent(): void {
+  function wrapCode(element: HTMLElement): void {
+    const frame = document.createElement('div'); frame.className = 'code-frame';
+    const toolbar = document.createElement('div'); toolbar.className = 'code-toolbar';
+    const label = document.createElement('span'); label.textContent = element.closest<HTMLElement>('[data-language]')?.dataset.language || (content.dataset.kind === 'code' ? displayedPath.split('.').at(-1) : 'text') || 'text';
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = 'コピー';
+    button.addEventListener('click', () => {
+      const code = element.querySelector<HTMLElement>('.lntd:last-child pre') ?? element;
+      void navigator.clipboard.writeText(code.textContent ?? '').then(() => { button.textContent = 'コピーしました'; setTimeout(() => { button.textContent = 'コピー'; }, 2000); });
+    });
+    toolbar.append(label, button); element.before(frame); frame.append(toolbar, element);
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
+      const scroller = element.querySelector<HTMLElement>('.lntd:last-child pre') ?? element.querySelector<HTMLElement>('pre') ?? element;
+      frame.classList.toggle('overflows', scroller.scrollWidth > scroller.clientWidth + 1);
+    });
+  }
+  for (const block of content.querySelectorAll<HTMLElement>('.chroma')) {
+    if (block.closest('[data-mermaid],.code-frame,.chroma .chroma')) continue;
+    wrapCode(block);
+  }
+  for (const pre of content.querySelectorAll<HTMLPreElement>('pre')) {
+    if (pre.closest('[data-mermaid],.code-frame')) continue;
+    wrapCode(pre);
+  }
+  for (const img of content.querySelectorAll<HTMLImageElement>('img')) {
+    img.loading = 'lazy'; img.decoding = 'async';
+    img.addEventListener('error', () => { const note = document.createElement('span'); note.className = 'image-error'; note.textContent = img.alt || '画像を読み込めません'; img.replaceWith(note); });
+  }
+  for (const table of content.querySelectorAll('table')) {
+    if (table.closest('.chroma')) continue;
+    const wrap = document.createElement('div'); wrap.className = 'table-wrap'; table.before(wrap); wrap.append(table);
+  }
+  updateTableHeaders();
+}
+function updateTableHeaders(): void {
+  const top = main.getBoundingClientRect().top + title.getBoundingClientRect().height;
+  for (const table of content.querySelectorAll<HTMLTableElement>('.table-wrap table')) {
+    const head = table.tHead;
+    if (!head) continue;
+    const distance = Math.max(0, Math.min(table.offsetHeight - head.offsetHeight, top - table.getBoundingClientRect().top));
+    head.style.transform = `translateY(${distance}px)`;
+  }
+}
+main.addEventListener('scroll', updateTableHeaders);
+function updateOutline(): void {
+  outlineObserver?.disconnect(); outline.replaceChildren();
+  const headings = [...content.querySelectorAll<HTMLElement>('h1[id],h2[id],h3[id],h4[id],h5[id],h6[id]')];
+  outline.hidden = headings.length < 3;
+  if (outline.hidden) return;
+  for (const heading of headings) {
+    const link = document.createElement('a'); link.href = `#${encodeURIComponent(heading.id)}`; link.textContent = heading.textContent; link.className = `outline-h${heading.tagName.slice(1)}`;
+    link.addEventListener('click', (event) => { event.preventDefault(); history.replaceState(history.state, '', `#${encodeURIComponent(heading.id)}`); heading.scrollIntoView(); outline.classList.remove('open'); }); outline.append(link);
+  }
+  if (typeof IntersectionObserver !== 'undefined') {
+    outlineObserver = new IntersectionObserver((entries) => { for (const entry of entries) if (entry.isIntersecting) for (const link of outline.querySelectorAll('a')) link.classList.toggle('active', decodeURIComponent(link.hash.slice(1)) === entry.target.id); }, { root: main, rootMargin: '-15% 0px -70% 0px' });
+    headings.forEach((heading) => outlineObserver?.observe(heading));
+  }
+}
+function beginLoading(): void { content.setAttribute('aria-busy', 'true'); reload.disabled = true; clearTimeout(loadingTimer); loadingTimer = setTimeout(() => { progress.hidden = false; }, 200); }
+function endLoading(): void { clearTimeout(loadingTimer); progress.hidden = true; reload.disabled = false; content.setAttribute('aria-busy', 'false'); }
+function requestRefresh(): void { revision++; pending = true; if (!running) void refreshLoop(); }
 async function refreshLoop(): Promise<void> {
   running = true;
   try {
     while (pending) {
-      pending = false;
-      const current = revision;
-      const path = selected();
-      const treePromise = getJSON<{ entries: Node[] }>('/api/tree');
-      const filePromise = path ? getJSON<FileReply>(`/api/file?path=${encodeURIComponent(path)}`).then((value) => ({ value }), (error: unknown) => ({ error })) : Promise.resolve(null);
+      pending = false; const current = revision; const path = selected(); const source = sourceMode;
+      beginLoading();
+      const treePromise = getJSON<{ entries: Node[]; root?: string }>('/api/tree');
+      const filePromise = path ? getJSON<FileReply>(`/api/file?path=${encodeURIComponent(path)}${source ? '&source=1' : ''}`).then((value) => ({ value }), (error: unknown) => ({ error })) : Promise.resolve(null);
       try {
         const [treeReply, fileReply] = await Promise.all([treePromise, filePromise]);
         if (current !== revision || path !== selected()) { pending = true; continue; }
-        nodes = treeReply.entries; renderTree();
-        title.textContent = path;
-        renderedRevision = current;
-        if (!path) { content.innerHTML = '<p class="hint">ファイルを選択してください。</p>'; continue; }
-        if (fileReply && 'error' in fileReply) {
-          content.replaceChildren();
-          const message = document.createElement('p'); message.className = 'file-error';
-          message.textContent = `ファイルを表示できません: ${String(fileReply.error)}`;
-          content.append(message);
-        } else if (fileReply && 'value' in fileReply) {
-          content.innerHTML = fileReply.value.html;
-          if (location.hash) {
-            try { document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ }
+        view.nodes = treeReply.entries; rootName = treeReply.root ?? rootName; document.querySelector('#root-name')!.textContent = rootName; view.render();
+        if (!path && view.firstReadme()) { history.replaceState({ scroll: 0 }, '', fileURL(view.firstReadme()!)); pending = true; revision++; continue; }
+        const pathChanged = path !== displayedPath;
+        if (pathChanged) { main.scrollTop = history.state?.scroll ?? 0; displayedHTML = ''; }
+        displayedPath = path;
+        if (!path) { showTitle(''); showEmpty(); continue; }
+        if (fileReply && 'error' in fileReply) { showError(fileReply.error, path); displayedHTML = ''; continue; }
+        if (fileReply && 'value' in fileReply) {
+          const changed = displayedHTML !== fileReply.value.html || displayedSource !== source;
+          if (changed) {
+            const oldScroll = main.scrollTop;
+            content.innerHTML = fileReply.value.html; content.dataset.kind = source ? 'code' : fileReply.value.type;
+            displayedHTML = fileReply.value.html; displayedSource = source;
+            decorateContent(); updateOutline(); showTitle(path, fileReply.value.type);
+            if (!pathChanged && oldScroll > 0) main.scrollTop = oldScroll;
+            if (location.hash) { try { document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ } }
+            if (!pathChanged && current > 1) {
+              title.classList.add('updated'); const note = document.createElement('span'); note.className = 'update-note'; note.textContent = '更新しました'; title.querySelector('.title-actions')?.prepend(note);
+              clearTimeout(updatedTimer); updatedTimer = setTimeout(() => { title.classList.remove('updated'); note.remove(); }, 3500);
+            }
+            void drawMermaid(content, () => path === selected() && source === sourceMode);
           }
-          void drawMermaid(content, () => renderedRevision === current && revision === current && path === selected());
+          view.reveal(path);
+          if (pathChanged) title.focus({ preventScroll: true });
         }
       } catch (error) {
         if (current !== revision) { pending = true; continue; }
-        content.replaceChildren();
-        const message = document.createElement('p'); message.className = 'file-error';
-        message.textContent = `再取得に失敗しました: ${String(error)}`; content.append(message);
-      }
+        showError(error, path);
+      } finally { endLoading(); }
     }
-  } finally {
-    running = false;
-    if (pending) void refreshLoop();
-  }
+  } finally { running = false; if (pending) void refreshLoop(); }
 }
 
 tree.addEventListener('click', (event) => {
   const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
   if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
-  event.preventDefault(); history.pushState(null, '', link.href); requestRefresh();
+  event.preventDefault(); navigate(link.href);
 });
 content.addEventListener('click', (event) => {
-  const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
+  const target = event.target as HTMLElement;
+  const action = target.closest<HTMLButtonElement>('[data-diagram-action]');
+  if (action) {
+    const diagram = action.closest<HTMLElement>('[data-mermaid]')!;
+    if (action.dataset.diagramAction === 'source') {
+      const image = diagram.querySelector<HTMLElement>('.diagram-image')!; const showing = image.hidden; image.hidden = !showing;
+      let source = diagram.querySelector<HTMLElement>('.diagram-source');
+      if (!source) { source = document.createElement('pre'); source.className = 'diagram-source'; source.textContent = diagram.dataset.source ?? ''; diagram.append(source); }
+      source.hidden = showing; action.textContent = showing ? 'ソース' : '図';
+    } else {
+      document.querySelector<HTMLElement>('#overlay-content')!.innerHTML = diagram.querySelector('.diagram-image')?.innerHTML ?? '';
+      document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = false;
+    }
+    return;
+  }
+  const link = target.closest<HTMLAnchorElement>('a[href]');
   if (!link || event.metaKey || event.ctrlKey || event.shiftKey || link.origin !== location.origin || link.pathname !== '/' || !new URL(link.href).searchParams.has('path')) return;
   if (link.pathname === location.pathname && link.search === location.search && link.hash) return;
-  event.preventDefault(); history.pushState(null, '', link.href); requestRefresh();
+  event.preventDefault(); navigate(link.href);
 });
+document.querySelector('#overlay-close')!.addEventListener('click', () => { document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; });
 window.addEventListener('popstate', requestRefresh);
-search.addEventListener('input', renderTree);
+window.addEventListener('keydown', (event) => {
+  if ((event.key === '/' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k')) && !(event.target instanceof HTMLInputElement)) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') { event.preventDefault(); sidebarToggle.click(); }
+  if (event.key === 'Escape') { sidebar.classList.remove('open'); outline.classList.remove('open'); document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; }
+});
 reload.addEventListener('click', requestRefresh);
-
+drawerToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
+sidebarToggle.addEventListener('click', () => { const collapsed = sidebar.classList.toggle('collapsed'); sidebarToggle.setAttribute('aria-expanded', String(!collapsed)); sidebarToggle.setAttribute('aria-label', collapsed ? 'サイドバーを開く' : 'サイドバーを折りたたむ'); });
+const resize = document.querySelector<HTMLElement>('#sidebar-resize')!;
+resize.addEventListener('pointerdown', (event) => { resize.setPointerCapture(event.pointerId); });
+resize.addEventListener('pointermove', (event) => { if (!resize.hasPointerCapture(event.pointerId)) return; const width = Math.max(200, Math.min(480, event.clientX)); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
+resize.addEventListener('keydown', (event) => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; const width = Math.max(200, Math.min(480, Number(localStorage.getItem('markport-sidebar-width') ?? 280) + (event.key === 'ArrowRight' ? 10 : -10))); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
+initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => { if (content.querySelector('[data-mermaid]')) { displayedHTML = ''; requestRefresh(); } });
 const events = new EventSource('/api/events');
-events.addEventListener('ready', () => { setStatus('自動更新中'); requestRefresh(); });
+events.addEventListener('ready', () => { status('自動更新中', 'ok'); requestRefresh(); });
 events.addEventListener('refresh', requestRefresh);
 for (const name of ['created', 'changed', 'deleted']) events.addEventListener(name, requestRefresh);
-events.addEventListener('watch-error', () => { setStatus('監視エラー。再読み込みしてください。', true); requestRefresh(); });
-events.addEventListener('watch-ok', () => setStatus('自動更新中'));
-events.onerror = () => setStatus('接続が切れました。再接続中…', true);
+events.addEventListener('watch-error', () => { status('監視エラー。再読み込みしてください。', 'error'); requestRefresh(); });
+events.addEventListener('watch-ok', () => status('自動更新中', 'ok'));
+events.onerror = () => status('接続が切れました。再接続中…', 'connecting');

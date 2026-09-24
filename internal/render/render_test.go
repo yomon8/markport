@@ -30,3 +30,37 @@ func TestCodeEscapes(t *testing.T) {
 		}
 	}
 }
+
+func TestHighlightIsHTMLFragment(t *testing.T) {
+	for _, out := range []string{Code("sample.py", "print('hello')\n"), mustMarkdown(t, "```python\nprint('hello')\n```\n")} {
+		for _, forbidden := range []string{"<html", "<style", "<body"} {
+			if strings.Contains(out, forbidden) {
+				t.Fatalf("highlight contains %s: %s", forbidden, out)
+			}
+		}
+		if !strings.Contains(out, `class="chroma"`) {
+			t.Fatalf("missing Chroma classes: %s", out)
+		}
+	}
+	if !strings.Contains(Code("sample.py", "a = 1\nb = 2\n"), `id="L2"`) {
+		t.Fatal("code line numbers are not linkable")
+	}
+}
+
+func TestGFMTableAlignment(t *testing.T) {
+	out := mustMarkdown(t, "| Left | Right |\n|:---|---:|\n| a | 12 |\n")
+	for _, want := range []string{`style="text-align:left"`, `style="text-align:right"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("table alignment %s missing: %s", want, out)
+		}
+	}
+}
+
+func mustMarkdown(t *testing.T, input string) string {
+	t.Helper()
+	out, err := Markdown("sample.md", input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}

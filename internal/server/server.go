@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -158,7 +159,7 @@ func (s *Server) tree(w http.ResponseWriter, r *http.Request) {
 		apiError(w, err)
 		return
 	}
-	jsonReply(w, 200, map[string]any{"entries": nodes})
+	jsonReply(w, 200, map[string]any{"entries": nodes, "root": filepath.Base(s.Files.Path)})
 }
 func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 	name, err := queryPath(r)
@@ -172,7 +173,12 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind, output := "code", ""
-	if strings.EqualFold(path.Ext(name), ".md") || strings.EqualFold(path.Ext(name), ".markdown") {
+	if r.URL.Query().Get("source") == "1" {
+		if strings.EqualFold(path.Ext(name), ".md") || strings.EqualFold(path.Ext(name), ".markdown") {
+			kind = "markdown"
+		}
+		output = render.Code(name, content)
+	} else if strings.EqualFold(path.Ext(name), ".md") || strings.EqualFold(path.Ext(name), ".markdown") {
 		kind = "markdown"
 		output, err = render.Markdown(name, content)
 		if err != nil {

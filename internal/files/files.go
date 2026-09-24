@@ -150,7 +150,7 @@ func (s *Store) Read(name string, max int64) ([]byte, error) {
 
 func readBounded(reader io.Reader, observedSize, max int64) ([]byte, error) {
 	if observedSize > max {
-		return nil, fmt.Errorf("%w: %d MiB", ErrTooLarge, max>>20)
+		return nil, fmt.Errorf("%w: %d MiB limit (actual %.1f MiB)", ErrTooLarge, max>>20, float64(observedSize)/(1<<20))
 	}
 	b, err := io.ReadAll(io.LimitReader(reader, max+1))
 	if err != nil {

@@ -8,8 +8,10 @@ import (
 	"path"
 	"strings"
 
+	"github.com/alecthomas/chroma/v2"
+	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/lexers"
-	"github.com/alecthomas/chroma/v2/quick"
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -22,13 +24,26 @@ import (
 func Code(filename, content string) string {
 	lexer := lexers.Match(filename)
 	if lexer == nil {
-		return "<pre><code>" + html.EscapeString(content) + "</code></pre>"
+		lexer = lexers.Fallback
 	}
-	var b bytes.Buffer
-	if err := quick.Highlight(&b, content, lexer.Config().Name, "html", "github"); err != nil {
-		return "<pre><code>" + html.EscapeString(content) + "</code></pre>"
+	return highlight(content, lexer, true)
+}
+
+func highlight(content string, lexer chroma.Lexer, lineNumbers bool) string {
+	fallback := "<pre><code>" + html.EscapeString(content) + "</code></pre>"
+	if lexer == nil {
+		return fallback
 	}
-	return b.String()
+	iterator, err := lexer.Tokenise(nil, content)
+	if err != nil {
+		return fallback
+	}
+	formatter := chromahtml.New(chromahtml.WithClasses(true), chromahtml.WithLineNumbers(lineNumbers), chromahtml.LineNumbersInTable(lineNumbers), chromahtml.WithLinkableLineNumbers(lineNumbers, "L"))
+	var out bytes.Buffer
+	if err := formatter.Format(&out, styles.Get("github"), iterator); err != nil {
+		return fallback
+	}
+	return out.String()
 }
 
 type codeRenderer struct{}
@@ -58,13 +73,9 @@ func renderFence(w util.BufWriter, source []byte, n ast.Node, entering bool) (as
 		if lexer == nil {
 			output = "<pre><code>" + html.EscapeString(b.String()) + "</code></pre>"
 		} else {
-			var buf bytes.Buffer
-			if err := quick.Highlight(&buf, b.String(), lexer.Config().Name, "html", "github"); err == nil {
-				output = buf.String()
-			} else {
-				output = "<pre><code>" + html.EscapeString(b.String()) + "</code></pre>"
-			}
+			output = highlight(b.String(), lexer, false)
 		}
+		output = `<div data-language="` + html.EscapeString(lang) + `">` + output + `</div>`
 	}
 	_, err := w.WriteString(output)
 	return ast.WalkContinue, err
