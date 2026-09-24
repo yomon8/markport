@@ -1,12 +1,62 @@
 package files
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestListIsShallowPagedAndFocused(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "nested"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "nested", "inside.md"), []byte("inside"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 405 {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("item%03d.md", i)), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	first, err := s.List(context.Background(), "", 0, "")
+	if err != nil || len(first.Entries) != PageSize || first.NextOffset == nil || *first.NextOffset != PageSize {
+		t.Fatalf("first page: %+v %v", first, err)
+	}
+	if first.Entries[0].Path != "nested" || len(first.Entries[0].Children) != 0 {
+		t.Fatalf("not shallow: %+v", first.Entries[0])
+	}
+	focused, err := s.List(context.Background(), "", 0, "item404.md")
+	if err != nil || focused.Offset != 400 || len(focused.Entries) != 6 || focused.Entries[5].Name != "item404.md" {
+		t.Fatalf("focused page: %+v %v", focused, err)
+	}
+	if _, err := s.List(context.Background(), "", 1, ""); !errors.Is(err, ErrPath) {
+		t.Fatalf("unaligned offset: %v", err)
+	}
+	if _, err := s.List(context.Background(), "", 0, "../outside"); !errors.Is(err, ErrPath) {
+		t.Fatalf("invalid focus: %v", err)
+	}
+	nested, err := s.List(context.Background(), "nested", 0, "")
+	if err != nil || len(nested.Entries) != 1 || nested.Entries[0].Path != "nested/inside.md" {
+		t.Fatalf("nested page: %+v %v", nested, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new.md"), []byte("new"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := s.List(context.Background(), "", 0, "")
+	if err != nil || changed.Revision == first.Revision {
+		t.Fatalf("revision did not change: %v", err)
+	}
+}
 
 func TestReadAndTree(t *testing.T) {
 	dir := t.TempDir()

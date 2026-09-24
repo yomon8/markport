@@ -100,12 +100,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	watcher, err := files.NewWatcher(store, app.Publish)
-	if err != nil {
-		listener.Close()
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
 	base, cancel := context.WithCancel(context.Background())
 	httpServer := &http.Server{Handler: app, BaseContext: func(net.Listener) context.Context { return base }}
 	serveDone := make(chan error, 1)
@@ -120,7 +114,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		if !errors.Is(err, http.ErrServerClosed) {
 			fmt.Fprintln(stderr, err)
 			cancel()
-			watcher.Close()
 			app.Close()
 			return 1
 		}
@@ -132,7 +125,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		_ = httpServer.Close()
 	}
-	_ = watcher.Close()
 	app.Close()
 	return 0
 }

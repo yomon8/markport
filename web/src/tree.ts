@@ -1,4 +1,6 @@
-export type Node = { name: string; path: string; type: 'directory' | 'file'; children?: Node[] };
+export type Node = { name: string; path: string; type: 'directory' | 'file' };
+export type Page = { entries: Node[]; offset: number; nextOffset: number | null; revision: string; root: string; readme?: string };
+type Directory = { pages: Map<number, Node[]>; next: Map<number, number | null>; revision: string };
 
 const icons = {
   directory: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4h5l1.4 1.5h6.6v7.8H1.5z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
@@ -16,10 +18,6 @@ const nameCollator = new Intl.Collator('ja', { numeric: true, sensitivity: 'base
 function compareNames(a: string, b: string): number {
   const natural = nameCollator.compare(a, b);
   return natural || (a < b ? -1 : a > b ? 1 : 0);
-}
-function compareNodes(a: Node, b: Node): number {
-  if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
-  return compareNames(a.name, b.name);
 }
 function icon(name: string, directory = false): string {
   if (directory) return icons.directory;
@@ -53,7 +51,6 @@ function highlighted(label: string, query: string): DocumentFragment {
   fragment.append(document.createTextNode(label.slice(index)));
   return fragment;
 }
-function files(items: Node[]): Node[] { return items.flatMap((node) => node.type === 'file' ? [node] : files(node.children ?? [])); }
 function fileLink(node: Node, selected: string, query = ''): HTMLAnchorElement {
   const link = document.createElement('a');
   link.href = `/?path=${encodeURIComponent(node.path)}`;
@@ -64,32 +61,22 @@ function fileLink(node: Node, selected: string, query = ''): HTMLAnchorElement {
   if (node.path === selected) link.setAttribute('aria-current', 'page');
   return link;
 }
-function appendNodes(parent: HTMLElement, items: Node[], selected: string): void {
-  const list = document.createElement('ul');
-  for (const node of [...items].sort(compareNodes)) {
-    const item = document.createElement('li');
-    if (node.type === 'directory') {
-      const details = document.createElement('details'); details.dataset.path = node.path;
-      details.open = selected.startsWith(`${node.path}/`) || opened.has(node.path);
-      const summary = document.createElement('summary'); summary.title = node.path;
-      summary.innerHTML = `<span class="chevron" aria-hidden="true">›</span>${icon(node.name, true)}`;
-      const label = document.createElement('span'); label.className = 'node-label'; label.textContent = node.name; summary.append(label);
-      details.append(summary); appendNodes(details, node.children ?? [], selected); item.append(details);
-    } else item.append(fileLink(node, selected));
-    list.append(item);
-  }
-  parent.append(list);
-}
 export class TreeView {
-  nodes: Node[] = [];
-  constructor(private tree: HTMLElement, private search: HTMLInputElement, private count: HTMLElement, private selected: () => string) {
+  private directories = new Map<string, Directory>();
+  private readme = '';
+  private loading = new Set<string>();
+  constructor(private tree: HTMLElement, private search: HTMLInputElement, private count: HTMLElement, private selected: () => string,
+    private onOpen: (path: string) => void, private onPage: (path: string, offset: number) => void) {
     tree.addEventListener('click', (event) => {
+      const more = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-dir][data-offset]');
+      if (more) { this.onPage(more.dataset.dir!, Number(more.dataset.offset)); return; }
       const summary = (event.target as HTMLElement).closest('summary');
       if (!summary) return;
       const details = summary.parentElement as HTMLDetailsElement;
       const path = details.dataset.path!;
       if (details.open && this.selected().startsWith(`${path}/`)) { event.preventDefault(); return; }
-      if (details.open) opened.delete(path); else opened.add(path);
+      if (details.open) { opened.delete(path); this.forget(path); }
+      else { opened.add(path); this.onOpen(path); }
       try { localStorage.setItem(storageKey, JSON.stringify([...opened])); } catch { /* Storage may be unavailable. */ }
     }, true);
     search.addEventListener('input', () => this.render());
@@ -114,27 +101,103 @@ export class TreeView {
       event.preventDefault(); links[Math.max(0, Math.min(links.length - 1, next))]?.focus();
     });
   }
+  has(path: string): boolean { return this.directories.has(path); }
+  forget(path: string): void {
+    for (const key of this.directories.keys()) if (key === path || key.startsWith(`${path}/`)) this.directories.delete(key);
+    for (const key of opened) if (key === path || key.startsWith(`${path}/`)) opened.delete(key);
+    try { localStorage.setItem(storageKey, JSON.stringify([...opened])); } catch { /* Storage may be unavailable. */ }
+    this.render();
+  }
+  unloadedOpenPaths(): string[] {
+    return [...this.tree.querySelectorAll<HTMLDetailsElement>('details[open][data-path]')].map((element) => element.dataset.path!).filter((path) => !this.has(path) && !this.loading.has(path));
+  }
+  hasChild(dir: string, name: string): boolean { return this.nodes(dir).some((node) => node.name === name); }
+  revision(path: string): string | undefined { return this.directories.get(path)?.revision; }
+  offsets(path: string): number[] { return [...(this.directories.get(path)?.pages.keys() ?? [])].sort((a, b) => a - b); }
+  nodes(path: string): Node[] {
+    const directory = this.directories.get(path);
+    return directory ? this.offsets(path).flatMap((offset) => directory.pages.get(offset) ?? []) : [];
+  }
+  setLoading(path: string, value: boolean): void {
+    if (this.loading.has(path) === value) return;
+    if (value) this.loading.add(path); else this.loading.delete(path);
+    this.render();
+  }
+  setPage(path: string, page: Page): boolean {
+    const previous = this.directories.get(path);
+    const changed = previous?.revision !== page.revision;
+    if (previous && !changed && previous.pages.has(page.offset)) return false;
+    if (previous && changed) for (const key of this.directories.keys()) if (key.startsWith(`${path}/`)) this.directories.delete(key);
+    const directory: Directory = !previous || changed ? { pages: new Map(), next: new Map(), revision: page.revision } : previous;
+    directory.pages.set(page.offset, page.entries);
+    directory.next.set(page.offset, page.nextOffset);
+    this.directories.set(path, directory);
+    if (path === '') this.readme = page.readme ?? '';
+    this.render();
+    return changed;
+  }
+  expandedPaths(): string[] {
+    const selected = this.selected();
+    return [...this.directories.keys()].filter((path) => path === '' || selected.startsWith(`${path}/`) || opened.has(path));
+  }
+  pruneInactive(): void {
+    const active = new Set(this.expandedPaths());
+    for (const key of this.directories.keys()) if (!active.has(key)) this.directories.delete(key);
+    this.render();
+  }
+  firstReadme(): string | undefined { return this.readme || undefined; }
+  private allFiles(): Node[] { return [...this.directories.keys()].flatMap((path) => this.nodes(path)).filter((node) => node.type === 'file'); }
+  fileCount(): number { return this.allFiles().length; }
+  private appendNodes(parent: HTMLElement, path: string): void {
+    const list = document.createElement('ul');
+    const directory = this.directories.get(path);
+    if (!directory) {
+      if (this.loading.has(path)) { const item = document.createElement('li'); item.className = 'hint'; item.textContent = '読み込み中…'; list.append(item); }
+      parent.append(list); return;
+    }
+    for (const offset of this.offsets(path)) {
+      if (offset > 0 && !directory.pages.has(offset - 200)) this.appendPageButton(list, path, offset - 200, '前の項目を読み込む');
+      for (const node of directory.pages.get(offset) ?? []) {
+        const item = document.createElement('li');
+        if (node.type === 'directory') {
+          const details = document.createElement('details'); details.dataset.path = node.path;
+          details.open = this.selected().startsWith(`${node.path}/`) || opened.has(node.path);
+          const summary = document.createElement('summary'); summary.title = node.path;
+          summary.innerHTML = `<span class="chevron" aria-hidden="true">›</span>${icon(node.name, true)}`;
+          const label = document.createElement('span'); label.className = 'node-label'; label.textContent = node.name; summary.append(label);
+          details.append(summary);
+          if (details.open) this.appendNodes(details, node.path);
+          item.append(details);
+        } else item.append(fileLink(node, this.selected()));
+        list.append(item);
+      }
+      const next = directory.next.get(offset);
+      if (next !== null && next !== undefined && !directory.pages.has(next)) this.appendPageButton(list, path, next, '次の項目を読み込む');
+    }
+    parent.append(list);
+  }
+  private appendPageButton(list: HTMLUListElement, path: string, offset: number, label: string): void {
+    const item = document.createElement('li'); const button = document.createElement('button');
+    button.type = 'button'; button.textContent = label; button.dataset.dir = path; button.dataset.offset = String(offset);
+    item.append(button); list.append(item);
+  }
   render(): void {
     const query = this.search.value.trim().toLocaleLowerCase();
     this.tree.replaceChildren();
     if (query) {
-      const matches = files(this.nodes).map((node) => ({ node, rank: score(node.path, query) })).filter((item) => item.rank >= 0).sort((a, b) => b.rank - a.rank || compareNames(a.node.path, b.node.path));
-      this.count.textContent = `${matches.length}件`;
-      if (!matches.length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = '一致するファイルはありません。'; this.tree.append(empty); }
+      const matches = this.allFiles().map((node) => ({ node, rank: score(node.path, query) })).filter((item) => item.rank >= 0).sort((a, b) => b.rank - a.rank || compareNames(a.node.path, b.node.path));
+      this.count.textContent = `${matches.length}件（読み込み済みから検索）`;
+      if (!matches.length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = '読み込み済みのファイルに一致するものはありません。'; this.tree.append(empty); }
       else { const list = document.createElement('ul'); list.className = 'search-results'; for (const { node } of matches) { const item = document.createElement('li'); item.append(fileLink(node, this.selected(), query)); list.append(item); } this.tree.append(list); }
     } else {
-      this.count.textContent = `${files(this.nodes).length}ファイル`;
-      if (!this.nodes.length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = '表示できるファイルがありません（.git・node_modules・.venvは除外）。'; this.tree.append(empty); }
-      else appendNodes(this.tree, this.nodes, this.selected());
+      this.count.textContent = `${this.fileCount()}ファイル読み込み済み`;
+      if (this.has('') && !this.nodes('').length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = '表示できるファイルがありません（.git・node_modules・.venvは除外）。'; this.tree.append(empty); }
+      else this.appendNodes(this.tree, '');
     }
   }
   reveal(path: string): void {
     if (this.search.value) { this.search.value = ''; this.render(); }
-    for (const details of this.tree.querySelectorAll<HTMLDetailsElement>('details[data-path]')) if (path.startsWith(`${details.dataset.path}/`) || path === details.dataset.path) details.open = true;
-    const target = [...this.tree.querySelectorAll<HTMLAnchorElement>('a')].find((link) => new URL(link.href).searchParams.get('path') === path)
-      ?? [...this.tree.querySelectorAll<HTMLDetailsElement>('details[data-path]')].find((details) => details.dataset.path === path)?.querySelector('summary');
+    const target = [...this.tree.querySelectorAll<HTMLAnchorElement>('a')].find((link) => new URL(link.href).searchParams.get('path') === path);
     target?.scrollIntoView?.({ block: 'nearest' });
   }
-  firstReadme(): string | undefined { return this.nodes.find((node) => node.type === 'file' && /^readme\.md$/i.test(node.name))?.path; }
-  fileCount(): number { return files(this.nodes).length; }
 }

@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -90,6 +91,57 @@ func TestHostAndAPI(t *testing.T) {
 func TestDefaultHTTPPortHost(t *testing.T) {
 	if !validHost("localhost", 80) || !validHost("LOCALHOST:80", 80) || validHost("localhost", 3000) {
 		t.Fatal("port 80 host rules")
+	}
+}
+func TestPagedTreeAndFileValidator(t *testing.T) {
+	app, dir := newTestServer(t)
+	if err := os.Mkdir(filepath.Join(dir, "docs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docs", "page.md"), []byte("# Page"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	root := request(app, "localhost:3000", "/api/tree")
+	var rootPage files.Page
+	if err := json.Unmarshal(root.Body.Bytes(), &rootPage); err != nil {
+		t.Fatal(err)
+	}
+	if len(rootPage.Entries) != 3 || rootPage.Entries[0].Name != "docs" || rootPage.Readme != "readme.md" {
+		t.Fatalf("root listing: %+v", rootPage)
+	}
+	if root.Header().Get("ETag") == "" {
+		t.Fatal("tree response missing validator")
+	}
+	treeRequest := httptest.NewRequest("GET", "/api/tree", nil)
+	treeRequest.Host = "localhost:3000"
+	treeRequest.Header.Set("If-None-Match", root.Header().Get("ETag"))
+	treeResult := httptest.NewRecorder()
+	app.ServeHTTP(treeResult, treeRequest)
+	if treeResult.Code != http.StatusNotModified || treeResult.Body.Len() != 0 {
+		t.Fatalf("unchanged tree: %d %s", treeResult.Code, treeResult.Body.String())
+	}
+	child := request(app, "localhost:3000", "/api/tree?path=docs&focus=page.md")
+	var childPage files.Page
+	if err := json.Unmarshal(child.Body.Bytes(), &childPage); err != nil || len(childPage.Entries) != 1 || childPage.Entries[0].Path != "docs/page.md" {
+		t.Fatalf("child listing: %+v %v", childPage, err)
+	}
+	for _, target := range []string{"/api/tree?path=..", "/api/tree?offset=1", "/api/tree?focus=.."} {
+		if got := request(app, "localhost:3000", target).Code; got != 400 {
+			t.Errorf("%s: %d", target, got)
+		}
+	}
+	first := request(app, "localhost:3000", "/api/file?path=readme.md")
+	tag := first.Header().Get("ETag")
+	if tag == "" {
+		t.Fatal("file response missing validator")
+	}
+	req := httptest.NewRequest("GET", "/api/file?path=readme.md", nil)
+	req.Host = "localhost:3000"
+	req.Header.Set("If-None-Match", tag)
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, req)
+	if w.Code != http.StatusNotModified || w.Body.Len() != 0 {
+		t.Fatalf("unchanged file: %d %s", w.Code, w.Body.String())
 	}
 }
 func TestImageFilePreview(t *testing.T) {

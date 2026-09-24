@@ -1,6 +1,6 @@
 import './style.css';
 import { drawMermaid } from './mermaid';
-import { TreeView, type Node } from './tree';
+import { TreeView, type Page } from './tree';
 import { effectiveTheme, initTheme } from './theme';
 import logoLight from '../../logo/markport-logo-horizontal-light.svg';
 import logoDark from '../../logo/markport-logo-horizontal-dark.svg';
@@ -36,9 +36,14 @@ const outline = document.querySelector<HTMLElement>('#outline')!;
 const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
 const drawerToggle = document.querySelector<HTMLButtonElement>('#drawer-toggle')!;
 const sidebarToggle = document.querySelector<HTMLButtonElement>('#sidebar-toggle')!;
-const view = new TreeView(tree, search, count, selected);
+const view = new TreeView(tree, search, count, selected,
+  (path) => { const current = revision; void loadPage(path, 0, '', false, current).then(() => loadOpenDirectories(current)).catch(() => status('更新できません。再試行してください。', 'error')); },
+  (path, offset) => { const current = revision; void loadPage(path, offset, '', false, current).catch(() => status('更新できません。再試行してください。', 'error')); });
 let revision = 0; let pending = false; let running = false;
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = false;
+let displayedTag = '';
+let displayedTagCheckedAt = 0;
+const pageTags = new Map<string, { value: string; checkedAt: number }>();
 let rootName = ''; let outlineObserver: IntersectionObserver | undefined;
 let loadingTimer: ReturnType<typeof setTimeout> | undefined;
 let updatedTimer: ReturnType<typeof setTimeout> | undefined;
@@ -53,16 +58,110 @@ function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
   connection.querySelector<HTMLElement>('.connection-label')!.textContent = message; connection.dataset.state = state; connection.title = message;
   banner.hidden = state === 'ok'; banner.replaceChildren();
   if (state !== 'ok') {
-    banner.append(document.createTextNode(state === 'error' ? '監視エラーが発生しました。自動更新が不完全です。' : '接続が切れています。再接続すると最新の状態を反映します。'));
-    if (state === 'error') { const button = document.createElement('button'); button.textContent = '手動で最新を取得'; button.addEventListener('click', requestRefresh); banner.append(button); }
+    banner.append(document.createTextNode(state === 'error' ? '更新できません。接続とファイルの状態を確認してください。' : '接続を確認しています。'));
+    if (state === 'error') { const button = document.createElement('button'); button.textContent = '手動で最新を取得'; button.addEventListener('click', manualRefresh); banner.append(button); }
   }
 }
-async function getJSON<T>(url: string): Promise<T> {
+async function getPage(path: string, offset: number, focus: string, conditional: boolean, expectedRevision?: number): Promise<Page | null> {
+  const tag = pageTags.get(path);
+  const headers: Record<string, string> = {};
+  if (conditional && !focus && offset === 0 && view.has(path) && tag && Date.now() - tag.checkedAt < 60000) headers['If-None-Match'] = tag.value;
   let response: Response;
-  try { response = await fetch(url); } catch { throw new RequestError('network', '接続できません'); }
-  const body = await response.json() as T & ApiError;
+  try { response = await fetch(pageURL(path, offset, focus), { cache: 'no-store', headers }); }
+  catch { throw new RequestError('network', '接続できません'); }
+  if (response.status === 304) return null;
+  const body = await response.json() as Page & ApiError;
   if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
+  const value = response.headers?.get('ETag');
+  if (value && (expectedRevision === undefined || expectedRevision === revision)) pageTags.set(path, { value, checkedAt: Date.now() });
   return body;
+}
+async function getFile(path: string, source: boolean, expectedRevision: number): Promise<FileReply | null> {
+  const headers: Record<string, string> = {};
+  if (path === displayedPath && source === displayedSource && displayedHTML && displayedTag && Date.now() - displayedTagCheckedAt < 60000) headers['If-None-Match'] = displayedTag;
+  let response: Response;
+  try { response = await fetch(`/api/file?path=${encodeURIComponent(path)}${source ? '&source=1' : ''}`, { cache: 'no-store', headers }); }
+  catch { throw new RequestError('network', '接続できません'); }
+  if (response.status === 304) return null;
+  const body = await response.json() as FileReply & ApiError;
+  if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
+  if (expectedRevision === revision) {
+    displayedTag = response.headers?.get('ETag') ?? '';
+    displayedTagCheckedAt = Date.now();
+  }
+  return body;
+}
+function pageURL(path: string, offset = 0, focus = ''): string {
+  const query = new URLSearchParams();
+  if (path) query.set('path', path);
+  if (offset) query.set('offset', String(offset));
+  if (focus) query.set('focus', focus);
+  return `/api/tree${query.size ? `?${query}` : ''}`;
+}
+async function loadPage(path: string, offset = 0, focus = '', conditional = false, expectedRevision?: number): Promise<Page | null> {
+  if (!view.has(path)) view.setLoading(path, true);
+  try {
+    const page = await getPage(path, offset, focus, conditional, expectedRevision);
+    if (expectedRevision !== undefined && expectedRevision !== revision) return null;
+    if (!page) return null;
+    view.setPage(path, page);
+    if (path === '') { rootName = page.root || rootName; document.querySelector('#root-name')!.textContent = rootName; }
+    return page;
+  } finally { view.setLoading(path, false); }
+}
+async function ensureSelectedPath(path: string, expectedRevision: number): Promise<void> {
+  if (!path) return;
+  const parts = path.split('/');
+  let parent = '';
+  for (const part of parts) {
+    if (expectedRevision !== revision) return;
+    if (!view.hasChild(parent, part)) await loadPage(parent, 0, part, false, expectedRevision);
+    parent = parent ? `${parent}/${part}` : part;
+  }
+}
+async function loadOpenDirectories(expectedRevision: number): Promise<void> {
+  for (;;) {
+    if (expectedRevision !== revision) return;
+    const next = view.unloadedOpenPaths()[0];
+    if (!next) return;
+    try { await loadPage(next, 0, '', false, expectedRevision); }
+    catch (error) {
+      if (!(error instanceof RequestError && error.code === 'not_found')) throw error;
+      view.forget(next);
+    }
+  }
+}
+async function refreshDirectory(path: string, expectedRevision: number): Promise<void> {
+  const before = view.revision(path);
+  const offsets = view.offsets(path);
+  const first = await loadPage(path, 0, '', true, expectedRevision);
+  if (first && before && before !== first.revision) {
+    for (const offset of offsets) {
+      if (offset === 0) continue;
+      const page = await loadPage(path, offset, '', false, expectedRevision);
+      if (page?.revision !== first.revision) break;
+    }
+  }
+}
+async function refreshDirectories(path: string, expectedRevision: number): Promise<void> {
+  const activeBefore = view.expandedPaths();
+  await refreshDirectory('', expectedRevision);
+  if (expectedRevision !== revision) return;
+  try { await ensureSelectedPath(path, expectedRevision); }
+  catch (error) { if (!(error instanceof RequestError && error.code === 'not_found')) throw error; }
+  for (const dir of activeBefore) if (dir && view.has(dir)) {
+    if (expectedRevision !== revision) return;
+    try { await refreshDirectory(dir, expectedRevision); }
+    catch (error) {
+      if (!(error instanceof RequestError && error.code === 'not_found')) throw error;
+      view.forget(dir);
+    }
+  }
+  if (expectedRevision !== revision) return;
+  try { await ensureSelectedPath(path, expectedRevision); }
+  catch (error) { if (!(error instanceof RequestError && error.code === 'not_found')) throw error; }
+  for (const key of pageTags.keys()) if (!view.has(key)) pageTags.delete(key);
+  void loadOpenDirectories(expectedRevision).catch(() => status('更新できません。再試行してください。', 'error'));
 }
 function showTitle(path: string, kind = '', missing = false): void {
   title.replaceChildren();
@@ -92,7 +191,7 @@ function showTitle(path: string, kind = '', missing = false): void {
 function showEmpty(): void {
   content.replaceChildren(); const box = document.createElement('div'); box.className = 'empty-state';
   const heading = document.createElement('h2'); heading.textContent = 'ファイルを選択してください';
-  const detail = document.createElement('p'); detail.textContent = `${rootName || '閲覧ルート'}に${view.fileCount()}ファイルあります。/ キーで検索できます。`;
+  const detail = document.createElement('p'); detail.textContent = `${rootName || '閲覧ルート'}で${view.fileCount()}ファイルを読み込み済みです。フォルダを開くと続きが表示されます。/ キーで検索できます。`;
   box.append(heading, detail); content.append(box); outline.hidden = true;
 }
 function showError(error: unknown, path: string): void {
@@ -112,7 +211,7 @@ function showError(error: unknown, path: string): void {
   const h = document.createElement('h2'); h.textContent = heading; const p = document.createElement('p');
   const size = code === 'too_large' && error instanceof RequestError ? error.message.match(/(\d+ MiB) limit \(actual (\d+(?:\.\d+)? MiB)\)/) : undefined;
   p.textContent = size ? `${size[1]}を超えるため表示できません（${size[2]}）。` : description;
-  const button = document.createElement('button'); button.type = 'button'; button.textContent = code === 'not_found' ? 'ルートへ戻る' : '再試行'; button.addEventListener('click', () => code === 'not_found' ? navigate('/') : requestRefresh());
+  const button = document.createElement('button'); button.type = 'button'; button.textContent = code === 'not_found' ? 'ルートへ戻る' : '再試行'; button.addEventListener('click', () => code === 'not_found' ? navigate('/') : manualRefresh());
   box.append(icon, h, p, button); content.append(box); showTitle(path, '', code === 'not_found'); outline.hidden = true;
 }
 function decorateContent(): void {
@@ -176,26 +275,28 @@ function updateOutline(): void {
 function beginLoading(): void { content.setAttribute('aria-busy', 'true'); reload.disabled = true; clearTimeout(loadingTimer); loadingTimer = setTimeout(() => { progress.hidden = false; }, 200); }
 function endLoading(): void { clearTimeout(loadingTimer); progress.hidden = true; reload.disabled = false; content.setAttribute('aria-busy', 'false'); }
 function requestRefresh(): void { revision++; pending = true; if (!running) void refreshLoop(); }
+function manualRefresh(): void { displayedTag = ''; pageTags.clear(); requestRefresh(); }
 async function refreshLoop(): Promise<void> {
   running = true;
   try {
     while (pending) {
       pending = false; const current = revision; const path = selected(); const source = sourceMode;
+      if (path !== displayedPath) displayedTag = '';
       beginLoading();
-      const treePromise = getJSON<{ entries: Node[]; root?: string }>('/api/tree');
-      const filePromise = path ? getJSON<FileReply>(`/api/file?path=${encodeURIComponent(path)}${source ? '&source=1' : ''}`).then((value) => ({ value }), (error: unknown) => ({ error })) : Promise.resolve(null);
+      const treePromise = refreshDirectories(path, current);
+      const filePromise = path ? getFile(path, source, current).then((value) => ({ value }), (error: unknown) => ({ error })) : Promise.resolve(null);
       try {
-        const [treeReply, fileReply] = await Promise.all([treePromise, filePromise]);
+        const [, fileReply] = await Promise.all([treePromise, filePromise]);
         if (current !== revision || path !== selected()) { pending = true; continue; }
-        view.nodes = treeReply.entries; rootName = treeReply.root ?? rootName; document.querySelector('#root-name')!.textContent = rootName; view.render();
         if (!path && view.firstReadme()) { history.replaceState({ scroll: 0 }, '', fileURL(view.firstReadme()!)); pending = true; revision++; continue; }
         const pathChanged = path !== displayedPath;
-        if (pathChanged) { main.scrollTop = history.state?.scroll ?? 0; displayedHTML = ''; }
+        if (pathChanged) { main.scrollTop = history.state?.scroll ?? 0; displayedHTML = ''; view.pruneInactive(); }
         displayedPath = path;
         if (!path) { showTitle(''); showEmpty(); continue; }
-        if (fileReply && 'error' in fileReply) { showError(fileReply.error, path); displayedHTML = ''; continue; }
+        if (fileReply && 'error' in fileReply) { showError(fileReply.error, path); displayedHTML = ''; displayedTag = ''; continue; }
         if (fileReply && 'value' in fileReply) {
           const file = fileReply.value;
+          if (!file) { status('数秒おきに確認中', 'ok'); continue; }
           const displayKey = file.type === 'image' ? file.assetUrl : file.html;
           const changed = displayedHTML !== displayKey || displayedSource !== source;
           if (changed) {
@@ -219,9 +320,10 @@ async function refreshLoop(): Promise<void> {
           view.reveal(path);
           if (pathChanged) title.focus({ preventScroll: true });
         }
+        status('数秒おきに確認中', 'ok');
       } catch (error) {
         if (current !== revision) { pending = true; continue; }
-        showError(error, path);
+        showError(error, path); status('更新できません。再試行してください。', 'error');
       } finally { endLoading(); }
     }
   } finally { running = false; if (pending) void refreshLoop(); }
@@ -260,7 +362,7 @@ window.addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') { event.preventDefault(); sidebarToggle.click(); }
   if (event.key === 'Escape') { sidebar.classList.remove('open'); outline.classList.remove('open'); document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; }
 });
-reload.addEventListener('click', requestRefresh);
+reload.addEventListener('click', manualRefresh);
 drawerToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
 sidebarToggle.addEventListener('click', () => { const collapsed = sidebar.classList.toggle('collapsed'); sidebarToggle.setAttribute('aria-expanded', String(!collapsed)); sidebarToggle.setAttribute('aria-label', collapsed ? 'サイドバーを開く' : 'サイドバーを折りたたむ'); });
 const resize = document.querySelector<HTMLElement>('#sidebar-resize')!;
@@ -269,10 +371,8 @@ resize.addEventListener('pointermove', (event) => { if (!resize.hasPointerCaptur
 resize.addEventListener('keydown', (event) => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; const width = Math.max(200, Math.min(480, Number(localStorage.getItem('markport-sidebar-width') ?? 280) + (event.key === 'ArrowRight' ? 10 : -10))); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
 initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => { updateBrand(); if (content.querySelector('[data-mermaid]')) { displayedHTML = ''; requestRefresh(); } });
 updateBrand();
-const events = new EventSource('/api/events');
-events.addEventListener('ready', () => { status('自動更新中', 'ok'); requestRefresh(); });
-events.addEventListener('refresh', requestRefresh);
-for (const name of ['created', 'changed', 'deleted']) events.addEventListener(name, requestRefresh);
-events.addEventListener('watch-error', () => { status('監視エラー。再読み込みしてください。', 'error'); requestRefresh(); });
-events.addEventListener('watch-ok', () => status('自動更新中', 'ok'));
-events.onerror = () => status('接続が切れました。再接続中…', 'connecting');
+status('数秒おきに確認中', 'ok');
+requestRefresh();
+const pollTimer = setInterval(() => { if (!document.hidden) requestRefresh(); }, 3000);
+window.addEventListener('pagehide', () => clearInterval(pollTimer));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) requestRefresh(); });

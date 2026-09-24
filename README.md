@@ -23,19 +23,19 @@ To verify a download, place `checksums_<version>.txt` from the release alongside
 
 With no arguments, Markport serves the current directory on port 3000. Open the `http://127.0.0.1:<port>/` URL printed at startup. Press `Ctrl+C` to stop the server. It listens only on the local machine at `127.0.0.1`.
 
-Markport excludes `.git`, `node_modules`, and `.venv` from browsing and file watching. Other dotfiles remain visible. It does not read symbolic links, Windows junctions, or special files such as FIFOs. Text files are limited to 10 MiB, and image files to 32 MiB. Binary or unreadable files show an error for that file only. If automatic updates stop, use the refresh button in the browser.
+Markport excludes `.git`, `node_modules`, and `.venv` from browsing. Other dotfiles remain visible. It does not read symbolic links, Windows junctions, or special files such as FIFOs. Text files are limited to 10 MiB, and image files to 32 MiB. Binary or unreadable files show an error for that file only. Folders load when opened, 200 entries at a time; filename search covers loaded entries. The browser checks the open folders and selected file about every three seconds. Closed folders refresh when opened. Use the refresh button to fetch the latest state immediately.
 
 ## Development
 
 ### Architecture
 
-The Go executable serves the embedded browser UI and read-only API on `127.0.0.1`. It renders content and watches the selected directory for changes.
+The Go executable serves the embedded browser UI and read-only API on `127.0.0.1`. It renders files on demand and lists one folder at a time.
 
 ```mermaid
 flowchart LR
     user["User"] -->|"Opens local URL"| browser["Browser UI"]
-    browser <-->|"HTTP / SSE"| server["Markport (Go)"]
-    server -->|"Read and watch"| directory["Selected directory"]
+    browser <-->|"HTTP polling"| server["Markport (Go)"]
+    server -->|"Read selected files and folders"| directory["Selected directory"]
 ```
 
 Development requires Go 1.27, Node.js 24, npm, and Make. The devcontainer forwards ports 3000 and 5173.

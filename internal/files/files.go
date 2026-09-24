@@ -1,19 +1,23 @@
 package files
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
 
 const MaxTextSize = 10 << 20
+const PageSize = 200
 
 var (
 	ErrPath     = errors.New("invalid path")
@@ -27,6 +31,15 @@ type Node struct {
 	Path     string `json:"path"`
 	Type     string `json:"type"`
 	Children []Node `json:"children,omitempty"`
+}
+
+type Page struct {
+	Entries    []Node `json:"entries"`
+	Offset     int    `json:"offset"`
+	NextOffset *int   `json:"nextOffset"`
+	Revision   string `json:"revision"`
+	Root       string `json:"root,omitempty"`
+	Readme     string `json:"readme,omitempty"`
 }
 
 type Store struct {
@@ -176,6 +189,132 @@ func (s *Store) ReadText(name string) (string, error) {
 		}
 	}
 	return string(b), nil
+}
+
+func (s *Store) DirectoryVersion(dir string) (os.FileInfo, error) {
+	f, err := s.OpenDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return f.Stat()
+}
+
+// List reads only one directory. Content access still uses Open, which rejects
+// links and reparse points even if a listed entry is replaced afterward.
+func (s *Store) List(ctx context.Context, dir string, offset int, focus string) (Page, error) {
+	if offset < 0 || offset%PageSize != 0 {
+		return Page{}, ErrPath
+	}
+	if focus != "" {
+		parts, err := Parts(focus)
+		if err != nil || len(parts) != 1 {
+			return Page{}, ErrPath
+		}
+	}
+	f, err := s.OpenDir(dir)
+	if err != nil {
+		return Page{}, err
+	}
+	defer f.Close()
+	entries, err := f.ReadDir(-1)
+	if err != nil {
+		return Page{}, err
+	}
+	nodes := make([]Node, 0, len(entries))
+	readme := ""
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return Page{}, err
+		}
+		name := entry.Name()
+		if Excluded(name) {
+			continue
+		}
+		rel := path.Join(dir, name)
+		info, err := s.root.Lstat(rel)
+		if err != nil || info.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+			continue
+		}
+		typeName := ""
+		if info.IsDir() {
+			typeName = "directory"
+		} else if info.Mode().IsRegular() {
+			typeName = "file"
+		}
+		if typeName == "" {
+			continue
+		}
+		nodes = append(nodes, Node{Name: name, Path: rel, Type: typeName})
+		if dir == "" && typeName == "file" && strings.EqualFold(name, "readme.md") {
+			readme = rel
+		}
+	}
+	sort.Slice(nodes, func(i, j int) bool {
+		a, b := nodes[i], nodes[j]
+		if a.Type != b.Type {
+			return a.Type == "directory"
+		}
+		return naturalLess(a.Name, b.Name)
+	})
+	if focus != "" {
+		found := -1
+		for i, node := range nodes {
+			if node.Name == focus {
+				found = i
+				break
+			}
+		}
+		if found < 0 {
+			return Page{}, fs.ErrNotExist
+		}
+		offset = found / PageSize * PageSize
+	}
+	h := fnv.New64a()
+	for _, node := range nodes {
+		_, _ = io.WriteString(h, node.Type+"\x00"+node.Name+"\x00")
+	}
+	page := Page{Entries: []Node{}, Offset: offset, Revision: fmt.Sprintf("%016x", h.Sum64()), Root: filepath.Base(s.Path), Readme: readme}
+	if offset < len(nodes) {
+		end := min(offset+PageSize, len(nodes))
+		page.Entries = nodes[offset:end]
+		if end < len(nodes) {
+			page.NextOffset = &end
+		}
+	}
+	return page, nil
+}
+
+func naturalLess(a, b string) bool {
+	left, right := strings.ToLower(a), strings.ToLower(b)
+	for i, j := 0, 0; i < len(left) && j < len(right); {
+		if left[i] >= '0' && left[i] <= '9' && right[j] >= '0' && right[j] <= '9' {
+			x, y := i, j
+			for i < len(left) && left[i] >= '0' && left[i] <= '9' {
+				i++
+			}
+			for j < len(right) && right[j] >= '0' && right[j] <= '9' {
+				j++
+			}
+			an, bn := strings.TrimLeft(left[x:i], "0"), strings.TrimLeft(right[y:j], "0")
+			if len(an) != len(bn) {
+				return len(an) < len(bn)
+			}
+			if an != bn {
+				return an < bn
+			}
+			continue
+		}
+		if left[i] != right[j] {
+			return left[i] < right[j]
+		}
+		i++
+		j++
+	}
+	if len(left) != len(right) {
+		return len(left) < len(right)
+	}
+	return a < b
 }
 
 func (s *Store) Tree() ([]Node, error) { return s.tree("") }

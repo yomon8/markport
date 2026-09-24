@@ -102,7 +102,7 @@ test('tracks imported descendants and an in-root directory move', async ({ page 
   await mkdir(join(source, 'folder', 'child'), { recursive: true });
   await writeFile(join(source, 'folder', 'child', 'nested.md'), '# Nested first\n');
   await page.goto(`http://127.0.0.1:${port}/`);
-  await expect(page.locator('#connection')).toHaveText('自動更新中');
+  await expect(page.locator('#connection')).toHaveText('数秒おきに確認中');
   await rename(join(source, 'folder'), join(directory, 'folder'));
   await expect(page.locator('details[data-path="folder"]')).toHaveCount(1);
   await page.locator('details[data-path="folder"] > summary').click();
@@ -128,13 +128,13 @@ test('tracks imported descendants and an in-root directory move', async ({ page 
   await rm(source, { recursive: true, force: true });
 });
 
-test('recovers changes after an SSE disconnect', async ({ page }) => {
+test('recovers changes after the server restarts', async ({ page }) => {
   await writeFile(join(directory, 'to-delete.md'), '# Delete me\n');
   await page.goto(`http://127.0.0.1:${port}/?path=sample.py`);
   await expect(page.locator('article .lntd:last-child pre')).toContainText('first');
   await expect(page.getByRole('link', { name: 'to-delete.md' })).toBeVisible();
   await stopServer();
-  await expect(page.locator('#connection')).toContainText('再接続中');
+  await expect(page.locator('#connection')).toContainText('更新できません');
   await writeFile(join(directory, 'sample.py'), 'print("offline update")\n');
   await writeFile(join(directory, 'offline.md'), '# Added offline\n');
   await unlink(join(directory, 'to-delete.md'));
@@ -199,7 +199,7 @@ test('opens README, switches source, searches by keyboard, and follows code line
   await page.keyboard.press('Control+k');
   await expect(page.locator('#search')).toBeFocused();
   await page.locator('#search').fill('smpy');
-  await expect(page.locator('#result-count')).toHaveText('1件');
+  await expect(page.locator('#result-count')).toContainText('1件（読み込み済みから検索）');
   await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('link', { name: 'sample.py' })).toBeFocused();
   await page.keyboard.press('Enter');
@@ -208,6 +208,19 @@ test('opens README, switches source, searches by keyboard, and follows code line
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.locator('.code-toolbar button').click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^print\(/);
+});
+
+test('opens a deep link beyond the first directory page', async ({ page }) => {
+  const paged = join(directory, 'paged');
+  await mkdir(paged);
+  await Promise.all(Array.from({ length: 205 }, (_, index) => writeFile(join(paged, `file${String(index).padStart(3, '0')}.md`), `# ${index}\n`)));
+  await page.goto(`http://127.0.0.1:${port}/?path=paged%2Ffile204.md`);
+  await expect(page.locator('article h1')).toHaveText('204');
+  await expect(page.locator('details[data-path="paged"] a')).toHaveCount(5);
+  await page.locator('details[data-path="paged"] button[data-offset="0"]').click();
+  await expect(page.locator('details[data-path="paged"] a')).toHaveCount(205);
+  await page.locator('#search').fill('file000');
+  await expect(page.getByRole('link', { name: 'paged/file000.md' })).toBeVisible();
 });
 
 test('shows an outline and keeps a long table header visible', async ({ page }) => {

@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -167,12 +166,53 @@ func queryPath(r *http.Request) (string, error) {
 	return values[0], nil
 }
 func (s *Server) tree(w http.ResponseWriter, r *http.Request) {
-	nodes, err := s.Files.Tree()
+	paths := r.URL.Query()["path"]
+	if len(paths) > 1 {
+		apiError(w, files.ErrPath)
+		return
+	}
+	dir := r.URL.Query().Get("path")
+	if dir != "" {
+		if _, err := files.Parts(dir); err != nil {
+			apiError(w, err)
+			return
+		}
+	}
+	offset := 0
+	if values, ok := r.URL.Query()["offset"]; ok {
+		if len(values) != 1 {
+			apiError(w, files.ErrPath)
+			return
+		}
+		var err error
+		offset, err = strconv.Atoi(values[0])
+		if err != nil {
+			apiError(w, files.ErrPath)
+			return
+		}
+	}
+	focus := r.URL.Query().Get("focus")
+	if len(r.URL.Query()["focus"]) > 1 {
+		apiError(w, files.ErrPath)
+		return
+	}
+	info, err := s.Files.DirectoryVersion(dir)
 	if err != nil {
 		apiError(w, err)
 		return
 	}
-	jsonReply(w, 200, map[string]any{"entries": nodes, "root": filepath.Base(s.Files.Path)})
+	version := fileVersion(info, false)
+	w.Header().Set("ETag", version)
+	if focus == "" && offset == 0 && r.Header.Get("If-None-Match") == version {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	page, err := s.Files.List(r.Context(), dir, offset, focus)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	jsonReply(w, 200, page)
 }
 func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 	name, err := queryPath(r)
@@ -200,8 +240,36 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 			apiError(w, fmt.Errorf("%w: 32 MiB limit (actual %.1f MiB)", files.ErrTooLarge, float64(info.Size())/(1<<20)))
 			return
 		}
+		version := fileVersion(info, false)
+		w.Header().Set("ETag", version)
+		if r.Header.Get("If-None-Match") == version {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
 		assetURL := "/api/asset?path=" + url.QueryEscape(name) + "&v=" + strconv.FormatInt(info.ModTime().UnixNano(), 10) + "-" + strconv.FormatInt(info.Size(), 10)
 		jsonReply(w, 200, map[string]string{"path": name, "type": "image", "assetUrl": assetURL})
+		return
+	}
+	f, err := s.Files.Open(name)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	info, err := f.Stat()
+	_ = f.Close()
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	if info.Size() > files.MaxTextSize {
+		apiError(w, fmt.Errorf("%w: 10 MiB limit (actual %.1f MiB)", files.ErrTooLarge, float64(info.Size())/(1<<20)))
+		return
+	}
+	source := r.URL.Query().Get("source") == "1"
+	version := fileVersion(info, source)
+	w.Header().Set("ETag", version)
+	if r.Header.Get("If-None-Match") == version {
+		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 	content, err := s.Files.ReadText(name)
@@ -210,7 +278,7 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	kind, output := "code", ""
-	if r.URL.Query().Get("source") == "1" {
+	if source {
 		if strings.EqualFold(path.Ext(name), ".md") || strings.EqualFold(path.Ext(name), ".markdown") {
 			kind = "markdown"
 		}
@@ -226,6 +294,10 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 		output = render.Code(name, content)
 	}
 	jsonReply(w, 200, map[string]string{"path": name, "type": kind, "html": output})
+}
+
+func fileVersion(info fs.FileInfo, source bool) string {
+	return fmt.Sprintf("W/\"%d-%d-%t\"", info.ModTime().UnixNano(), info.Size(), source)
 }
 func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 	name, err := queryPath(r)

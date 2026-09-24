@@ -1,164 +1,106 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../src/mermaid', () => ({ drawMermaid: vi.fn(async () => {}) }));
 
-class FakeEvents extends EventTarget {
-  static instance: FakeEvents;
-  onerror: (() => void) | null = null;
-  constructor() { super(); FakeEvents.instance = this; }
-  emit(name: string): void { this.dispatchEvent(new Event(name)); }
-}
-
+type Entry = { name: string; path: string; type: 'directory' | 'file' };
 const flush = async (): Promise<void> => { await new Promise((resolve) => setTimeout(resolve, 0)); };
-const reply = (body: unknown, status = 200): Response => ({ ok: status < 400, status, json: async () => body }) as Response;
+const reply = (body: unknown, status = 200, tag = ''): Response => ({
+  ok: status < 400, status, json: async () => body, headers: { get: () => tag },
+}) as unknown as Response;
+const page = (entries: Entry[], revision = '1', nextOffset: number | null = null, offset = 0) =>
+  ({ entries, revision, offset, nextOffset, root: 'project' });
+const entry = (name: string, type: 'directory' | 'file' = 'file', parent = ''): Entry =>
+  ({ name, path: parent ? `${parent}/${name}` : name, type });
 
 beforeEach(() => {
   vi.resetModules();
   localStorage.clear();
   document.body.innerHTML = '<div id="app"></div>';
   history.replaceState(null, '', '/');
-  vi.stubGlobal('EventSource', FakeEvents);
 });
+afterEach(() => { window.dispatchEvent(new Event('pagehide')); vi.unstubAllGlobals(); });
 
-describe('browser refresh', () => {
-  it('previews images, refreshes changed assets, and reports load failures', async () => {
-    history.replaceState(null, '', '/?path=docs%2Fdiagram.svg');
-    let version = 1;
-    const fetch = vi.fn(async (url: string) => url === '/api/tree'
-      ? reply({ entries: [{ name: 'diagram.svg', path: 'docs/diagram.svg', type: 'file' }] })
-      : reply({ path: 'docs/diagram.svg', type: 'image', assetUrl: `/api/asset?path=docs%2Fdiagram.svg&v=${version}` }));
-    vi.stubGlobal('fetch', fetch);
-    await import('../src/main'); FakeEvents.instance.emit('ready'); await flush();
-    const first = document.querySelector<HTMLImageElement>('#content img.image-preview')!;
-    expect(first.alt).toBe('diagram.svg');
-    expect(first.getAttribute('src')).toContain('v=1');
-    expect(document.querySelector('#content svg')).toBeNull();
-    expect(document.querySelector('#content')?.getAttribute('data-kind')).toBe('image');
-    FakeEvents.instance.emit('changed'); await flush();
-    expect(document.querySelector('#content img')).toBe(first);
-    version = 2; FakeEvents.instance.emit('changed'); await flush();
-    const second = document.querySelector<HTMLImageElement>('#content img.image-preview')!;
-    expect(second).not.toBe(first);
-    expect(second.getAttribute('src')).toContain('v=2');
-    second.dispatchEvent(new Event('error'));
-    expect(document.querySelector('.file-error')?.textContent).toContain('画像を読み込めません');
-    document.querySelector<HTMLButtonElement>('.file-error button')!.click(); await flush();
-    expect(document.querySelector('#content img.image-preview')).not.toBeNull();
-  });
-
-  it('waits for SSE ready, filters tree, and restores URL selection', async () => {
-    history.replaceState(null, '', '/?path=docs%2Freadme.md');
-    const fetch = vi.fn(async (url: string) => url === '/api/tree'
-      ? reply({ entries: [{ name: 'docs', path: 'docs', type: 'directory', children: [{ name: 'readme.md', path: 'docs/readme.md', type: 'file' }] }] })
-      : reply({ path: 'docs/readme.md', type: 'markdown', html: '<h1>Readme</h1>' }));
-    vi.stubGlobal('fetch', fetch);
-    await import('../src/main');
-    expect(fetch).not.toHaveBeenCalled();
-    FakeEvents.instance.emit('ready'); await flush();
-    expect(document.querySelector('#content')?.textContent).toContain('Readme');
-    expect(document.querySelector('nav a[aria-current]')?.textContent).toBe('readme.md');
-    const search = document.querySelector<HTMLInputElement>('#search')!;
-    search.value = 'missing'; search.dispatchEvent(new Event('input'));
-    expect(document.querySelector('nav a')).toBeNull();
-    search.value = 'docs'; search.dispatchEvent(new Event('input'));
-    expect(document.querySelector('nav a')?.textContent).toBe('docs/readme.md');
-    expect(document.querySelector('nav mark')?.textContent).toBe('d');
-  });
-
-  it('retries when an event arrives during an in-flight refresh', async () => {
-    let releaseFirst: ((value: Response) => void) | undefined;
-    let calls = 0;
-    const fetch = vi.fn((url: string) => {
-      if (url === '/api/tree' && ++calls === 1) return new Promise<Response>((resolve) => { releaseFirst = resolve; });
-      return Promise.resolve(reply({ entries: [{ name: 'new.md', path: 'new.md', type: 'file' }] }));
+describe('lazy browsing and refresh', () => {
+  it('loads only root and selected ancestors for a deep URL', async () => {
+    history.replaceState(null, '', '/?path=docs%2Fdeep%2Fa.md');
+    const fetch = vi.fn(async (url: string) => {
+      if (url === '/api/tree') return reply(page([entry('docs', 'directory')]));
+      if (url.startsWith('/api/tree?path=docs%2Fdeep')) return reply(page([entry('a.md', 'file', 'docs/deep')]));
+      if (url.startsWith('/api/tree?path=docs')) return reply(page([entry('deep', 'directory', 'docs')]));
+      return reply({ path: 'docs/deep/a.md', type: 'markdown', html: '<h1>A</h1>' });
     });
     vi.stubGlobal('fetch', fetch);
-    await import('../src/main');
-    FakeEvents.instance.emit('ready'); await flush();
-    FakeEvents.instance.emit('refresh');
-    releaseFirst?.(reply({ entries: [{ name: 'old.md', path: 'old.md', type: 'file' }] }));
-    await flush(); await flush();
-    expect(document.querySelector('nav')?.textContent).toContain('new.md');
-    expect(document.querySelector('nav')?.textContent).not.toContain('old.md');
-  });
-
-  it('shows disconnect and recovers on ready', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => reply({ entries: [] })));
-    await import('../src/main');
-    FakeEvents.instance.onerror?.();
-    expect(document.querySelector('#connection')?.textContent).toContain('再接続中');
-    FakeEvents.instance.emit('ready'); await flush();
-    expect(document.querySelector('#connection')?.textContent).toBe('自動更新中');
-    FakeEvents.instance.emit('watch-error');
-    expect(document.querySelector('#connection')?.textContent).toContain('監視エラー');
-    FakeEvents.instance.emit('watch-ok');
-    expect(document.querySelector('#connection')?.textContent).toBe('自動更新中');
-  });
-
-  it('resets scroll on navigation and preserves content DOM when HTML is unchanged', async () => {
-    const fetch = vi.fn(async (url: string) => url === '/api/tree'
-      ? reply({ entries: [{ name: 'a.md', path: 'a.md', type: 'file' }, { name: 'b.md', path: 'b.md', type: 'file' }] })
-      : reply({ path: url.includes('a.md') ? 'a.md' : 'b.md', type: 'markdown', html: url.includes('a.md') ? '<h1>A</h1>' : '<h1>B</h1>' }));
-    vi.stubGlobal('fetch', fetch);
-    history.replaceState(null, '', '/?path=a.md');
-    await import('../src/main'); FakeEvents.instance.emit('ready'); await flush();
-    const main = document.querySelector<HTMLElement>('main')!;
-    const first = document.querySelector('#content h1');
-    main.scrollTop = 150;
-    FakeEvents.instance.emit('changed'); await flush();
-    expect(document.querySelector('#content h1')).toBe(first);
-    expect(main.scrollTop).toBe(150);
-    document.querySelector<HTMLAnchorElement>('nav a[href="/?path=b.md"]')!.click(); await flush();
-    expect(main.scrollTop).toBe(0);
-    expect(document.querySelector('#content')?.textContent).toContain('B');
-  });
-
-  it('starts collapsed and keeps a manually opened folder open across refresh and reload', async () => {
-    localStorage.setItem('markport-closed-folders', '[]');
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree'
-      ? reply({ entries: [{ name: 'docs', path: 'docs', type: 'directory', children: [{ name: 'a.md', path: 'docs/a.md', type: 'file' }] }] })
-      : reply({ path: 'docs/a.md', type: 'markdown', html: '<p>A</p>' })));
-    await import('../src/main'); FakeEvents.instance.emit('ready'); await flush();
-    expect(document.querySelector<HTMLDetailsElement>('details[data-path="docs"]')?.open).toBe(false);
-    document.querySelector('summary')!.click();
-    FakeEvents.instance.emit('changed'); await flush();
-    expect(document.querySelector<HTMLDetailsElement>('details[data-path="docs"]')?.open).toBe(true);
-    expect(localStorage.getItem('markport-open-folders-v2')).toBe('["docs"]');
-    vi.resetModules(); document.body.innerHTML = '<div id="app"></div>';
-    await import('../src/main'); FakeEvents.instance.emit('ready'); await flush();
-    expect(document.querySelector<HTMLDetailsElement>('details[data-path="docs"]')?.open).toBe(true);
-  });
-
-  it('opens only the selected ancestors without storing them as manually opened', async () => {
-    history.replaceState(null, '', '/?path=docs%2Fdeep%2Fa.md');
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree'
-      ? reply({ entries: [
-        { name: 'other', path: 'other', type: 'directory', children: [{ name: 'x.md', path: 'other/x.md', type: 'file' }] },
-        { name: 'docs', path: 'docs', type: 'directory', children: [{ name: 'deep', path: 'docs/deep', type: 'directory', children: [{ name: 'a.md', path: 'docs/deep/a.md', type: 'file' }] }] },
-      ] })
-      : reply({ path: 'docs/deep/a.md', type: 'markdown', html: '<p>A</p>' })));
-    await import('../src/main'); FakeEvents.instance.emit('ready'); await flush();
+    await import('../src/main'); await flush(); await flush();
+    expect(document.querySelector('#content h1')?.textContent).toBe('A');
     expect(document.querySelector<HTMLDetailsElement>('details[data-path="docs"]')?.open).toBe(true);
     expect(document.querySelector<HTMLDetailsElement>('details[data-path="docs/deep"]')?.open).toBe(true);
-    expect(document.querySelector<HTMLDetailsElement>('details[data-path="other"]')?.open).toBe(false);
-    expect(localStorage.getItem('markport-open-folders-v2')).toBeNull();
-    history.pushState(null, '', '/?path=other%2Fx.md'); window.dispatchEvent(new PopStateEvent('popstate')); await flush();
-    expect(document.querySelector<HTMLDetailsElement>('details[data-path="docs"]')?.open).toBe(false);
-    expect(document.querySelector<HTMLDetailsElement>('details[data-path="other"]')?.open).toBe(true);
+    expect(fetch.mock.calls.map(([url]) => url)).toContain('/api/tree?path=docs%2Fdeep&focus=a.md');
   });
 
-  it('sorts each tree level with folders first and natural names', async () => {
-    const entries = [
-      { name: 'file10.md', path: 'file10.md', type: 'file' },
-      { name: 'folder10', path: 'folder10', type: 'directory', children: [{ name: 'child10.md', path: 'folder10/child10.md', type: 'file' }, { name: 'child2.md', path: 'folder10/child2.md', type: 'file' }] },
-      { name: 'file2.md', path: 'file2.md', type: 'file' },
-      { name: 'folder2', path: 'folder2', type: 'directory', children: [] },
-    ];
-    vi.stubGlobal('fetch', vi.fn(async () => reply({ entries })));
-    await import('../src/main'); FakeEvents.instance.emit('ready'); await flush();
-    expect([...document.querySelectorAll('#tree > ul > li')].map((item) => item.querySelector(':scope > details > summary .node-label, :scope > a .node-label')?.textContent)).toEqual(['folder2', 'folder10', 'file2.md', 'file10.md']);
-    document.querySelector<HTMLElement>('details[data-path="folder10"] > summary')!.click();
-    expect([...document.querySelectorAll('details[data-path="folder10"] > ul > li')].map((item) => item.textContent?.trim())).toEqual(['child2.md', 'child10.md']);
+  it('loads the next page only when requested and searches loaded files', async () => {
+    const first = Array.from({ length: 200 }, (_, i) => entry(`file${String(i).padStart(3, '0')}.md`));
+    const fetch = vi.fn(async (url: string) => url === '/api/tree'
+      ? reply(page(first, '1', 200))
+      : reply(page([entry('last.md')], '1', null, 200)));
+    vi.stubGlobal('fetch', fetch);
+    await import('../src/main'); await flush();
+    expect(document.querySelectorAll('#tree a').length).toBe(200);
+    const search = document.querySelector<HTMLInputElement>('#search')!;
+    search.value = 'last'; search.dispatchEvent(new Event('input'));
+    expect(document.querySelector('#result-count')?.textContent).toContain('0件（読み込み済みから検索）');
+    search.value = ''; search.dispatchEvent(new Event('input'));
+    document.querySelector<HTMLButtonElement>('button[data-offset="200"]')!.click(); await flush();
+    search.value = 'last'; search.dispatchEvent(new Event('input'));
+    expect(document.querySelector('#tree a')?.textContent).toBe('last.md');
+    expect(fetch.mock.calls.map(([url]) => url)).toContain('/api/tree?offset=200');
+  });
+
+  it('polls visible data, sends the file validator, and keeps the DOM on 304', async () => {
+    history.replaceState(null, '', '/?path=a.md');
+    let version = 1;
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url === '/api/tree') return reply(page(version === 1 ? [entry('a.md')] : [entry('a.md'), entry('new.md')], String(version)));
+      if (options?.headers && (options.headers as Record<string, string>)['If-None-Match'] === `v${version}`) return reply(null, 304);
+      return reply({ path: 'a.md', type: 'markdown', html: `<h1>Version ${version}</h1>` }, 200, `v${version}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await import('../src/main'); await flush();
+    const first = document.querySelector('#content h1');
+    document.dispatchEvent(new Event('visibilitychange')); await flush();
+    expect(document.querySelector('#content h1')).toBe(first);
+    expect(fetch.mock.calls.some(([, options]) => (options?.headers as Record<string, string> | undefined)?.['If-None-Match'] === 'v1')).toBe(true);
+    version = 2;
+    document.dispatchEvent(new Event('visibilitychange')); await flush();
+    expect(document.querySelector('#content h1')?.textContent).toBe('Version 2');
+    expect(document.querySelector<HTMLAnchorElement>('a[href="/?path=new.md"]')).not.toBeNull();
+  });
+
+  it('discards a stale listing after a newer refresh starts', async () => {
+    let releaseFirst: ((value: Response) => void) | undefined;
+    let calls = 0;
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url === '/api/tree' && ++calls === 1) return new Promise<Response>((resolve) => { releaseFirst = resolve; });
+      return Promise.resolve(reply(page([entry('new.md')], '2')));
+    }));
+    await import('../src/main'); await flush();
+    document.dispatchEvent(new Event('visibilitychange'));
+    releaseFirst?.(reply(page([entry('old.md')], '1')));
+    await flush(); await flush();
+    expect(document.querySelector('#tree')?.textContent).toContain('new.md');
+    expect(document.querySelector('#tree')?.textContent).not.toContain('old.md');
+  });
+
+  it('releases a collapsed directory and loads it again when opened', async () => {
+    const fetch = vi.fn(async (url: string) => url === '/api/tree'
+      ? reply(page([entry('docs', 'directory')]))
+      : reply(page([entry('a.md', 'file', 'docs')])));
+    vi.stubGlobal('fetch', fetch);
+    await import('../src/main'); await flush();
+    document.querySelector('summary')!.click(); await flush();
+    expect(document.querySelector('#tree a')?.textContent).toBe('a.md');
+    document.querySelector('summary')!.click();
+    document.querySelector('summary')!.click(); await flush();
+    expect(fetch.mock.calls.filter(([url]) => url === '/api/tree?path=docs').length).toBe(2);
   });
 });
