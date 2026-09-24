@@ -3,6 +3,7 @@ NPM ?= npm
 VERSION ?= dev
 DIR ?= .
 PORT ?= 3000
+HOST ?= 127.0.0.1
 BIN := dist/markport$(if $(filter windows,$(shell $(GO) env GOOS)),.exe,)
 
 .PHONY: setup web-build dev build run test test-e2e lint dist
@@ -24,7 +25,7 @@ build: web-build
 	CGO_ENABLED=0 $(GO) build -ldflags '-X github.com/markport/markport/internal/cli.Version=$(VERSION)' -o $(BIN) ./cmd/markport
 
 run:
-	$(BIN) $(DIR) --port $(PORT)
+	$(BIN) $(DIR) --host $(HOST) --port $(PORT)
 
 test: web-build
 	$(GO) test ./cmd/... ./internal/...

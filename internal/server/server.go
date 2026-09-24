@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"path"
 	"strconv"
@@ -38,6 +39,7 @@ func imageContentType(name string) (string, bool) {
 
 type Server struct {
 	Files      *files.Store
+	Host       string
 	Port       int
 	mu         sync.Mutex
 	subs       map[chan string]struct{}
@@ -46,12 +48,12 @@ type Server struct {
 	static     http.Handler
 }
 
-func New(store *files.Store, port int) (*Server, error) {
+func New(store *files.Store, host string, port int) (*Server, error) {
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil {
 		return nil, err
 	}
-	return &Server{Files: store, Port: port, subs: make(map[chan string]struct{}), static: http.FileServer(http.FS(dist))}, nil
+	return &Server{Files: store, Host: host, Port: port, subs: make(map[chan string]struct{}), static: http.FileServer(http.FS(dist))}, nil
 }
 
 func (s *Server) Publish(event string) {
@@ -90,7 +92,7 @@ func (s *Server) Close() {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if !validHost(r.Host, s.Port) {
+	if !validHost(r.Host, s.Host, s.Port) {
 		http.Error(w, "invalid Host", http.StatusBadRequest)
 		return
 	}
@@ -125,7 +127,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func validHost(raw string, port int) bool {
+func validHost(raw, bindHost string, port int) bool {
 	if raw == "" || strings.ContainsAny(raw, " \t\r\n/@\\") {
 		return false
 	}
@@ -136,11 +138,18 @@ func validHost(raw string, port int) bool {
 		}
 		host, p = raw, "80"
 	}
-	if !strings.EqualFold(host, "localhost") && host != "127.0.0.1" {
+	n, err := strconv.Atoi(p)
+	if err != nil || n != port || p == "" {
 		return false
 	}
-	n, err := strconv.Atoi(p)
-	return err == nil && n == port && p != ""
+	if strings.EqualFold(host, "localhost") {
+		return bindHost == "127.0.0.1" || bindHost == "0.0.0.0"
+	}
+	addr, err := netip.ParseAddr(host)
+	if err != nil || !addr.Is4() {
+		return false
+	}
+	return bindHost == "0.0.0.0" || addr.String() == bindHost
 }
 
 func jsonReply(w http.ResponseWriter, status int, v any) {

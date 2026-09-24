@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"strconv"
@@ -22,13 +23,14 @@ var Version = "dev"
 
 type Options struct {
 	Directory         string
+	Host              string
 	Port              int
 	Help, ShowVersion bool
 }
 
 func Parse(args []string) (Options, error) {
-	o := Options{Directory: ".", Port: 3000}
-	seenDir, seenPort := false, false
+	o := Options{Directory: ".", Host: "127.0.0.1", Port: 3000}
+	seenDir, seenHost, seenPort := false, false, false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -36,6 +38,26 @@ func Parse(args []string) (Options, error) {
 			o.Help = true
 		case a == "--version":
 			o.ShowVersion = true
+		case a == "--host" || strings.HasPrefix(a, "--host="):
+			if seenHost {
+				return o, errors.New("--host specified more than once")
+			}
+			seenHost = true
+			value := ""
+			if a == "--host" {
+				i++
+				if i >= len(args) {
+					return o, errors.New("--host requires an IPv4 address")
+				}
+				value = args[i]
+			} else {
+				value = strings.TrimPrefix(a, "--host=")
+			}
+			addr, err := netip.ParseAddr(value)
+			if err != nil || !addr.Is4() {
+				return o, fmt.Errorf("invalid host %q: expected an IPv4 address", value)
+			}
+			o.Host = addr.String()
 		case a == "--port" || strings.HasPrefix(a, "--port="):
 			if seenPort {
 				return o, errors.New("--port specified more than once")
@@ -76,7 +98,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if o.Help {
-		fmt.Fprintln(stdout, "Usage: markport [directory] [--port PORT]\n       markport --help\n       markport --version")
+		fmt.Fprintln(stdout, "Usage: markport [directory] [--host IPv4] [--port PORT]\n       markport --help\n       markport --version")
 		return 0
 	}
 	if o.ShowVersion {
@@ -89,12 +111,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer store.Close()
-	listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", o.Port))
+	listener, err := net.Listen("tcp", net.JoinHostPort(o.Host, strconv.Itoa(o.Port)))
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	app, err := server.New(store, o.Port)
+	app, err := server.New(store, o.Host, o.Port)
 	if err != nil {
 		listener.Close()
 		fmt.Fprintln(stderr, err)
@@ -104,7 +126,11 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	httpServer := &http.Server{Handler: app, BaseContext: func(net.Listener) context.Context { return base }}
 	serveDone := make(chan error, 1)
 	go func() { serveDone <- httpServer.Serve(listener) }()
-	fmt.Fprintf(stdout, "http://127.0.0.1:%d/\n", o.Port)
+	if o.Host == "0.0.0.0" {
+		fmt.Fprintf(stdout, "http://127.0.0.1:%d/\nLAN access: http://<this-machine-LAN-IP>:%d/\n", o.Port, o.Port)
+	} else {
+		fmt.Fprintf(stdout, "http://%s:%d/\n", o.Host, o.Port)
+	}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sig)

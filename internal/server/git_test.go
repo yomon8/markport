@@ -30,7 +30,7 @@ func gitServer(t *testing.T, dir string) *Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	app, err := New(store, 3000)
+	app, err := New(store, "127.0.0.1", 3000)
 	if err != nil {
 		t.Fatal(err)
 	}

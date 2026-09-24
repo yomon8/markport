@@ -64,7 +64,7 @@ test('shows English controls with a Japanese browser locale', async ({ browser }
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.getByRole('button', { name: 'Refresh' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Files' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Source' })).toBeVisible();
+    await expect(page.locator('#file-title').getByRole('button', { name: 'Source' })).toBeVisible();
   } finally {
     await context.close();
   }

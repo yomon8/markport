@@ -31,7 +31,7 @@ func newTestServer(t *testing.T) (*Server, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	app, err := New(s, 3000)
+	app, err := New(s, "127.0.0.1", 3000)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,8 +89,32 @@ func TestHostAndAPI(t *testing.T) {
 }
 
 func TestDefaultHTTPPortHost(t *testing.T) {
-	if !validHost("localhost", 80) || !validHost("LOCALHOST:80", 80) || validHost("localhost", 3000) {
+	if !validHost("localhost", "127.0.0.1", 80) || !validHost("LOCALHOST:80", "127.0.0.1", 80) || validHost("localhost", "127.0.0.1", 3000) {
 		t.Fatal("port 80 host rules")
+	}
+}
+
+func TestNetworkHost(t *testing.T) {
+	app, _ := newTestServer(t)
+	app.Host = "0.0.0.0"
+	for _, host := range []string{"127.0.0.1:3000", "localhost:3000", "192.168.1.10:3000"} {
+		if got := request(app, host, "/api/tree").Code; got != 200 {
+			t.Errorf("wildcard host %q: %d", host, got)
+		}
+	}
+	for _, host := range []string{"evil.test:3000", "192.168.1.10:3001", "192.168.1.10", "192.168.1.10:3000@evil.test", "[::1]:3000"} {
+		if got := request(app, host, "/api/tree").Code; got != 400 {
+			t.Errorf("rejected wildcard host %q: %d", host, got)
+		}
+	}
+	app.Host = "192.168.1.10"
+	if got := request(app, "192.168.1.10:3000", "/api/tree").Code; got != 200 {
+		t.Errorf("specific host: %d", got)
+	}
+	for _, host := range []string{"127.0.0.1:3000", "localhost:3000", "192.168.1.11:3000"} {
+		if got := request(app, host, "/api/tree").Code; got != 400 {
+			t.Errorf("rejected specific host %q: %d", host, got)
+		}
 	}
 }
 func TestPagedTreeAndFileValidator(t *testing.T) {

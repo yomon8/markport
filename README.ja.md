@@ -14,12 +14,13 @@ GitHub Release から OS・CPU に合う実行ファイルを選びます。Linu
 Release の `checksums_<version>.txt` をダウンロードし、バイナリと同じフォルダで Linux は `sha256sum --check checksums_<version>.txt`、macOS は `shasum -a 256 -c checksums_<version>.txt` でハッシュを確認できます。Windows では `Get-FileHash` で個別に確認できます。
 
 ```sh
-./markport_v1.0.0_linux_amd64 ./notes --port 3000
-./markport_v1.0.0_linux_amd64 --help
-./markport_v1.0.0_linux_amd64 --version
+./markport_v0.1.1_linux_amd64 ./notes --port 3000
+./markport_v0.1.1_linux_amd64 ./notes --host 0.0.0.0 --port 3000
+./markport_v0.1.1_linux_amd64 --help
+./markport_v0.1.1_linux_amd64 --version
 ```
 
-引数を省略すると現在のディレクトリをポート 3000 で表示します。起動後に表示される `http://127.0.0.1:<port>/` を開いてください。`Ctrl+C` で終了します。待ち受け先はローカル端末の `127.0.0.1` に固定されています。
+引数を省略すると現在のディレクトリをポート 3000 で表示します。起動後に表示される `http://127.0.0.1:<port>/` を開いてください。`Ctrl+C` で終了します。既定では `127.0.0.1` でのみ待ち受けます。同じ LAN の端末から開くには `--host 0.0.0.0` を指定し、別端末で `http://<このマシンのLAN内IP>:<port>/` を開きます。`--host` には特定の IPv4 アドレスも指定できます。LAN 公開には認証と TLS がありません。ポートに接続できる人は、除外対象以外のドットファイルも含め、選択したディレクトリを閲覧できます。
 
 `.git`、`node_modules`、`.venv` は表示から除外します。その他のドットファイルは表示します。シンボリックリンク、Windows のジャンクション、FIFO などの特殊ファイルは読みません。テキストは 10 MiB、画像は 32 MiB までです。バイナリや読めないファイルはそのファイルだけエラーを表示します。フォルダは開いたときに200件ずつ読み込み、ファイル名検索は読み込み済みの範囲を対象にします。開いたフォルダと表示中のファイルは約3秒ごとに確認し、閉じたフォルダは次に開いたときに更新します。「最新を取得」ボタンですぐに再取得できます。
 
@@ -27,7 +28,7 @@ Release の `checksums_<version>.txt` をダウンロードし、バイナリと
 
 ### 構成
 
-Go の実行ファイルが、組み込みのブラウザ UI と読み取り専用 API を `127.0.0.1` で配信します。選択したファイルとフォルダを必要なときに読み込みます。
+Go の実行ファイルが、組み込みのブラウザ UI と読み取り専用 API を指定した IPv4 アドレスで配信します。選択したファイルとフォルダを必要なときに読み込みます。
 
 ```mermaid
 flowchart LR
@@ -43,10 +44,11 @@ make setup                 # Go と npm の依存関係
 make dev DIR=./testdata    # Go API と Vite 開発サーバー。Vite は localhost:5173
 make build VERSION=dev     # 現在の OS・CPU 向け実行ファイル
 make run DIR=./testdata PORT=3000
+make run DIR=./testdata HOST=0.0.0.0 PORT=3000  # LAN からアクセス
 make test                  # Go と画面のテスト
 make test-e2e             # Chromium の画面受け入れテスト（Playwright のブラウザ導入が必要）
 make lint                  # go vet、TypeScript、ESLint
-make dist VERSION=v1.0.0  # 6 種類と SHA-256 チェックサム
+make dist VERSION=v0.1.1  # 6 種類と SHA-256 チェックサム
 ```
 
 `make setup` の後に `make lint` を単独で実行できます。画面は各 Make タスクでビルドされ、実行ファイルへ埋め込まれます。開発画面の API は Vite から Go へプロキシされます。

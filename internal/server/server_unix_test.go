@@ -57,7 +57,7 @@ func TestStartupWatchErrorVisibleToLaterSSEClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	app, err := New(store, 3000)
+	app, err := New(store, "127.0.0.1", 3000)
 	if err != nil {
 		t.Fatal(err)
 	}
