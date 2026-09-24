@@ -3,7 +3,7 @@ import { drawMermaid } from './mermaid';
 import { TreeView, type Node } from './tree';
 import { initTheme } from './theme';
 
-type FileReply = { path: string; type: string; html: string };
+type FileReply = { path: string; type: 'image'; assetUrl: string } | { path: string; type: 'markdown' | 'code'; html: string };
 type ApiError = { error?: string; message?: string };
 class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -86,7 +86,8 @@ function showError(error: unknown, path: string): void {
   const code = error instanceof RequestError ? error.code : 'network';
   const messages: Record<string, [string, string]> = {
     not_found: ['ファイルが見つかりません', 'このファイルは削除されたか、移動されました。'],
-    too_large: ['ファイルが大きすぎます', '10 MiBを超えるため表示できません。'],
+    too_large: ['ファイルが大きすぎます', 'サイズ上限を超えるため表示できません。'],
+    invalid_asset: ['画像を表示できません', '画像を読み込めません。ファイルを確認して再試行してください。'],
     binary: ['表示できないファイルです', 'バイナリファイルのため表示できません。'],
     unreadable: ['ファイルを読み取れません', 'このファイルは読み取れません。'],
     not_regular: ['ファイルを読み取れません', 'このファイルは読み取れません。'],
@@ -96,8 +97,8 @@ function showError(error: unknown, path: string): void {
   content.replaceChildren(); const box = document.createElement('div'); box.className = 'file-error'; box.setAttribute('role', 'alert');
   const icon = document.createElement('span'); icon.textContent = '⚠'; icon.setAttribute('aria-hidden', 'true');
   const h = document.createElement('h2'); h.textContent = heading; const p = document.createElement('p');
-  const actualSize = code === 'too_large' && error instanceof RequestError ? error.message.match(/actual (\d+(?:\.\d+)? MiB)/)?.[1] : undefined;
-  p.textContent = actualSize ? `10 MiBを超えるため表示できません（${actualSize}）。` : description;
+  const size = code === 'too_large' && error instanceof RequestError ? error.message.match(/(\d+ MiB) limit \(actual (\d+(?:\.\d+)? MiB)\)/) : undefined;
+  p.textContent = size ? `${size[1]}を超えるため表示できません（${size[2]}）。` : description;
   const button = document.createElement('button'); button.type = 'button'; button.textContent = code === 'not_found' ? 'ルートへ戻る' : '再試行'; button.addEventListener('click', () => code === 'not_found' ? navigate('/') : requestRefresh());
   box.append(icon, h, p, button); content.append(box); showTitle(path, '', code === 'not_found'); outline.hidden = true;
 }
@@ -181,12 +182,19 @@ async function refreshLoop(): Promise<void> {
         if (!path) { showTitle(''); showEmpty(); continue; }
         if (fileReply && 'error' in fileReply) { showError(fileReply.error, path); displayedHTML = ''; continue; }
         if (fileReply && 'value' in fileReply) {
-          const changed = displayedHTML !== fileReply.value.html || displayedSource !== source;
+          const file = fileReply.value;
+          const displayKey = file.type === 'image' ? file.assetUrl : file.html;
+          const changed = displayedHTML !== displayKey || displayedSource !== source;
           if (changed) {
             const oldScroll = main.scrollTop;
-            content.innerHTML = fileReply.value.html; content.dataset.kind = source ? 'code' : fileReply.value.type;
-            displayedHTML = fileReply.value.html; displayedSource = source;
-            decorateContent(); updateOutline(); showTitle(path, fileReply.value.type);
+            content.dataset.kind = file.type === 'image' ? 'image' : source ? 'code' : file.type;
+            if (file.type === 'image') {
+              const img = document.createElement('img'); img.className = 'image-preview'; img.alt = path.split('/').at(-1) ?? path;
+              img.addEventListener('error', () => { if (img.isConnected && selected() === path) { displayedHTML = ''; showError(new RequestError('invalid_asset', 'image load failed'), path); } });
+              img.src = file.assetUrl; content.replaceChildren(img);
+            } else { content.innerHTML = file.html; decorateContent(); }
+            displayedHTML = displayKey; displayedSource = source;
+            updateOutline(); showTitle(path, file.type);
             if (!pathChanged && oldScroll > 0) main.scrollTop = oldScroll;
             if (location.hash) { try { document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ } }
             if (!pathChanged && current > 1) {

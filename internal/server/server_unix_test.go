@@ -111,7 +111,7 @@ func TestIntermediateLinkRejectedByBothAPIs(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(root, "middle")); err != nil {
 		t.Fatal(err)
 	}
-	for _, url := range []string{"/api/file?path=middle%2Fsecret.md", "/api/asset?path=middle%2Fsecret.png"} {
+	for _, url := range []string{"/api/file?path=middle%2Fsecret.md", "/api/file?path=middle%2Fsecret.png", "/api/asset?path=middle%2Fsecret.png"} {
 		r := request(app, "localhost:3000", url)
 		if r.Code < 400 {
 			t.Fatalf("intermediate link accepted: %s %d", url, r.Code)

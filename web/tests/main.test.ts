@@ -22,6 +22,31 @@ beforeEach(() => {
 });
 
 describe('browser refresh', () => {
+  it('previews images, refreshes changed assets, and reports load failures', async () => {
+    history.replaceState(null, '', '/?path=docs%2Fdiagram.svg');
+    let version = 1;
+    const fetch = vi.fn(async (url: string) => url === '/api/tree'
+      ? reply({ entries: [{ name: 'diagram.svg', path: 'docs/diagram.svg', type: 'file' }] })
+      : reply({ path: 'docs/diagram.svg', type: 'image', assetUrl: `/api/asset?path=docs%2Fdiagram.svg&v=${version}` }));
+    vi.stubGlobal('fetch', fetch);
+    await import('../src/main'); FakeEvents.instance.emit('ready'); await flush();
+    const first = document.querySelector<HTMLImageElement>('#content img.image-preview')!;
+    expect(first.alt).toBe('diagram.svg');
+    expect(first.getAttribute('src')).toContain('v=1');
+    expect(document.querySelector('#content svg')).toBeNull();
+    expect(document.querySelector('#content')?.getAttribute('data-kind')).toBe('image');
+    FakeEvents.instance.emit('changed'); await flush();
+    expect(document.querySelector('#content img')).toBe(first);
+    version = 2; FakeEvents.instance.emit('changed'); await flush();
+    const second = document.querySelector<HTMLImageElement>('#content img.image-preview')!;
+    expect(second).not.toBe(first);
+    expect(second.getAttribute('src')).toContain('v=2');
+    second.dispatchEvent(new Event('error'));
+    expect(document.querySelector('.file-error')?.textContent).toContain('画像を読み込めません');
+    document.querySelector<HTMLButtonElement>('.file-error button')!.click(); await flush();
+    expect(document.querySelector('#content img.image-preview')).not.toBeNull();
+  });
+
   it('waits for SSE ready, filters tree, and restores URL selection', async () => {
     history.replaceState(null, '', '/?path=docs%2Freadme.md');
     const fetch = vi.fn(async (url: string) => url === '/api/tree'

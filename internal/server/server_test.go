@@ -3,6 +3,9 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -89,6 +92,73 @@ func TestDefaultHTTPPortHost(t *testing.T) {
 		t.Fatal("port 80 host rules")
 	}
 }
+func TestImageFilePreview(t *testing.T) {
+	app, dir := newTestServer(t)
+	imagePath := filepath.Join(dir, "sample image.png")
+	f, err := os.Create(imagePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+	img.Set(0, 0, color.RGBA{R: 255, A: 255})
+	if err := png.Encode(f, img); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	read := func() string {
+		t.Helper()
+		r := request(app, "localhost:3000", "/api/file?path=sample+image.png")
+		if r.Code != 200 {
+			t.Fatalf("image metadata: %d %s", r.Code, r.Body.String())
+		}
+		var file map[string]string
+		if err := json.Unmarshal(r.Body.Bytes(), &file); err != nil {
+			t.Fatal(err)
+		}
+		if file["path"] != "sample image.png" || file["type"] != "image" || file["assetUrl"] == "" {
+			t.Fatalf("image metadata: %+v", file)
+		}
+		return file["assetUrl"]
+	}
+	firstURL := read()
+	asset := request(app, "localhost:3000", firstURL)
+	if asset.Code != 200 || asset.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("image asset: %d %v", asset.Code, asset.Header())
+	}
+	changed := time.Now().Add(time.Second)
+	if err := os.Chtimes(imagePath, changed, changed); err != nil {
+		t.Fatal(err)
+	}
+	if nextURL := read(); nextURL == firstURL {
+		t.Fatal("image URL did not change after modification")
+	}
+	for _, ext := range []string{"svg", "jpg", "jpeg", "gif", "webp"} {
+		name := "sample." + ext
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("placeholder"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		r := request(app, "localhost:3000", "/api/file?path="+name)
+		if r.Code != 200 || !strings.Contains(r.Body.String(), `"type":"image"`) {
+			t.Errorf("%s metadata: %d %s", ext, r.Code, r.Body.String())
+		}
+	}
+	if r := request(app, "localhost:3000", "/api/file?path=missing.png"); r.Code != 404 {
+		t.Fatalf("missing image: %d", r.Code)
+	}
+	largePath := filepath.Join(dir, "large.png")
+	if err := os.WriteFile(largePath, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(largePath, maxAssetSize+1); err != nil {
+		t.Fatal(err)
+	}
+	if r := request(app, "localhost:3000", "/api/file?path=large.png"); r.Code != 413 || !strings.Contains(r.Body.String(), "32 MiB") {
+		t.Fatalf("large image: %d %s", r.Code, r.Body.String())
+	}
+}
 func TestFileRejectionsAndSVG(t *testing.T) {
 	app, dir := newTestServer(t)
 	outside := t.TempDir()
@@ -107,9 +177,11 @@ func TestFileRejectionsAndSVG(t *testing.T) {
 		}
 	}
 	if err := os.Symlink(filepath.Join(outside, "secret.png"), filepath.Join(dir, "link.png")); err == nil {
-		r := request(app, "localhost:3000", "/api/asset?path=link.png")
-		if r.Code < 400 || strings.Contains(r.Body.String(), "SECRET") {
-			t.Fatalf("image link accepted: %d %s", r.Code, r.Body.String())
+		for _, url := range []string{"/api/file?path=link.png", "/api/asset?path=link.png"} {
+			r := request(app, "localhost:3000", url)
+			if r.Code < 400 || strings.Contains(r.Body.String(), "SECRET") {
+				t.Fatalf("image link accepted: %d %s", r.Code, r.Body.String())
+			}
 		}
 	}
 	if err := os.WriteFile(filepath.Join(dir, "huge.md"), []byte(strings.Repeat("x", files.MaxTextSize+1)), 0644); err != nil {

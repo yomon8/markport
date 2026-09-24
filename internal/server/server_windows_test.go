@@ -23,7 +23,7 @@ func TestJunctionRejectedByBothAPIs(t *testing.T) {
 	if output, err := exec.Command("cmd", "/c", "mklink", "/J", link, outside).CombinedOutput(); err != nil {
 		t.Fatalf("mklink /J: %v: %s", err, output)
 	}
-	for _, url := range []string{"/api/file?path=junction%2Fsecret.md", "/api/asset?path=junction%2Fsecret.svg"} {
+	for _, url := range []string{"/api/file?path=junction%2Fsecret.md", "/api/file?path=junction%2Fsecret.svg", "/api/asset?path=junction%2Fsecret.svg"} {
 		r := request(app, "localhost:3000", url)
 		if r.Code < 400 || strings.Contains(r.Body.String(), "SECRET") {
 			t.Fatalf("junction access: %s %d", url, r.Code)

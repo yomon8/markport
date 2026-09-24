@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -20,6 +21,18 @@ import (
 	"github.com/markport/markport/internal/render"
 	"github.com/markport/markport/internal/web"
 )
+
+const maxAssetSize = 32 << 20
+
+var imageContentTypes = map[string]string{
+	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+	".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+}
+
+func imageContentType(name string) (string, bool) {
+	contentType, ok := imageContentTypes[strings.ToLower(path.Ext(name))]
+	return contentType, ok
+}
 
 type Server struct {
 	Files      *files.Store
@@ -167,6 +180,30 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 		apiError(w, err)
 		return
 	}
+	if _, ok := imageContentType(name); ok {
+		f, err := s.Files.Open(name)
+		if err != nil {
+			apiError(w, err)
+			return
+		}
+		info, err := f.Stat()
+		_ = f.Close()
+		if err != nil {
+			apiError(w, err)
+			return
+		}
+		if !info.Mode().IsRegular() {
+			apiError(w, files.ErrType)
+			return
+		}
+		if info.Size() > maxAssetSize {
+			apiError(w, fmt.Errorf("%w: 32 MiB limit (actual %.1f MiB)", files.ErrTooLarge, float64(info.Size())/(1<<20)))
+			return
+		}
+		assetURL := "/api/asset?path=" + url.QueryEscape(name) + "&v=" + strconv.FormatInt(info.ModTime().UnixNano(), 10) + "-" + strconv.FormatInt(info.Size(), 10)
+		jsonReply(w, 200, map[string]string{"path": name, "type": "image", "assetUrl": assetURL})
+		return
+	}
 	content, err := s.Files.ReadText(name)
 	if err != nil {
 		apiError(w, err)
@@ -196,13 +233,12 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 		apiError(w, err)
 		return
 	}
-	contentTypes := map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
-	typeName, ok := contentTypes[strings.ToLower(path.Ext(name))]
+	typeName, ok := imageContentType(name)
 	if !ok {
 		jsonReply(w, 415, map[string]string{"error": "unsupported_asset"})
 		return
 	}
-	b, err := s.Files.Read(name, 32<<20)
+	b, err := s.Files.Read(name, maxAssetSize)
 	if err != nil {
 		apiError(w, err)
 		return

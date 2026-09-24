@@ -43,6 +43,7 @@ test.beforeAll(async () => {
   await writeFile(join(directory, 'README.md'), '# Demo\n\n[Jump](#section)\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n\n[Python](sample.py)\n\n![Image](image.svg)\n\n## Section\n\n```mermaid\nflowchart LR\n  A --> B\n```\n');
   await writeFile(join(directory, 'sample.py'), 'print("first")\n');
   await writeFile(join(directory, 'image.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><rect width="40" height="30" fill="blue"/></svg>');
+  await writeFile(join(directory, 'image.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/c4sAAAAASUVORK5CYII=', 'base64'));
   await startServer();
 });
 
@@ -79,6 +80,21 @@ test('renders GFM, Mermaid and code, then tracks files', async ({ page }) => {
   await unlink(join(directory, 'new.md'));
   await expect(page.locator('.file-error')).toContainText('ファイルが見つかりません');
   await expect(page.getByRole('link', { name: 'new.md' })).toHaveCount(0);
+});
+
+test('previews SVG and PNG files and refreshes a changed image', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=image.svg`);
+  const preview = page.locator('article img.image-preview');
+  await expect(preview).toBeVisible();
+  await expect.poll(() => preview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(40);
+  const originalURL = await preview.getAttribute('src');
+  await writeFile(join(directory, 'image.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="30"><rect width="80" height="30" fill="red"/></svg>');
+  await expect.poll(() => preview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(80);
+  expect(await preview.getAttribute('src')).not.toBe(originalURL);
+  await page.getByRole('link', { name: 'image.png' }).click();
+  await expect(page).toHaveURL(/path=image.png/);
+  await expect(preview).toBeVisible();
+  await expect.poll(() => preview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
 });
 
 test('tracks imported descendants and an in-root directory move', async ({ page }) => {
