@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -14,13 +15,14 @@ import (
 )
 
 type Watcher struct {
-	store   *Store
-	w       *fsnotify.Watcher
-	watched map[string]os.FileInfo
-	publish func(string)
-	done    chan struct{}
-	once    sync.Once
-	failed  bool
+	store    *Store
+	w        *fsnotify.Watcher
+	watched  map[string]os.FileInfo
+	publish  func(string)
+	done     chan struct{}
+	once     sync.Once
+	failed   bool
+	snapshot map[string]os.FileInfo
 }
 
 func NewWatcher(store *Store, publish func(string)) (*Watcher, error) {
@@ -32,6 +34,13 @@ func NewWatcher(store *Store, publish func(string)) (*Watcher, error) {
 	if err := v.register(""); err != nil {
 		w.Close()
 		return nil, err
+	}
+	if runtime.GOOS == "windows" {
+		v.snapshot, err = v.snapshotTree()
+		if err != nil {
+			w.Close()
+			return nil, err
+		}
 	}
 	go v.run()
 	return v, nil
@@ -63,6 +72,11 @@ func (v *Watcher) register(rel string) error {
 		}
 		v.watched[abs] = opened
 	}
+	if runtime.GOOS == "windows" {
+		// Windows does not allow renaming a directory while a descendant is
+		// watched, even when the watch handle shares delete access.
+		return nil
+	}
 	entries, err := f.ReadDir(-1)
 	if err != nil {
 		return err
@@ -83,6 +97,51 @@ func (v *Watcher) register(rel string) error {
 		}
 	}
 	return nil
+}
+
+func (v *Watcher) snapshotTree() (map[string]os.FileInfo, error) {
+	nodes, err := v.store.Tree()
+	if err != nil {
+		return nil, err
+	}
+	snapshot := make(map[string]os.FileInfo)
+	var visit func([]Node)
+	visit = func(nodes []Node) {
+		for _, node := range nodes {
+			if node.Type == "directory" {
+				snapshot[node.Path] = nil
+				visit(node.Children)
+				continue
+			}
+			f, err := v.store.Open(node.Path)
+			if err != nil {
+				continue
+			}
+			info, err := f.Stat()
+			_ = f.Close()
+			if err == nil {
+				snapshot[node.Path] = info
+			}
+		}
+	}
+	visit(nodes)
+	return snapshot, nil
+}
+
+func snapshotsDiffer(a, b map[string]os.FileInfo) bool {
+	if len(a) != len(b) {
+		return true
+	}
+	for name, previous := range a {
+		current, ok := b[name]
+		if !ok || (previous == nil) != (current == nil) {
+			return true
+		}
+		if previous != nil && (!os.SameFile(previous, current) || previous.Size() != current.Size() || !previous.ModTime().Equal(current.ModTime())) {
+			return true
+		}
+	}
+	return false
 }
 func (v *Watcher) reconcile(event string) {
 	previousFailure := v.failed
@@ -114,6 +173,13 @@ func (v *Watcher) run() {
 	defer close(v.done)
 	retry := time.NewTicker(2 * time.Second)
 	defer retry.Stop()
+	var scan *time.Ticker
+	var scanC <-chan time.Time
+	if runtime.GOOS == "windows" {
+		scan = time.NewTicker(500 * time.Millisecond)
+		scanC = scan.C
+		defer scan.Stop()
+	}
 	var timer *time.Timer
 	defer func() {
 		if timer != nil {
@@ -161,6 +227,16 @@ func (v *Watcher) run() {
 			pending = ""
 		case <-retry.C:
 			if v.failed {
+				v.reconcile("refresh")
+			}
+		case <-scanC:
+			current, err := v.snapshotTree()
+			if err != nil {
+				v.handleError(err)
+				continue
+			}
+			if snapshotsDiffer(v.snapshot, current) {
+				v.snapshot = current
 				v.reconcile("refresh")
 			}
 		}

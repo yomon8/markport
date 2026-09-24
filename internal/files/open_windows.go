@@ -52,6 +52,9 @@ func (s *Store) openParts(parts []string, directory bool) (*os.File, error) {
 			windows.CloseHandle(parent)
 		}
 		if err != nil {
+			if status, ok := err.(windows.NTStatus); ok {
+				return nil, status.Errno()
+			}
 			return nil, err
 		}
 		parent = next

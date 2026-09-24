@@ -3,7 +3,9 @@
 package files
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,7 +13,60 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
+
+func renameWithRetry(old, new string) error {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := os.Rename(old, new)
+		if err == nil || time.Now().After(deadline) || !errors.Is(err, windows.ERROR_ACCESS_DENIED) && !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestMissingFileReportsNotExist(t *testing.T) {
+	s, err := New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, name := range []string{"missing.md", "missing/file.md"} {
+		if _, err := s.ReadText(name); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s: expected not exist, got %v", name, err)
+		}
+	}
+}
+
+func TestWatcherReportsNestedEditOnWindows(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "child")
+	if err := os.Mkdir(child, 0755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(child, "page.md")
+	if err := os.WriteFile(file, []byte("before"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	events := make(chan string, 8)
+	watcher, err := NewWatcher(s, func(event string) { events <- event })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+	if err := os.WriteFile(file, []byte("after"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	awaitRefresh(t, events)
+}
 
 func TestJunctionRejected(t *testing.T) {
 	root := t.TempDir()
@@ -62,12 +117,12 @@ func TestJunctionSwapNeverReadsTarget(t *testing.T) {
 		for i := 0; i < 40; i++ {
 			box := filepath.Join(root, "box")
 			old := filepath.Join(root, "old")
-			if err := os.Rename(box, old); err != nil {
+			if err := renameWithRetry(box, old); err != nil {
 				done <- err
 				return
 			}
 			if output, err := exec.Command("cmd", "/c", "mklink", "/J", box, outside).CombinedOutput(); err != nil {
-				_ = os.Rename(old, box)
+				_ = renameWithRetry(old, box)
 				done <- fmt.Errorf("mklink: %w: %s", err, output)
 				return
 			}
@@ -75,7 +130,7 @@ func TestJunctionSwapNeverReadsTarget(t *testing.T) {
 				done <- err
 				return
 			}
-			if err := os.Rename(old, box); err != nil {
+			if err := renameWithRetry(old, box); err != nil {
 				done <- err
 				return
 			}

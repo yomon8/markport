@@ -4,11 +4,23 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
+
+func renameWatchedDirectory(old, new string) error {
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err := os.Rename(old, new)
+		if err == nil || runtime.GOOS != "windows" || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
 
 func awaitRefresh(t *testing.T, events <-chan string) {
 	t.Helper()
@@ -68,7 +80,7 @@ func TestWatcherMovedDescendants(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer watcher.Close()
-	if err := os.Rename(filepath.Join(incoming, "folder"), filepath.Join(root, "folder")); err != nil {
+	if err := renameWatchedDirectory(filepath.Join(incoming, "folder"), filepath.Join(root, "folder")); err != nil {
 		t.Fatal(err)
 	}
 	awaitRefresh(t, events)
@@ -79,7 +91,7 @@ func TestWatcherMovedDescendants(t *testing.T) {
 		t.Fatal(err)
 	}
 	awaitRefresh(t, events)
-	if err := os.Rename(filepath.Join(root, "folder"), filepath.Join(root, "renamed")); err != nil {
+	if err := renameWatchedDirectory(filepath.Join(root, "folder"), filepath.Join(root, "renamed")); err != nil {
 		t.Fatal(err)
 	}
 	awaitRefresh(t, events)
@@ -142,7 +154,7 @@ func TestWatcherReplacedDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer watcher.Close()
-	if err := os.Rename(filepath.Join(root, "same"), filepath.Join(outside, "old")); err != nil {
+	if err := renameWatchedDirectory(filepath.Join(root, "same"), filepath.Join(outside, "old")); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(filepath.Join(root, "same"), 0755); err != nil {
@@ -181,6 +193,7 @@ func TestWatcherReportsDuringContinuousWrites(t *testing.T) {
 		defer ticker.Stop()
 		for {
 			_, _ = file.WriteAt([]byte("x"), 0)
+			_ = file.Sync()
 			select {
 			case <-stop:
 				return
