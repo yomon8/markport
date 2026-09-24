@@ -16,7 +16,7 @@ type ApiError = { error?: string; message?: string };
 class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
-app.innerHTML = `<a class="skip-link" href="#content">本文へ移動</a><header><button id="drawer-toggle" type="button" aria-label="ファイル一覧を開く">☰</button><button id="sidebar-toggle" type="button" aria-label="サイドバーを折りたたむ" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-horizontal" src="${logoLight}" alt=""><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">接続中…</span></span><button id="theme-toggle" type="button"></button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> 最新を取得</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs"><button id="files-tab" type="button">ファイル</button><button id="changes-tab" type="button">変更</button></div><div id="files-panel"><form role="search" onsubmit="return false"><label for="search">ファイルを検索</label><input id="search" type="search" placeholder="パス・ファイル名 /"><span id="result-count"></span></form><nav id="tree" aria-label="ファイル一覧"></nav></div><nav id="changes-tree" aria-label="変更ファイル一覧" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="サイドバーの幅を変更" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="目次" hidden></nav></div></main></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">閉じる ×</button><div id="overlay-content"></div></div>`;
+app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-horizontal" src="${logoLight}" alt=""><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><button id="theme-toggle" type="button"></button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs"><button id="files-tab" type="button">Files</button><button id="changes-tab" type="button">Changes</button></div><div id="files-panel"><form role="search" onsubmit="return false"><label for="search">Search files</label><input id="search" type="search" placeholder="Path or file name /"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" aria-label="Changed files" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
 if (!icon.isConnected) document.head.append(icon);
@@ -44,8 +44,8 @@ const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
 const drawerToggle = document.querySelector<HTMLButtonElement>('#drawer-toggle')!;
 const sidebarToggle = document.querySelector<HTMLButtonElement>('#sidebar-toggle')!;
 const view = new TreeView(tree, search, count, selected,
-  (path) => { const current = revision; void loadPage(path, 0, '', false, current).then(() => loadOpenDirectories(current)).catch(() => status('更新できません。再試行してください。', 'error')); },
-  (path, offset) => { const current = revision; void loadPage(path, offset, '', false, current).catch(() => status('更新できません。再試行してください。', 'error')); });
+  (path) => { const current = revision; void loadPage(path, 0, '', false, current).then(() => loadOpenDirectories(current)).catch(() => status('Refresh failed. Please try again.', 'error')); },
+  (path, offset) => { const current = revision; void loadPage(path, offset, '', false, current).catch(() => status('Refresh failed. Please try again.', 'error')); });
 let revision = 0; let pending = false; let running = false;
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = false;
 let displayedMode: 'file' | 'diff' | 'changes' = 'file'; let lastFilePath = '';
@@ -77,8 +77,8 @@ function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
   connection.querySelector<HTMLElement>('.connection-label')!.textContent = message; connection.dataset.state = state; connection.title = message;
   banner.hidden = state === 'ok'; banner.replaceChildren();
   if (state !== 'ok') {
-    banner.append(document.createTextNode(state === 'error' ? '更新できません。接続とファイルの状態を確認してください。' : '接続を確認しています。'));
-    if (state === 'error') { const button = document.createElement('button'); button.textContent = '手動で最新を取得'; button.addEventListener('click', manualRefresh); banner.append(button); }
+    banner.append(document.createTextNode(state === 'error' ? 'Refresh failed. Check the connection and files.' : 'Checking connection.'));
+    if (state === 'error') { const button = document.createElement('button'); button.textContent = 'Refresh now'; button.addEventListener('click', manualRefresh); banner.append(button); }
   }
 }
 async function getPage(path: string, offset: number, focus: string, conditional: boolean, expectedRevision?: number): Promise<Page | null> {
@@ -87,7 +87,7 @@ async function getPage(path: string, offset: number, focus: string, conditional:
   if (conditional && !focus && offset === 0 && view.has(path) && tag && Date.now() - tag.checkedAt < 60000) headers['If-None-Match'] = tag.value;
   let response: Response;
   try { response = await fetch(pageURL(path, offset, focus), { cache: 'no-store', headers }); }
-  catch { throw new RequestError('network', '接続できません'); }
+  catch { throw new RequestError('network', 'Cannot connect'); }
   if (response.status === 304) return null;
   const body = await response.json() as Page & ApiError;
   if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
@@ -100,7 +100,7 @@ async function getFile(path: string, source: boolean, expectedRevision: number):
   if (path === displayedPath && source === displayedSource && displayedHTML && displayedTag && Date.now() - displayedTagCheckedAt < 60000) headers['If-None-Match'] = displayedTag;
   let response: Response;
   try { response = await fetch(`/api/file?path=${encodeURIComponent(path)}${source ? '&source=1' : ''}`, { cache: 'no-store', headers }); }
-  catch { throw new RequestError('network', '接続できません'); }
+  catch { throw new RequestError('network', 'Cannot connect'); }
   if (response.status === 304) return null;
   const body = await response.json() as FileReply & ApiError;
   if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
@@ -113,7 +113,7 @@ async function getFile(path: string, source: boolean, expectedRevision: number):
 async function getGit<T>(url: string): Promise<T> {
   let response: Response;
   try { response = await fetch(url, { cache: 'no-store' }); }
-  catch { throw new RequestError('network', '接続できません'); }
+  catch { throw new RequestError('network', 'Cannot connect'); }
   const body = await response.json() as T & ApiError;
   if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
   return body;
@@ -188,12 +188,12 @@ async function refreshDirectories(path: string, expectedRevision: number): Promi
   try { await ensureSelectedPath(path, expectedRevision); }
   catch (error) { if (!(error instanceof RequestError && error.code === 'not_found')) throw error; }
   for (const key of pageTags.keys()) if (!view.has(key)) pageTags.delete(key);
-  void loadOpenDirectories(expectedRevision).catch(() => status('更新できません。再試行してください。', 'error'));
+  void loadOpenDirectories(expectedRevision).catch(() => status('Refresh failed. Please try again.', 'error'));
 }
 function showTitle(path: string, kind = '', missing = false): void {
   title.replaceChildren();
   if (selectedMode() === 'changes') {
-    const heading = document.createElement('strong'); heading.textContent = 'Gitの変更'; title.append(heading); document.title = 'Gitの変更 — markport'; return;
+    const heading = document.createElement('strong'); heading.textContent = 'Git changes'; title.append(heading); document.title = 'Git changes — markport'; return;
   }
   if (!path) { title.textContent = rootName || 'markport'; document.title = 'markport'; return; }
   const crumbs = document.createElement('div'); crumbs.className = 'breadcrumbs';
@@ -215,43 +215,43 @@ function showTitle(path: string, kind = '', missing = false): void {
   }
   if (selectedMode() === 'diff') {
     if (currentChanges?.changes.find((change) => change.path === path)?.status !== 'deleted') {
-      const file = document.createElement('button'); file.type = 'button'; file.textContent = 'ファイル'; file.addEventListener('click', () => navigate(fileURL(path))); actions.append(file);
+      const file = document.createElement('button'); file.type = 'button'; file.textContent = 'File'; file.addEventListener('click', () => navigate(fileURL(path))); actions.append(file);
     }
   } else {
-    const diff = document.createElement('button'); diff.type = 'button'; diff.textContent = '差分'; diff.addEventListener('click', () => navigate(diffURL(path))); actions.append(diff);
+    const diff = document.createElement('button'); diff.type = 'button'; diff.textContent = 'Diff'; diff.addEventListener('click', () => navigate(diffURL(path))); actions.append(diff);
   }
-  const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'パスをコピー'; copy.addEventListener('click', () => { void navigator.clipboard.writeText(path).then(() => { copy.textContent = 'コピーしました'; setTimeout(() => { copy.textContent = 'パスをコピー'; }, 2000); }); }); actions.append(copy);
-  if (kind === 'markdown' || kind === 'html') { const source = document.createElement('button'); source.type = 'button'; source.textContent = sourceMode ? kind === 'html' ? 'プレビュー' : '整形表示' : 'ソース'; source.addEventListener('click', () => { sourceMode = !sourceMode; requestRefresh(); }); actions.append(source); }
-  const toc = document.createElement('button'); toc.type = 'button'; toc.id = 'outline-toggle'; toc.textContent = '目次'; toc.hidden = outline.hidden; toc.addEventListener('click', () => outline.classList.toggle('open')); actions.append(toc);
+  const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy path'; copy.addEventListener('click', () => { void navigator.clipboard.writeText(path).then(() => { copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy path'; }, 2000); }); }); actions.append(copy);
+  if (kind === 'markdown' || kind === 'html') { const source = document.createElement('button'); source.type = 'button'; source.textContent = sourceMode ? kind === 'html' ? 'Preview' : 'Rendered view' : 'Source'; source.addEventListener('click', () => { sourceMode = !sourceMode; requestRefresh(); }); actions.append(source); }
+  const toc = document.createElement('button'); toc.type = 'button'; toc.id = 'outline-toggle'; toc.textContent = 'Contents'; toc.hidden = outline.hidden; toc.addEventListener('click', () => outline.classList.toggle('open')); actions.append(toc);
   title.append(actions); document.title = `${parts.at(-1)} — markport`;
 }
 function showEmpty(): void {
   content.replaceChildren(); const box = document.createElement('div'); box.className = 'empty-state';
-  const heading = document.createElement('h2'); heading.textContent = 'ファイルを選択してください';
-  const detail = document.createElement('p'); detail.textContent = `${rootName || '閲覧ルート'}で${view.fileCount()}ファイルを読み込み済みです。フォルダを開くと続きが表示されます。/ キーで検索できます。`;
+  const heading = document.createElement('h2'); heading.textContent = 'Select a file';
+  const detail = document.createElement('p'); detail.textContent = `${view.fileCount()} ${view.fileCount() === 1 ? 'file' : 'files'} loaded from ${rootName || 'the root directory'}. Open a folder to see more, or press / to search.`;
   box.append(heading, detail); content.append(box); outline.hidden = true;
 }
 function showError(error: unknown, path: string): void {
   const code = error instanceof RequestError ? error.code : 'network';
   const messages: Record<string, [string, string]> = {
-    not_found: ['ファイルが見つかりません', 'このファイルは削除されたか、移動されました。'],
-    too_large: ['ファイルが大きすぎます', 'サイズ上限を超えるため表示できません。'],
-    invalid_asset: ['画像を表示できません', '画像を読み込めません。ファイルを確認して再試行してください。'],
-    binary: ['表示できないファイルです', 'バイナリファイルのため表示できません。'],
-    unreadable: ['ファイルを読み取れません', 'このファイルは読み取れません。'],
-    not_regular: ['ファイルを読み取れません', 'このファイルは読み取れません。'],
-    network: ['接続できません', 'サーバーに接続できません。markportが起動しているか確認してください。'],
-    no_change: ['差分はありません', 'このファイルにHEADからの変更はありません。'],
-    git_unavailable: ['Gitの差分を表示できません', 'Gitが利用できるリポジトリを確認してください。'],
-    git_failure: ['Gitの差分を取得できません', '再試行してください。'],
+    not_found: ['File not found', 'This file was deleted or moved.'],
+    too_large: ['File too large', 'This file exceeds the size limit.'],
+    invalid_asset: ['Cannot display image', 'The image could not be loaded. Check the file and try again.'],
+    binary: ['Cannot display file', 'Binary files cannot be displayed.'],
+    unreadable: ['Cannot read file', 'This file cannot be read.'],
+    not_regular: ['Cannot read file', 'This file cannot be read.'],
+    network: ['Cannot connect', 'Cannot connect to the server. Check that markport is running.'],
+    no_change: ['No diff', 'This file has no changes since HEAD.'],
+    git_unavailable: ['Cannot display Git diff', 'Check that Git is available for this repository.'],
+    git_failure: ['Cannot load Git diff', 'Please try again.'],
   };
-  const [heading, description] = messages[code] ?? ['ファイルを表示できません', 'もう一度お試しください。'];
+  const [heading, description] = messages[code] ?? ['Cannot display file', 'Please try again.'];
   content.replaceChildren(); const box = document.createElement('div'); box.className = 'file-error'; box.setAttribute('role', 'alert');
   const icon = document.createElement('span'); icon.textContent = '⚠'; icon.setAttribute('aria-hidden', 'true');
   const h = document.createElement('h2'); h.textContent = heading; const p = document.createElement('p');
   const size = code === 'too_large' && error instanceof RequestError ? error.message.match(/(\d+ MiB) limit \(actual (\d+(?:\.\d+)? MiB)\)/) : undefined;
-  p.textContent = size ? `${size[1]}を超えるため表示できません（${size[2]}）。` : description;
-  const button = document.createElement('button'); button.type = 'button'; button.textContent = code === 'not_found' ? 'ルートへ戻る' : '再試行'; button.addEventListener('click', () => code === 'not_found' ? navigate('/') : manualRefresh());
+  p.textContent = size ? `This file exceeds the ${size[1]} limit (${size[2]}).` : description;
+  const button = document.createElement('button'); button.type = 'button'; button.textContent = code === 'not_found' ? 'Back to root' : 'Try again'; button.addEventListener('click', () => code === 'not_found' ? navigate('/') : manualRefresh());
   box.append(icon, h, p, button); content.append(box); showTitle(path, '', code === 'not_found'); outline.hidden = true;
 }
 function decorateContent(): void {
@@ -259,10 +259,10 @@ function decorateContent(): void {
     const frame = document.createElement('div'); frame.className = 'code-frame';
     const toolbar = document.createElement('div'); toolbar.className = 'code-toolbar';
     const label = document.createElement('span'); label.textContent = element.closest<HTMLElement>('[data-language]')?.dataset.language || (content.dataset.kind === 'code' ? displayedPath.split('.').at(-1) : 'text') || 'text';
-    const button = document.createElement('button'); button.type = 'button'; button.textContent = 'コピー';
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Copy';
     button.addEventListener('click', () => {
       const code = element.querySelector<HTMLElement>('.lntd:last-child pre') ?? element;
-      void navigator.clipboard.writeText(code.textContent ?? '').then(() => { button.textContent = 'コピーしました'; setTimeout(() => { button.textContent = 'コピー'; }, 2000); });
+      void navigator.clipboard.writeText(code.textContent ?? '').then(() => { button.textContent = 'Copied'; setTimeout(() => { button.textContent = 'Copy'; }, 2000); });
     });
     toolbar.append(label, button); element.before(frame); frame.append(toolbar, element);
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
@@ -280,7 +280,7 @@ function decorateContent(): void {
   }
   for (const img of content.querySelectorAll<HTMLImageElement>('img')) {
     img.loading = 'lazy'; img.decoding = 'async';
-    img.addEventListener('error', () => { const note = document.createElement('span'); note.className = 'image-error'; note.textContent = img.alt || '画像を読み込めません'; img.replaceWith(note); });
+    img.addEventListener('error', () => { const note = document.createElement('span'); note.className = 'image-error'; note.textContent = img.alt || 'Cannot load image'; img.replaceWith(note); });
   }
   for (const table of content.querySelectorAll('table')) {
     if (table.closest('.chroma')) continue;
@@ -369,7 +369,7 @@ async function refreshLoop(): Promise<void> {
             content.dataset.kind = 'changes'; renderChanges(content, changesReply!); displayedHTML = displayKey;
             outline.hidden = true; showTitle('');
           }
-          status('数秒おきに確認中', 'ok'); continue;
+          status('Checking every few seconds', 'ok'); continue;
         }
         if (!path) { showTitle(''); showEmpty(); continue; }
         if (fileReply && 'error' in fileReply) { showError(fileReply.error, path); displayedHTML = ''; displayedTag = ''; continue; }
@@ -380,18 +380,18 @@ async function refreshLoop(): Promise<void> {
             content.dataset.kind = 'diff'; renderDiff(content, diff); displayedHTML = displayKey;
             outline.hidden = true; showTitle(path, 'diff');
           }
-          status('数秒おきに確認中', 'ok'); continue;
+          status('Checking every few seconds', 'ok'); continue;
         }
         if (fileReply && 'value' in fileReply) {
           const file = fileReply.value as FileReply | null;
-          if (!file) { status('数秒おきに確認中', 'ok'); continue; }
+          if (!file) { status('Checking every few seconds', 'ok'); continue; }
           const displayKey = 'assetUrl' in file ? file.assetUrl : 'previewUrl' in file ? `${file.previewUrl}&reload=${previewReload}` : file.html;
           const changed = displayedHTML !== displayKey || displayedSource !== source;
           if (changed) {
             const oldScroll = main.scrollTop;
             content.dataset.kind = file.type === 'image' ? 'image' : source ? 'code' : file.type;
             if ('previewUrl' in file) {
-              const frame = document.createElement('iframe'); frame.className = 'html-preview'; frame.title = `${path} のプレビュー`;
+              const frame = document.createElement('iframe'); frame.className = 'html-preview'; frame.title = `Preview of ${path}`;
               frame.setAttribute('sandbox', 'allow-same-origin'); frame.referrerPolicy = 'no-referrer';
               attachPreviewNavigation(frame, path); frame.src = displayKey; content.replaceChildren(frame);
             } else if (file.type === 'image') {
@@ -404,7 +404,7 @@ async function refreshLoop(): Promise<void> {
             if (!pathChanged && oldScroll > 0) main.scrollTop = oldScroll;
             if (location.hash && file.type !== 'html') { try { document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ } }
             if (!pathChanged && current > 1) {
-              title.classList.add('updated'); const note = document.createElement('span'); note.className = 'update-note'; note.textContent = '更新しました'; title.querySelector('.title-actions')?.prepend(note);
+              title.classList.add('updated'); const note = document.createElement('span'); note.className = 'update-note'; note.textContent = 'Updated'; title.querySelector('.title-actions')?.prepend(note);
               clearTimeout(updatedTimer); updatedTimer = setTimeout(() => { title.classList.remove('updated'); note.remove(); }, 3500);
             }
             void drawMermaid(content, () => path === selected() && source === sourceMode);
@@ -412,10 +412,10 @@ async function refreshLoop(): Promise<void> {
           view.reveal(path);
           if (pathChanged) title.focus({ preventScroll: true });
         }
-        status('数秒おきに確認中', 'ok');
+        status('Checking every few seconds', 'ok');
       } catch (error) {
         if (current !== revision) { pending = true; continue; }
-        showError(error, path); status('更新できません。再試行してください。', 'error');
+        showError(error, path); status('Refresh failed. Please try again.', 'error');
       } finally { endLoading(); }
     }
   } finally { running = false; if (pending) void refreshLoop(); }
@@ -442,7 +442,7 @@ content.addEventListener('click', (event) => {
       const image = diagram.querySelector<HTMLElement>('.diagram-image')!; const showing = image.hidden; image.hidden = !showing;
       let source = diagram.querySelector<HTMLElement>('.diagram-source');
       if (!source) { source = document.createElement('pre'); source.className = 'diagram-source'; source.textContent = diagram.dataset.source ?? ''; diagram.append(source); }
-      source.hidden = showing; action.textContent = showing ? 'ソース' : '図';
+      source.hidden = showing; action.textContent = showing ? 'Source' : 'Diagram';
     } else {
       document.querySelector<HTMLElement>('#overlay-content')!.innerHTML = diagram.querySelector('.diagram-image')?.innerHTML ?? '';
       document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = false;
@@ -463,14 +463,14 @@ window.addEventListener('keydown', (event) => {
 });
 reload.addEventListener('click', manualRefresh);
 drawerToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
-sidebarToggle.addEventListener('click', () => { const collapsed = sidebar.classList.toggle('collapsed'); sidebarToggle.setAttribute('aria-expanded', String(!collapsed)); sidebarToggle.setAttribute('aria-label', collapsed ? 'サイドバーを開く' : 'サイドバーを折りたたむ'); });
+sidebarToggle.addEventListener('click', () => { const collapsed = sidebar.classList.toggle('collapsed'); sidebarToggle.setAttribute('aria-expanded', String(!collapsed)); sidebarToggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar'); });
 const resize = document.querySelector<HTMLElement>('#sidebar-resize')!;
 resize.addEventListener('pointerdown', (event) => { resize.setPointerCapture(event.pointerId); });
 resize.addEventListener('pointermove', (event) => { if (!resize.hasPointerCapture(event.pointerId)) return; const width = Math.max(200, Math.min(480, event.clientX)); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
 resize.addEventListener('keydown', (event) => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; const width = Math.max(200, Math.min(480, Number(localStorage.getItem('markport-sidebar-width') ?? 280) + (event.key === 'ArrowRight' ? 10 : -10))); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
 initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => { updateBrand(); if (content.querySelector('[data-mermaid]')) { displayedHTML = ''; requestRefresh(); } });
 updateBrand();
-status('数秒おきに確認中', 'ok');
+status('Checking every few seconds', 'ok');
 requestRefresh();
 const pollTimer = setInterval(() => { if (!document.hidden) requestRefresh(); }, 3000);
 window.addEventListener('pagehide', () => clearInterval(pollTimer));

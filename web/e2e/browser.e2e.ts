@@ -56,6 +56,20 @@ test.afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
+test('shows English controls with a Japanese browser locale', async ({ browser }) => {
+  const context = await browser.newContext({ locale: 'ja-JP' });
+  try {
+    const page = await context.newPage();
+    await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page.getByRole('button', { name: 'Refresh' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Files' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Source' })).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
 test('previews HTML with CSS and images, blocks scripts, and follows local links', async ({ page }) => {
   await page.route('https://cdn.example.test/external.css', (route) => route.fulfill({ contentType: 'text/css', body: 'h1 { background: rgb(40, 50, 60) }' }));
   await page.route('https://cdn.example.test/external.png', (route) => route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/c4sAAAAASUVORK5CYII=', 'base64') }));
@@ -66,9 +80,9 @@ test('previews HTML with CSS and images, blocks scripts, and follows local links
   await expect(frame.locator('h1')).toHaveCSS('background-color', 'rgb(40, 50, 60)');
   for (const image of await frame.locator('img').all()) await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
   expect(await frame.locator('body').evaluate((body) => (body.ownerDocument.defaultView as Window & { previewScriptRan?: boolean }).previewScriptRan)).toBeUndefined();
-  await page.locator('.title-actions button', { hasText: 'ソース' }).click();
+  await page.locator('.title-actions button', { hasText: 'Source' }).click();
   await expect(page.locator('article .lntd:last-child pre')).toContainText('HTML preview');
-  await page.locator('.title-actions button', { hasText: 'プレビュー' }).click();
+  await page.locator('.title-actions button', { hasText: 'Preview' }).click();
   await frame.locator('a', { hasText: 'Next HTML' }).click();
   await expect(page).toHaveURL(/path=docs%2Fsecond\.htm/);
   await expect(page.frameLocator('.html-preview').locator('h1')).toHaveText('Second HTML');
@@ -102,7 +116,7 @@ test('renders GFM, Mermaid and code, then tracks files', async ({ page }) => {
   await writeFile(join(directory, 'new.md'), '# Updated file\n');
   await expect(page.locator('article h1')).toHaveText('Updated file');
   await unlink(join(directory, 'new.md'));
-  await expect(page.locator('.file-error')).toContainText('ファイルが見つかりません');
+  await expect(page.locator('.file-error')).toContainText('File not found');
   await expect(page.getByRole('link', { name: 'new.md' })).toHaveCount(0);
 });
 
@@ -126,7 +140,7 @@ test('tracks imported descendants and an in-root directory move', async ({ page 
   await mkdir(join(source, 'folder', 'child'), { recursive: true });
   await writeFile(join(source, 'folder', 'child', 'nested.md'), '# Nested first\n');
   await page.goto(`http://127.0.0.1:${port}/`);
-  await expect(page.locator('#connection')).toHaveText('数秒おきに確認中');
+  await expect(page.locator('#connection')).toHaveText('Checking every few seconds');
   await rename(join(source, 'folder'), join(directory, 'folder'));
   await expect(page.locator('details[data-path="folder"]')).toHaveCount(1);
   await page.locator('details[data-path="folder"] > summary').click();
@@ -158,7 +172,7 @@ test('recovers changes after the server restarts', async ({ page }) => {
   await expect(page.locator('article .lntd:last-child pre')).toContainText('first');
   await expect(page.getByRole('link', { name: 'to-delete.md' })).toBeVisible();
   await stopServer();
-  await expect(page.locator('#connection')).toContainText('更新できません');
+  await expect(page.locator('#connection')).toContainText('Refresh failed');
   await writeFile(join(directory, 'sample.py'), 'print("offline update")\n');
   await writeFile(join(directory, 'offline.md'), '# Added offline\n');
   await unlink(join(directory, 'to-delete.md'));
@@ -202,11 +216,11 @@ test('desktop and mobile views in both themes', async ({ page }, testInfo) => {
   expect(faviconSvg).toContain('--icon-accent: #0969DA');
   await page.evaluate(() => { localStorage.setItem('markport-theme', 'light'); });
   await page.reload();
-  await page.getByRole('button', { name: 'テーマ: ライト' }).click();
+  await page.getByRole('button', { name: 'Theme: Light' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   const switchedSvg = await page.locator('.brand-symbol').evaluate(async (image: HTMLImageElement) => (await fetch(image.src)).text());
   expect(switchedSvg).toContain('#75B7FF');
-  await page.getByRole('button', { name: 'ファイル一覧を開く' }).click();
+  await page.getByRole('button', { name: 'Open file list' }).click();
   await expect(page.locator('#sidebar')).toHaveClass(/open/);
   await page.getByRole('link', { name: 'sample.py' }).click();
   await expect(page.locator('#sidebar')).not.toHaveClass(/open/);
@@ -216,14 +230,14 @@ test('opens README, switches source, searches by keyboard, and follows code line
   await page.goto(`http://127.0.0.1:${port}/`);
   await expect(page).toHaveURL(/path=README.md/);
   await expect(page).toHaveTitle('README.md — markport');
-  await page.getByRole('button', { name: 'ソース', exact: true }).click();
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
   await expect(page.locator('article .lntd:last-child pre')).toContainText('# Demo');
-  await page.getByRole('button', { name: '整形表示' }).click();
+  await page.getByRole('button', { name: 'Rendered view' }).click();
   await expect(page.locator('article h1')).toHaveText('Demo');
   await page.keyboard.press('Control+k');
   await expect(page.locator('#search')).toBeFocused();
   await page.locator('#search').fill('smpy');
-  await expect(page.locator('#result-count')).toContainText('1件（読み込み済みから検索）');
+  await expect(page.locator('#result-count')).toContainText('1 match in loaded files');
   await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('link', { name: 'sample.py' })).toBeFocused();
   await page.keyboard.press('Enter');
@@ -298,6 +312,6 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   await expect(page.locator('.diff-added .diff-code')).toContainText('changed');
   await writeFile(join(directory, 'sample.py'), 'print("changed again")\n');
   await expect(page.locator('.diff-added .diff-code')).toContainText('changed again', { timeout: 15000 });
-  await page.getByRole('button', { name: 'ファイル', exact: true }).last().click();
+  await page.getByRole('button', { name: 'File', exact: true }).last().click();
   await expect(page.locator('article .lntd:last-child pre')).toContainText('changed again');
 });

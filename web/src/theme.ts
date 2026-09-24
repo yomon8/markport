@@ -8,8 +8,8 @@ export function initTheme(button: HTMLButtonElement, redraw: () => void): void {
   function apply(): void {
     const preference = (localStorage.getItem('markport-theme') ?? 'auto') as Theme;
     document.documentElement.dataset.theme = effectiveTheme();
-    button.textContent = `テーマ: ${{ auto: '自動', light: 'ライト', dark: 'ダーク' }[preference]}`;
-    button.title = 'テーマを切り替える';
+    button.textContent = `Theme: ${{ auto: 'Auto', light: 'Light', dark: 'Dark' }[preference]}`;
+    button.title = 'Switch theme';
   }
   button.addEventListener('click', () => {
     const current = (localStorage.getItem('markport-theme') ?? 'auto') as Theme;

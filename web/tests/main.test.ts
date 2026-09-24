@@ -42,7 +42,7 @@ describe('lazy browsing and refresh', () => {
     patch = patch.replace('alert(1)', 'alert(2)');
     document.dispatchEvent(new Event('visibilitychange')); await flush();
     expect(document.querySelector('.diff-added .diff-code')?.textContent).toContain('alert(2)');
-    [...document.querySelectorAll<HTMLButtonElement>('.title-actions button')].find((button) => button.textContent === 'ファイル')!.click(); await flush();
+    [...document.querySelectorAll<HTMLButtonElement>('.title-actions button')].find((button) => button.textContent === 'File')!.click(); await flush();
     expect(document.querySelector('#content h1')?.textContent).toBe('Preview');
   });
 
@@ -50,8 +50,8 @@ describe('lazy browsing and refresh', () => {
     history.replaceState(null, '', '/?view=changes');
     vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree' ? reply(page([])) : reply({ available: false, reason: 'not_repository', changes: [] })));
     await import('../src/main'); await flush();
-    expect(document.querySelector('#content')?.textContent).toContain('Gitリポジトリではありません');
-    expect(document.querySelector('#changes-tree')?.textContent).toContain('Gitリポジトリではありません');
+    expect(document.querySelector('#content')?.textContent).toContain('This directory is not a Git repository.');
+    expect(document.querySelector('#changes-tree')?.textContent).toContain('This directory is not a Git repository.');
   });
 
   it('previews HTML, switches to source, and reloads the preview manually', async () => {
@@ -67,9 +67,9 @@ describe('lazy browsing and refresh', () => {
     expect(frame?.getAttribute('sandbox')).toBe('allow-same-origin');
     expect(frame?.src).toContain('/api/preview/page.html?v=1&reload=0');
     expect(document.querySelector('.kind-badge')?.textContent).toBe('HTML');
-    [...document.querySelectorAll<HTMLButtonElement>('.title-actions button')].find((button) => button.textContent === 'ソース')!.click(); await flush();
+    [...document.querySelectorAll<HTMLButtonElement>('.title-actions button')].find((button) => button.textContent === 'Source')!.click(); await flush();
     expect(document.querySelector('#content pre')?.textContent).toBe('HTML source');
-    const previewButton = [...document.querySelectorAll<HTMLButtonElement>('.title-actions button')].find((button) => button.textContent === 'プレビュー')!;
+    const previewButton = [...document.querySelectorAll<HTMLButtonElement>('.title-actions button')].find((button) => button.textContent === 'Preview')!;
     previewButton.click(); await flush();
     document.querySelector<HTMLButtonElement>('#reload')!.click(); await flush();
     expect(document.querySelector<HTMLIFrameElement>('.html-preview')?.src).toContain('/api/preview/page.html?v=1&reload=1');
@@ -101,7 +101,7 @@ describe('lazy browsing and refresh', () => {
     expect(document.querySelectorAll('#tree a').length).toBe(200);
     const search = document.querySelector<HTMLInputElement>('#search')!;
     search.value = 'last'; search.dispatchEvent(new Event('input'));
-    expect(document.querySelector('#result-count')?.textContent).toContain('0件（読み込み済みから検索）');
+    expect(document.querySelector('#result-count')?.textContent).toContain('0 matches in loaded files');
     search.value = ''; search.dispatchEvent(new Event('input'));
     document.querySelector<HTMLButtonElement>('button[data-offset="200"]')!.click(); await flush();
     search.value = 'last'; search.dispatchEvent(new Event('input'));

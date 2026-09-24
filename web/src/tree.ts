@@ -152,11 +152,11 @@ export class TreeView {
     const list = document.createElement('ul');
     const directory = this.directories.get(path);
     if (!directory) {
-      if (this.loading.has(path)) { const item = document.createElement('li'); item.className = 'hint'; item.textContent = '読み込み中…'; list.append(item); }
+      if (this.loading.has(path)) { const item = document.createElement('li'); item.className = 'hint'; item.textContent = 'Loading…'; list.append(item); }
       parent.append(list); return;
     }
     for (const offset of this.offsets(path)) {
-      if (offset > 0 && !directory.pages.has(offset - 200)) this.appendPageButton(list, path, offset - 200, '前の項目を読み込む');
+      if (offset > 0 && !directory.pages.has(offset - 200)) this.appendPageButton(list, path, offset - 200, 'Load previous items');
       for (const node of directory.pages.get(offset) ?? []) {
         const item = document.createElement('li');
         if (node.type === 'directory') {
@@ -172,7 +172,7 @@ export class TreeView {
         list.append(item);
       }
       const next = directory.next.get(offset);
-      if (next !== null && next !== undefined && !directory.pages.has(next)) this.appendPageButton(list, path, next, '次の項目を読み込む');
+      if (next !== null && next !== undefined && !directory.pages.has(next)) this.appendPageButton(list, path, next, 'Load next items');
     }
     parent.append(list);
   }
@@ -186,12 +186,12 @@ export class TreeView {
     this.tree.replaceChildren();
     if (query) {
       const matches = this.allFiles().map((node) => ({ node, rank: score(node.path, query) })).filter((item) => item.rank >= 0).sort((a, b) => b.rank - a.rank || compareNames(a.node.path, b.node.path));
-      this.count.textContent = `${matches.length}件（読み込み済みから検索）`;
-      if (!matches.length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = '読み込み済みのファイルに一致するものはありません。'; this.tree.append(empty); }
+      this.count.textContent = `${matches.length} ${matches.length === 1 ? 'match' : 'matches'} in loaded files`;
+      if (!matches.length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = 'No matches in loaded files.'; this.tree.append(empty); }
       else { const list = document.createElement('ul'); list.className = 'search-results'; for (const { node } of matches) { const item = document.createElement('li'); item.append(fileLink(node, this.selected(), query)); list.append(item); } this.tree.append(list); }
     } else {
-      this.count.textContent = `${this.fileCount()}ファイル読み込み済み`;
-      if (this.has('') && !this.nodes('').length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = '表示できるファイルがありません（.git・node_modules・.venvは除外）。'; this.tree.append(empty); }
+      this.count.textContent = `${this.fileCount()} ${this.fileCount() === 1 ? 'file' : 'files'} loaded`;
+      if (this.has('') && !this.nodes('').length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = 'No files to display (.git, node_modules, and .venv are excluded).'; this.tree.append(empty); }
       else this.appendNodes(this.tree, '');
     }
   }

@@ -2,18 +2,18 @@ export type Change = { path: string; status: 'added' | 'modified' | 'deleted' };
 export type ChangesReply = { available: boolean; reason?: 'git_unavailable' | 'not_repository'; changes: Change[] };
 export type DiffReply = { path: string; kind: 'text' | 'binary'; patch: string };
 
-const statusLabels: Record<Change['status'], string> = { added: '追加', modified: '変更', deleted: '削除' };
+const statusLabels: Record<Change['status'], string> = { added: 'Added', modified: 'Modified', deleted: 'Deleted' };
 export const diffURL = (path: string): string => `/?path=${encodeURIComponent(path)}&view=diff`;
 
 export function renderChanges(target: HTMLElement, reply: ChangesReply, compact = false): void {
   target.replaceChildren();
   if (!reply.available) {
     const message = document.createElement('p'); message.className = 'hint';
-    message.textContent = reply.reason === 'git_unavailable' ? 'Gitが見つかりません。差分表示にはGitが必要です。' : 'Gitリポジトリではありません。';
+    message.textContent = reply.reason === 'git_unavailable' ? 'Git was not found. Git is required to show diffs.' : 'This directory is not a Git repository.';
     target.append(message); return;
   }
   if (!reply.changes.length) {
-    const message = document.createElement('p'); message.className = 'hint'; message.textContent = '変更はありません。'; target.append(message); return;
+    const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'No changes.'; target.append(message); return;
   }
   const list = document.createElement('ul'); list.className = compact ? 'change-list compact' : 'change-list';
   for (const change of reply.changes) {
@@ -29,7 +29,7 @@ export function renderChanges(target: HTMLElement, reply: ChangesReply, compact 
 export function renderDiff(target: HTMLElement, reply: DiffReply): void {
   target.replaceChildren();
   if (reply.kind === 'binary') {
-    const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'バイナリファイルが変更されています。行ごとの差分は表示できません。';
+    const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'This binary file has changed. A line-by-line diff is unavailable.';
     target.append(message); return;
   }
   const frame = document.createElement('div'); frame.className = 'diff-frame';
