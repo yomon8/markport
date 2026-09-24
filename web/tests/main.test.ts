@@ -22,6 +22,38 @@ beforeEach(() => {
 afterEach(() => { window.dispatchEvent(new Event('pagehide')); vi.unstubAllGlobals(); });
 
 describe('lazy browsing and refresh', () => {
+  it('lists Git changes and renders a safe, refreshing diff', async () => {
+    history.replaceState(null, '', '/?view=changes');
+    let patch = 'diff --git a/new.md b/new.md\n--- /dev/null\n+++ b/new.md\n@@ -0,0 +1,1 @@\n+<script>alert(1)</script>\n';
+    const fetch = vi.fn(async (url: string) => {
+      if (url === '/api/tree') return reply(page([entry('new.md')]));
+      if (url === '/api/git/changes') return reply({ available: true, changes: [{ path: 'new.md', status: 'added' }] });
+      if (url === '/api/git/diff?path=new.md') return reply({ path: 'new.md', kind: 'text', patch });
+      return reply({ path: 'new.md', type: 'markdown', html: '<h1>Preview</h1>' });
+    });
+    vi.stubGlobal('fetch', fetch);
+    await import('../src/main'); await flush();
+    expect(document.querySelector('#content .change-path')?.textContent).toBe('new.md');
+    expect(document.querySelector('#changes-tree .change-path')?.textContent).toBe('new.md');
+    document.querySelector<HTMLAnchorElement>('#content .change-list a')!.click(); await flush();
+    expect(document.querySelector('.diff-added .diff-code')?.textContent).toContain('<script>');
+    expect(document.querySelector('#content script')).toBeNull();
+    expect(document.querySelector('.diff-added .diff-number:nth-child(2)')?.textContent).toBe('1');
+    patch = patch.replace('alert(1)', 'alert(2)');
+    document.dispatchEvent(new Event('visibilitychange')); await flush();
+    expect(document.querySelector('.diff-added .diff-code')?.textContent).toContain('alert(2)');
+    [...document.querySelectorAll<HTMLButtonElement>('.title-actions button')].find((button) => button.textContent === 'ファイル')!.click(); await flush();
+    expect(document.querySelector('#content h1')?.textContent).toBe('Preview');
+  });
+
+  it('explains when the selected directory is not a Git repository', async () => {
+    history.replaceState(null, '', '/?view=changes');
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree' ? reply(page([])) : reply({ available: false, reason: 'not_repository', changes: [] })));
+    await import('../src/main'); await flush();
+    expect(document.querySelector('#content')?.textContent).toContain('Gitリポジトリではありません');
+    expect(document.querySelector('#changes-tree')?.textContent).toContain('Gitリポジトリではありません');
+  });
+
   it('previews HTML, switches to source, and reloads the preview manually', async () => {
     history.replaceState(null, '', '/?path=page.html');
     const fetch = vi.fn(async (url: string) => {

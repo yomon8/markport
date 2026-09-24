@@ -2,6 +2,7 @@ import './style.css';
 import { drawMermaid } from './mermaid';
 import { TreeView, type Page } from './tree';
 import { effectiveTheme, initTheme } from './theme';
+import { renderChanges, renderDiff, diffURL, type ChangesReply, type DiffReply } from './diff';
 import logoLight from '../../logo/markport-logo-horizontal-light.svg';
 import logoDark from '../../logo/markport-logo-horizontal-dark.svg';
 import symbolLight from '../../logo/markport-symbol-light.svg';
@@ -15,7 +16,7 @@ type ApiError = { error?: string; message?: string };
 class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
-app.innerHTML = `<a class="skip-link" href="#content">本文へ移動</a><header><button id="drawer-toggle" type="button" aria-label="ファイル一覧を開く">☰</button><button id="sidebar-toggle" type="button" aria-label="サイドバーを折りたたむ" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-horizontal" src="${logoLight}" alt=""><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">接続中…</span></span><button id="theme-toggle" type="button"></button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> 最新を取得</button></header><div class="layout"><aside id="sidebar"><form role="search" onsubmit="return false"><label for="search">ファイルを検索</label><input id="search" type="search" placeholder="パス・ファイル名 /"><span id="result-count"></span></form><nav id="tree" aria-label="ファイル一覧"></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="サイドバーの幅を変更" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="目次" hidden></nav></div></main></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">閉じる ×</button><div id="overlay-content"></div></div>`;
+app.innerHTML = `<a class="skip-link" href="#content">本文へ移動</a><header><button id="drawer-toggle" type="button" aria-label="ファイル一覧を開く">☰</button><button id="sidebar-toggle" type="button" aria-label="サイドバーを折りたたむ" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-horizontal" src="${logoLight}" alt=""><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">接続中…</span></span><button id="theme-toggle" type="button"></button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> 最新を取得</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs"><button id="files-tab" type="button">ファイル</button><button id="changes-tab" type="button">変更</button></div><div id="files-panel"><form role="search" onsubmit="return false"><label for="search">ファイルを検索</label><input id="search" type="search" placeholder="パス・ファイル名 /"><span id="result-count"></span></form><nav id="tree" aria-label="ファイル一覧"></nav></div><nav id="changes-tree" aria-label="変更ファイル一覧" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="サイドバーの幅を変更" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="目次" hidden></nav></div></main></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">閉じる ×</button><div id="overlay-content"></div></div>`;
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
 if (!icon.isConnected) document.head.append(icon);
@@ -25,6 +26,10 @@ function updateBrand(): void {
   document.querySelector<HTMLImageElement>('.brand-symbol')!.src = dark ? symbolDark : symbolLight;
 }
 const tree = document.querySelector<HTMLElement>('#tree')!;
+const changesTree = document.querySelector<HTMLElement>('#changes-tree')!;
+const filesPanel = document.querySelector<HTMLElement>('#files-panel')!;
+const filesTab = document.querySelector<HTMLButtonElement>('#files-tab')!;
+const changesTab = document.querySelector<HTMLButtonElement>('#changes-tab')!;
 const content = document.querySelector<HTMLElement>('#content')!;
 const title = document.querySelector<HTMLElement>('#file-title')!;
 const search = document.querySelector<HTMLInputElement>('#search')!;
@@ -43,6 +48,8 @@ const view = new TreeView(tree, search, count, selected,
   (path, offset) => { const current = revision; void loadPage(path, offset, '', false, current).catch(() => status('更新できません。再試行してください。', 'error')); });
 let revision = 0; let pending = false; let running = false;
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = false;
+let displayedMode: 'file' | 'diff' | 'changes' = 'file'; let lastFilePath = '';
+let currentChanges: ChangesReply | undefined;
 let previewReload = 0;
 let displayedTag = '';
 let displayedTagCheckedAt = 0;
@@ -55,6 +62,15 @@ if (savedWidth >= 200 && savedWidth <= 480) document.documentElement.style.setPr
 
 function selected(): string { return new URL(location.href).searchParams.get('path') ?? ''; }
 function fileURL(path: string): string { return `/?path=${encodeURIComponent(path)}`; }
+function selectedMode(): 'file' | 'diff' | 'changes' {
+  const view = new URL(location.href).searchParams.get('view');
+  return view === 'changes' ? 'changes' : view === 'diff' && selected() ? 'diff' : 'file';
+}
+function showSidebar(mode: 'file' | 'diff' | 'changes'): void {
+  const git = mode !== 'file';
+  filesPanel.hidden = git; changesTree.hidden = !git;
+  filesTab.setAttribute('aria-pressed', String(!git)); changesTab.setAttribute('aria-pressed', String(git));
+}
 function saveScroll(): void { history.replaceState({ scroll: main.scrollTop }, '', location.href); }
 function navigate(url: string): void { saveScroll(); history.pushState({ scroll: 0 }, '', url); sourceMode = false; sidebar.classList.remove('open'); requestRefresh(); }
 function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
@@ -92,6 +108,14 @@ async function getFile(path: string, source: boolean, expectedRevision: number):
     displayedTag = response.headers?.get('ETag') ?? '';
     displayedTagCheckedAt = Date.now();
   }
+  return body;
+}
+async function getGit<T>(url: string): Promise<T> {
+  let response: Response;
+  try { response = await fetch(url, { cache: 'no-store' }); }
+  catch { throw new RequestError('network', '接続できません'); }
+  const body = await response.json() as T & ApiError;
+  if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
   return body;
 }
 function pageURL(path: string, offset = 0, focus = ''): string {
@@ -168,6 +192,9 @@ async function refreshDirectories(path: string, expectedRevision: number): Promi
 }
 function showTitle(path: string, kind = '', missing = false): void {
   title.replaceChildren();
+  if (selectedMode() === 'changes') {
+    const heading = document.createElement('strong'); heading.textContent = 'Gitの変更'; title.append(heading); document.title = 'Gitの変更 — markport'; return;
+  }
   if (!path) { title.textContent = rootName || 'markport'; document.title = 'markport'; return; }
   const crumbs = document.createElement('div'); crumbs.className = 'breadcrumbs';
   const parts = path.split('/');
@@ -184,7 +211,14 @@ function showTitle(path: string, kind = '', missing = false): void {
     const badge = document.createElement('span'); badge.className = 'kind-badge';
     const extension = path.split('.').at(-1)?.toLowerCase() ?? '';
     const languages: Record<string, string> = { py: 'Python', go: 'Go', js: 'JavaScript', ts: 'TypeScript', tsx: 'TypeScript', jsx: 'JavaScript', rs: 'Rust', java: 'Java', sh: 'Shell', html: 'HTML', css: 'CSS', json: 'JSON', yaml: 'YAML', yml: 'YAML' };
-    badge.textContent = kind === 'markdown' ? 'Markdown' : kind === 'html' ? 'HTML' : ((languages[extension] ?? extension.toUpperCase()) || 'Code'); actions.append(badge);
+    badge.textContent = kind === 'diff' ? 'Git Diff' : kind === 'markdown' ? 'Markdown' : kind === 'html' ? 'HTML' : ((languages[extension] ?? extension.toUpperCase()) || 'Code'); actions.append(badge);
+  }
+  if (selectedMode() === 'diff') {
+    if (currentChanges?.changes.find((change) => change.path === path)?.status !== 'deleted') {
+      const file = document.createElement('button'); file.type = 'button'; file.textContent = 'ファイル'; file.addEventListener('click', () => navigate(fileURL(path))); actions.append(file);
+    }
+  } else {
+    const diff = document.createElement('button'); diff.type = 'button'; diff.textContent = '差分'; diff.addEventListener('click', () => navigate(diffURL(path))); actions.append(diff);
   }
   const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'パスをコピー'; copy.addEventListener('click', () => { void navigator.clipboard.writeText(path).then(() => { copy.textContent = 'コピーしました'; setTimeout(() => { copy.textContent = 'パスをコピー'; }, 2000); }); }); actions.append(copy);
   if (kind === 'markdown' || kind === 'html') { const source = document.createElement('button'); source.type = 'button'; source.textContent = sourceMode ? kind === 'html' ? 'プレビュー' : '整形表示' : 'ソース'; source.addEventListener('click', () => { sourceMode = !sourceMode; requestRefresh(); }); actions.append(source); }
@@ -207,6 +241,9 @@ function showError(error: unknown, path: string): void {
     unreadable: ['ファイルを読み取れません', 'このファイルは読み取れません。'],
     not_regular: ['ファイルを読み取れません', 'このファイルは読み取れません。'],
     network: ['接続できません', 'サーバーに接続できません。markportが起動しているか確認してください。'],
+    no_change: ['差分はありません', 'このファイルにHEADからの変更はありません。'],
+    git_unavailable: ['Gitの差分を表示できません', 'Gitが利用できるリポジトリを確認してください。'],
+    git_failure: ['Gitの差分を取得できません', '再試行してください。'],
   };
   const [heading, description] = messages[code] ?? ['ファイルを表示できません', 'もう一度お試しください。'];
   content.replaceChildren(); const box = document.createElement('div'); box.className = 'file-error'; box.setAttribute('role', 'alert');
@@ -305,22 +342,48 @@ async function refreshLoop(): Promise<void> {
   running = true;
   try {
     while (pending) {
-      pending = false; const current = revision; const path = selected(); const source = sourceMode;
-      if (path !== displayedPath) displayedTag = '';
+      pending = false; const current = revision; const path = selected(); const source = sourceMode; const mode = selectedMode();
+      showSidebar(mode);
+      if (path !== displayedPath || mode !== displayedMode) displayedTag = '';
       beginLoading();
-      const treePromise = refreshDirectories(path, current);
-      const filePromise = path ? getFile(path, source, current).then((value) => ({ value }), (error: unknown) => ({ error })) : Promise.resolve(null);
+      const treePromise = refreshDirectories(mode === 'changes' ? '' : path, current);
+      const gitPromise = mode !== 'file' ? getGit<ChangesReply>('/api/git/changes') : Promise.resolve(undefined);
+      const filePromise = mode === 'diff' ? getGit<DiffReply>(`/api/git/diff?path=${encodeURIComponent(path)}`).then((value) => ({ value }), (error: unknown) => ({ error }))
+        : mode === 'file' && path ? getFile(path, source, current).then((value) => ({ value }), (error: unknown) => ({ error })) : Promise.resolve(null);
       try {
-        const [, fileReply] = await Promise.all([treePromise, filePromise]);
-        if (current !== revision || path !== selected()) { pending = true; continue; }
-        if (!path && view.firstReadme()) { history.replaceState({ scroll: 0 }, '', fileURL(view.firstReadme()!)); pending = true; revision++; continue; }
-        const pathChanged = path !== displayedPath;
+        const [, fileReply, changesReply] = await Promise.all([treePromise, filePromise, gitPromise]);
+        if (current !== revision || path !== selected() || mode !== selectedMode()) { pending = true; continue; }
+        if (mode === 'file' && !path && view.firstReadme()) { history.replaceState({ scroll: 0 }, '', fileURL(view.firstReadme()!)); pending = true; revision++; continue; }
+        const pathChanged = path !== displayedPath || mode !== displayedMode;
         if (pathChanged) { main.scrollTop = history.state?.scroll ?? 0; displayedHTML = ''; view.pruneInactive(); }
-        displayedPath = path;
+        displayedPath = path; displayedMode = mode;
+        if (path) lastFilePath = path;
+        if (changesReply) {
+          currentChanges = changesReply;
+          renderChanges(changesTree, changesReply, true);
+          [...changesTree.querySelectorAll<HTMLAnchorElement>('a[href]')].find((link) => link.getAttribute('href') === diffURL(path))?.setAttribute('aria-current', 'page');
+        }
+        if (mode === 'changes') {
+          const displayKey = JSON.stringify(changesReply);
+          if (displayedHTML !== displayKey) {
+            content.dataset.kind = 'changes'; renderChanges(content, changesReply!); displayedHTML = displayKey;
+            outline.hidden = true; showTitle('');
+          }
+          status('数秒おきに確認中', 'ok'); continue;
+        }
         if (!path) { showTitle(''); showEmpty(); continue; }
         if (fileReply && 'error' in fileReply) { showError(fileReply.error, path); displayedHTML = ''; displayedTag = ''; continue; }
+        if (mode === 'diff' && fileReply && 'value' in fileReply) {
+          const diff = fileReply.value as DiffReply;
+          const displayKey = `${diff.kind}\n${diff.patch}`;
+          if (displayedHTML !== displayKey) {
+            content.dataset.kind = 'diff'; renderDiff(content, diff); displayedHTML = displayKey;
+            outline.hidden = true; showTitle(path, 'diff');
+          }
+          status('数秒おきに確認中', 'ok'); continue;
+        }
         if (fileReply && 'value' in fileReply) {
-          const file = fileReply.value;
+          const file = fileReply.value as FileReply | null;
           if (!file) { status('数秒おきに確認中', 'ok'); continue; }
           const displayKey = 'assetUrl' in file ? file.assetUrl : 'previewUrl' in file ? `${file.previewUrl}&reload=${previewReload}` : file.html;
           const changed = displayedHTML !== displayKey || displayedSource !== source;
@@ -363,6 +426,13 @@ tree.addEventListener('click', (event) => {
   if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
   event.preventDefault(); navigate(link.href);
 });
+changesTree.addEventListener('click', (event) => {
+  const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
+  if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
+  event.preventDefault(); navigate(link.href);
+});
+filesTab.addEventListener('click', () => navigate(lastFilePath ? fileURL(lastFilePath) : '/'));
+changesTab.addEventListener('click', () => navigate('/?view=changes'));
 content.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
   const action = target.closest<HTMLButtonElement>('[data-diagram-action]');

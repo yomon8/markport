@@ -2,6 +2,8 @@ package server
 
 import (
 	"bytes"
+	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -17,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/markport/markport/internal/files"
+	"github.com/markport/markport/internal/gitdiff"
 	"github.com/markport/markport/internal/render"
 	"github.com/markport/markport/internal/web"
 )
@@ -105,6 +108,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.asset(w, r)
 	case "/api/events":
 		s.events(w, r)
+	case "/api/git/changes":
+		s.gitChanges(w, r)
+	case "/api/git/diff":
+		s.gitDiff(w, r)
 	case "/":
 		s.static.ServeHTTP(w, r)
 	default:
@@ -166,6 +173,68 @@ func queryPath(r *http.Request) (string, error) {
 		return "", err
 	}
 	return values[0], nil
+}
+
+func gitError(w http.ResponseWriter, err error) {
+	if errors.Is(err, gitdiff.ErrNoChange) {
+		jsonReply(w, http.StatusNotFound, map[string]string{"error": "no_change", "message": err.Error()})
+		return
+	}
+	if errors.Is(err, gitdiff.ErrUnavailable) {
+		jsonReply(w, http.StatusServiceUnavailable, map[string]string{"error": "git_unavailable", "message": err.Error()})
+		return
+	}
+	if errors.Is(err, gitdiff.ErrTooLarge) {
+		apiError(w, files.ErrTooLarge)
+		return
+	}
+	if errors.Is(err, files.ErrPath) || errors.Is(err, files.ErrType) || errors.Is(err, files.ErrBinary) || errors.Is(err, files.ErrTooLarge) || errors.Is(err, fs.ErrNotExist) {
+		apiError(w, err)
+		return
+	}
+	status := http.StatusServiceUnavailable
+	if errors.Is(err, context.DeadlineExceeded) {
+		status = http.StatusGatewayTimeout
+	}
+	jsonReply(w, status, map[string]string{"error": "git_failure", "message": err.Error()})
+}
+
+func gitTag(value any) string {
+	data, _ := json.Marshal(value)
+	return fmt.Sprintf("\"%x\"", sha256.Sum256(data))
+}
+
+func gitReply(w http.ResponseWriter, r *http.Request, value any) {
+	tag := gitTag(value)
+	w.Header().Set("ETag", tag)
+	if r.Header.Get("If-None-Match") == tag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	jsonReply(w, http.StatusOK, value)
+}
+
+func (s *Server) gitChanges(w http.ResponseWriter, r *http.Request) {
+	listing, err := gitdiff.List(r.Context(), s.Files)
+	if err != nil {
+		gitError(w, err)
+		return
+	}
+	gitReply(w, r, listing)
+}
+
+func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
+	name, err := queryPath(r)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	diff, err := gitdiff.File(r.Context(), s.Files, name)
+	if err != nil {
+		gitError(w, err)
+		return
+	}
+	gitReply(w, r, diff)
 }
 func (s *Server) tree(w http.ResponseWriter, r *http.Request) {
 	paths := r.URL.Query()["path"]

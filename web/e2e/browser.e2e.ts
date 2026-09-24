@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, mkdir, rename, writeFile, unlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -277,4 +277,27 @@ test('starts folders collapsed and sorts folders and numbered files naturally', 
   await page.reload();
   await expect(page.locator('details[data-path="sort2"]')).toHaveAttribute('open');
   await expect(page.locator('details[data-path="sort10"]')).not.toHaveAttribute('open');
+});
+
+test('shows Git changes and refreshes a file diff', async ({ page }) => {
+  const git = (...args: string[]): void => { execFileSync('git', ['-C', directory, ...args]); };
+  git('init', '-q');
+  git('config', 'user.email', 'test@example.com');
+  git('config', 'user.name', 'Test');
+  git('add', '.');
+  git('commit', '-qm', 'initial');
+  await writeFile(join(directory, 'sample.py'), 'print("changed")\n');
+  await writeFile(join(directory, 'new-diff.md'), '<script>alert(1)</script>\n');
+  await page.goto(`http://127.0.0.1:${port}/?view=changes`);
+  await expect(page.locator('#content .change-path', { hasText: 'sample.py' })).toBeVisible();
+  await expect(page.locator('#content .change-path', { hasText: 'new-diff.md' })).toBeVisible();
+  await page.locator('#content a[href*="new-diff.md"]').click();
+  await expect(page.locator('.diff-added .diff-code')).toContainText('<script>alert(1)</script>');
+  expect(await page.locator('#content script').count()).toBe(0);
+  await page.locator('#changes-tree a[href*="sample.py"]').click();
+  await expect(page.locator('.diff-added .diff-code')).toContainText('changed');
+  await writeFile(join(directory, 'sample.py'), 'print("changed again")\n');
+  await expect(page.locator('.diff-added .diff-code')).toContainText('changed again', { timeout: 15000 });
+  await page.getByRole('button', { name: 'ファイル', exact: true }).last().click();
+  await expect(page.locator('article .lntd:last-child pre')).toContainText('changed again');
 });
