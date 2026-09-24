@@ -163,9 +163,25 @@ test('desktop and mobile views in both themes', async ({ page }, testInfo) => {
       await page.reload();
       await expect(page.locator('.mermaid-source svg')).toBeVisible({ timeout: 15000 });
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+      const brand = page.locator(width === 390 ? '.brand-symbol' : '.brand-horizontal');
+      await expect(brand).toBeVisible();
+      const svg = await brand.evaluate(async (image: HTMLImageElement) => (await fetch(image.src)).text());
+      expect(svg).toContain(theme === 'dark' ? '#75B7FF' : '#0969DA');
+      expect(await brand.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
       await page.screenshot({ path: testInfo.outputPath(`${width}-${theme}.png`), fullPage: true });
     }
   }
+  const favicon = await page.locator('link[rel="icon"]').getAttribute('href');
+  expect(favicon).toBeTruthy();
+  const faviconSvg = await page.evaluate(async (url) => (await fetch(url!)).text(), favicon);
+  expect(faviconSvg).toMatch(/viewBox=['"]0 0 32 32['"]/);
+  expect(faviconSvg).toContain('--icon-accent: #0969DA');
+  await page.evaluate(() => { localStorage.setItem('markport-theme', 'light'); });
+  await page.reload();
+  await page.getByRole('button', { name: 'テーマ: ライト' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  const switchedSvg = await page.locator('.brand-symbol').evaluate(async (image: HTMLImageElement) => (await fetch(image.src)).text());
+  expect(switchedSvg).toContain('#75B7FF');
   await page.getByRole('button', { name: 'ファイル一覧を開く' }).click();
   await expect(page.locator('#sidebar')).toHaveClass(/open/);
   await page.getByRole('link', { name: 'sample.py' }).click();

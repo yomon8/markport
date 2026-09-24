@@ -9,6 +9,7 @@ export default defineConfig({
   server: {
     host: '127.0.0.1', port: 5173, strictPort: true,
     allowedHosts: ['localhost', '127.0.0.1'],
+    fs: { allow: [fileURLToPath(new URL('..', import.meta.url))] },
     proxy: { '/api': { target: `http://127.0.0.1:${port}`, changeOrigin: true } }
   }
 });

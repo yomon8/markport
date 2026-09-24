@@ -1,8 +1,13 @@
 # markport
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="logo/markport-logo-horizontal-dark.svg">
+  <img src="logo/markport-logo-horizontal-light.svg" alt="Markport logo" width="300">
+</picture>
+
 [Read this in Japanese](README.ja.md)
 
-Markport is a CLI for browsing Markdown and code created by AI agents in a local browser. It serves a selected directory in read-only mode. It supports Markdown tables, task lists, and Mermaid diagrams; syntax highlighting for code; relative links and images; and automatic updates when files change.
+Markport is a CLI for browsing Markdown, code, and images created by AI agents in a local browser. It serves a selected directory in read-only mode. It supports Markdown tables, task lists, and Mermaid diagrams; syntax highlighting for code; relative links and images; direct previews of SVG, PNG, JPEG, GIF, and WebP files; and automatic updates when files change.
 
 ## Usage
 
@@ -18,7 +23,7 @@ To verify a download, place `checksums_<version>.txt` from the release alongside
 
 With no arguments, Markport serves the current directory on port 3000. Open the `http://127.0.0.1:<port>/` URL printed at startup. Press `Ctrl+C` to stop the server. It listens only on the local machine at `127.0.0.1`.
 
-Markport excludes `.git`, `node_modules`, and `.venv` from browsing and file watching. Other dotfiles remain visible. It does not read symbolic links, Windows junctions, or special files such as FIFOs, and text files are limited to 10 MiB. Binary or unreadable files show an error for that file only. If automatic updates stop, use the refresh button in the browser.
+Markport excludes `.git`, `node_modules`, and `.venv` from browsing and file watching. Other dotfiles remain visible. It does not read symbolic links, Windows junctions, or special files such as FIFOs. Text files are limited to 10 MiB, and image files to 32 MiB. Binary or unreadable files show an error for that file only. If automatic updates stop, use the refresh button in the browser.
 
 ## Development
 

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="100%" height="100%" fill="none">
+  <defs>
+    <style>
+      :root { --icon-accent: #0969DA; --doc-fill: #FFFFFF; }
+      @media (prefers-color-scheme: dark) {
+        :root { --icon-accent: #75B7FF; --doc-fill: #0D1117; }
+      }
+    </style>
+  </defs>
+
+  <!-- 16-32px Optimized: Window Frame -->
+  <rect x="2.5" y="4" width="27" height="24" rx="4" stroke="var(--icon-accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+  
+  <!-- Window Header Bar -->
+  <line x1="2.5" y1="9.5" x2="29.5" y2="9.5" stroke="var(--icon-accent)" stroke-width="1.5" stroke-linecap="round" />
+  
+  <!-- Minimal Window Indicator -->
+  <circle cx="6.5" cy="6.75" r="1.25" fill="var(--icon-accent)" />
+  <circle cx="10.5" cy="6.75" r="1.25" fill="var(--icon-accent)" />
+
+  <!-- High-contrast Document Sheet -->
+  <path d="M 13 9.5 L 23 9.5 L 28.5 15 L 28.5 27 A 2 2 0 0 1 26.5 29 L 13 29 A 2 2 0 0 1 11 27 L 11 11.5 A 2 2 0 0 1 13 9.5 Z" fill="var(--doc-fill)" stroke="var(--icon-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+  
+  <!-- Corner Fold flap -->
+  <path d="M 23 9.5 L 23 15 L 28.5 15" stroke="var(--icon-accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+
+  <!-- Bold Monogram M (tuned for sharp rasterization at 16px/32px) -->
+  <path d="M 15 25.5 L 15 17.5 L 19.5 22 L 24 17.5 L 24 25.5" stroke="var(--icon-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+</svg>

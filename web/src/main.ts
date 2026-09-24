@@ -1,14 +1,27 @@
 import './style.css';
 import { drawMermaid } from './mermaid';
 import { TreeView, type Node } from './tree';
-import { initTheme } from './theme';
+import { effectiveTheme, initTheme } from './theme';
+import logoLight from '../../logo/markport-logo-horizontal-light.svg';
+import logoDark from '../../logo/markport-logo-horizontal-dark.svg';
+import symbolLight from '../../logo/markport-symbol-light.svg';
+import symbolDark from '../../logo/markport-symbol-dark.svg';
+import favicon from '../../logo/markport-favicon.svg';
 
 type FileReply = { path: string; type: 'image'; assetUrl: string } | { path: string; type: 'markdown' | 'code'; html: string };
 type ApiError = { error?: string; message?: string };
 class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
-app.innerHTML = `<a class="skip-link" href="#content">本文へ移動</a><header><button id="drawer-toggle" type="button" aria-label="ファイル一覧を開く">☰</button><button id="sidebar-toggle" type="button" aria-label="サイドバーを折りたたむ" aria-expanded="true">☰</button><span class="brand">markport</span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">接続中…</span></span><button id="theme-toggle" type="button"></button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> 最新を取得</button></header><div class="layout"><aside id="sidebar"><form role="search" onsubmit="return false"><label for="search">ファイルを検索</label><input id="search" type="search" placeholder="パス・ファイル名 /"><span id="result-count"></span></form><nav id="tree" aria-label="ファイル一覧"></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="サイドバーの幅を変更" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="目次" hidden></nav></div></main></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">閉じる ×</button><div id="overlay-content"></div></div>`;
+app.innerHTML = `<a class="skip-link" href="#content">本文へ移動</a><header><button id="drawer-toggle" type="button" aria-label="ファイル一覧を開く">☰</button><button id="sidebar-toggle" type="button" aria-label="サイドバーを折りたたむ" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-horizontal" src="${logoLight}" alt=""><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">接続中…</span></span><button id="theme-toggle" type="button"></button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> 最新を取得</button></header><div class="layout"><aside id="sidebar"><form role="search" onsubmit="return false"><label for="search">ファイルを検索</label><input id="search" type="search" placeholder="パス・ファイル名 /"><span id="result-count"></span></form><nav id="tree" aria-label="ファイル一覧"></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="サイドバーの幅を変更" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="目次" hidden></nav></div></main></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">閉じる ×</button><div id="overlay-content"></div></div>`;
+const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
+icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
+if (!icon.isConnected) document.head.append(icon);
+function updateBrand(): void {
+  const dark = effectiveTheme() === 'dark';
+  document.querySelector<HTMLImageElement>('.brand-horizontal')!.src = dark ? logoDark : logoLight;
+  document.querySelector<HTMLImageElement>('.brand-symbol')!.src = dark ? symbolDark : symbolLight;
+}
 const tree = document.querySelector<HTMLElement>('#tree')!;
 const content = document.querySelector<HTMLElement>('#content')!;
 const title = document.querySelector<HTMLElement>('#file-title')!;
@@ -254,7 +267,8 @@ const resize = document.querySelector<HTMLElement>('#sidebar-resize')!;
 resize.addEventListener('pointerdown', (event) => { resize.setPointerCapture(event.pointerId); });
 resize.addEventListener('pointermove', (event) => { if (!resize.hasPointerCapture(event.pointerId)) return; const width = Math.max(200, Math.min(480, event.clientX)); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
 resize.addEventListener('keydown', (event) => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; const width = Math.max(200, Math.min(480, Number(localStorage.getItem('markport-sidebar-width') ?? 280) + (event.key === 'ArrowRight' ? 10 : -10))); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
-initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => { if (content.querySelector('[data-mermaid]')) { displayedHTML = ''; requestRefresh(); } });
+initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => { updateBrand(); if (content.querySelector('[data-mermaid]')) { displayedHTML = ''; requestRefresh(); } });
+updateBrand();
 const events = new EventSource('/api/events');
 events.addEventListener('ready', () => { status('自動更新中', 'ok'); requestRefresh(); });
 events.addEventListener('refresh', requestRefresh);
