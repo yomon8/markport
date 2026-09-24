@@ -20,6 +20,17 @@ Release の `checksums_<version>.txt` をダウンロードし、バイナリと
 
 ## 開発
 
+### 構成
+
+Go の実行ファイルが、組み込みのブラウザ UI と読み取り専用 API を `127.0.0.1` で配信します。本文を描画し、選択したディレクトリの変更を監視します。
+
+```mermaid
+flowchart LR
+    user["利用者"] -->|"ローカル URL を開く"| browser["ブラウザ UI"]
+    browser <-->|"HTTP / SSE"| server["Markport (Go)"]
+    server -->|"読み取り・監視"| directory["選択したディレクトリ"]
+```
+
 Go 1.27、Node.js 24、npm、Make を使います。devcontainer はポート 3000 と 5173 を転送します。
 
 ```sh

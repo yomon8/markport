@@ -22,6 +22,17 @@ Markport excludes `.git`, `node_modules`, and `.venv` from browsing and file wat
 
 ## Development
 
+### Architecture
+
+The Go executable serves the embedded browser UI and read-only API on `127.0.0.1`. It renders content and watches the selected directory for changes.
+
+```mermaid
+flowchart LR
+    user["User"] -->|"Opens local URL"| browser["Browser UI"]
+    browser <-->|"HTTP / SSE"| server["Markport (Go)"]
+    server -->|"Read and watch"| directory["Selected directory"]
+```
+
 Development requires Go 1.27, Node.js 24, npm, and Make. The devcontainer forwards ports 3000 and 5173.
 
 ```sh
