@@ -211,6 +211,77 @@ func TestImageFilePreview(t *testing.T) {
 		t.Fatalf("large image: %d %s", r.Code, r.Body.String())
 	}
 }
+
+func TestHTMLPreview(t *testing.T) {
+	app, dir := newTestServer(t)
+	if err := os.Mkdir(filepath.Join(dir, "docs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{
+		"docs/page name.htm": `<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><h1>Preview</h1><script>window.bad = true</script></body></html>`,
+		"docs/style.css":     "h1 { color: red }",
+		"docs/app.js":        "window.bad = true",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(name)), []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := request(app, "localhost:3000", "/api/file?path=docs%2Fpage+name.htm")
+	if r.Code != 200 {
+		t.Fatalf("metadata: %d %s", r.Code, r.Body.String())
+	}
+	var file map[string]string
+	if err := json.Unmarshal(r.Body.Bytes(), &file); err != nil {
+		t.Fatal(err)
+	}
+	if file["type"] != "html" || !strings.HasPrefix(file["previewUrl"], "/api/preview/docs/page%20name.htm?v=") {
+		t.Fatalf("HTML metadata: %+v", file)
+	}
+	preview := request(app, "localhost:3000", file["previewUrl"])
+	if preview.Code != 200 || preview.Header().Get("Content-Type") != "text/html; charset=utf-8" || !strings.Contains(preview.Body.String(), "<h1>Preview</h1>") {
+		t.Fatalf("preview: %d %v %s", preview.Code, preview.Header(), preview.Body.String())
+	}
+	if csp := preview.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "sandbox allow-same-origin") || !strings.Contains(csp, "script-src 'none'") {
+		t.Fatalf("preview CSP: %q", csp)
+	}
+	if preview.Header().Get("Cache-Control") != "no-store" || preview.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("preview headers: %v", preview.Header())
+	}
+	css := request(app, "localhost:3000", "/api/preview/docs/style.css")
+	if css.Code != 200 || css.Header().Get("Content-Type") != "text/css; charset=utf-8" {
+		t.Fatalf("CSS: %d %v", css.Code, css.Header())
+	}
+	source := request(app, "localhost:3000", "/api/file?path=docs%2Fpage+name.htm&source=1")
+	if err := json.Unmarshal(source.Body.Bytes(), &file); err != nil || file["type"] != "html" || !strings.Contains(file["html"], "Preview") {
+		t.Fatalf("source: %d %+v %v", source.Code, file, err)
+	}
+	for _, path := range []string{"/api/preview/docs/app.js", "/api/preview/../readme.md", "/api/preview/docs/../../readme.md"} {
+		if got := request(app, "localhost:3000", path).Code; got < 400 {
+			t.Errorf("accepted %s: %d", path, got)
+		}
+	}
+	if err := os.Symlink(filepath.Join(dir, "docs", "style.css"), filepath.Join(dir, "docs", "link.css")); err == nil {
+		if got := request(app, "localhost:3000", "/api/preview/docs/link.css").Code; got < 400 {
+			t.Errorf("accepted symlink: %d", got)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docs", "binary.css"), []byte{0, 1, 2}, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := request(app, "localhost:3000", "/api/preview/docs/binary.css").Code; got != 415 {
+		t.Errorf("binary CSS: %d", got)
+	}
+	large := filepath.Join(dir, "docs", "large.html")
+	if err := os.WriteFile(large, nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(large, files.MaxTextSize+1); err != nil {
+		t.Fatal(err)
+	}
+	if got := request(app, "localhost:3000", "/api/preview/docs/large.html").Code; got != 413 {
+		t.Errorf("large HTML: %d", got)
+	}
+}
 func TestFileRejectionsAndSVG(t *testing.T) {
 	app, dir := newTestServer(t)
 	outside := t.TempDir()

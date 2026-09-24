@@ -5,7 +5,7 @@
   <img src="logo/markport-logo-horizontal-light.svg" alt="Markport のロゴ" width="300">
 </picture>
 
-AI Agent が作った Markdown・コード・画像を、ローカルのブラウザで読むための CLI です。選んだディレクトリを読み取り専用で表示します。Markdown の表・タスクリスト・Mermaid 図、コードの色付け、相対リンク・画像、SVG・PNG・JPEG・GIF・WebP の直接プレビュー、ファイル変更の自動反映に対応します。
+AI Agent が作った Markdown・HTML・コード・画像を、ローカルのブラウザで読むための CLI です。選んだディレクトリを読み取り専用で表示します。Markdown の表・タスクリスト・Mermaid 図、コードの色付け、相対リンク・画像、HTML・SVG・PNG・JPEG・GIF・WebP のプレビュー、ファイル変更の自動反映に対応します。HTML プレビューは相対パスの CSS・画像と外部 URL の CSS・画像を読み込みます。JavaScript は実行しません。ソースボタンで HTML のコードを確認できます。
 
 ## 使い方
 

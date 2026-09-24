@@ -22,6 +22,27 @@ beforeEach(() => {
 afterEach(() => { window.dispatchEvent(new Event('pagehide')); vi.unstubAllGlobals(); });
 
 describe('lazy browsing and refresh', () => {
+  it('previews HTML, switches to source, and reloads the preview manually', async () => {
+    history.replaceState(null, '', '/?path=page.html');
+    const fetch = vi.fn(async (url: string) => {
+      if (url === '/api/tree') return reply(page([entry('page.html')]));
+      if (url === '/api/file?path=page.html&source=1') return reply({ path: 'page.html', type: 'html', html: '<pre>HTML source</pre>' });
+      return reply({ path: 'page.html', type: 'html', previewUrl: '/api/preview/page.html?v=1' });
+    });
+    vi.stubGlobal('fetch', fetch);
+    await import('../src/main'); await flush();
+    const frame = document.querySelector<HTMLIFrameElement>('.html-preview');
+    expect(frame?.getAttribute('sandbox')).toBe('allow-same-origin');
+    expect(frame?.src).toContain('/api/preview/page.html?v=1&reload=0');
+    expect(document.querySelector('.kind-badge')?.textContent).toBe('HTML');
+    [...document.querySelectorAll<HTMLButtonElement>('.title-actions button')].find((button) => button.textContent === 'ソース')!.click(); await flush();
+    expect(document.querySelector('#content pre')?.textContent).toBe('HTML source');
+    const previewButton = [...document.querySelectorAll<HTMLButtonElement>('.title-actions button')].find((button) => button.textContent === 'プレビュー')!;
+    previewButton.click(); await flush();
+    document.querySelector<HTMLButtonElement>('#reload')!.click(); await flush();
+    expect(document.querySelector<HTMLIFrameElement>('.html-preview')?.src).toContain('/api/preview/page.html?v=1&reload=1');
+  });
+
   it('loads only root and selected ancestors for a deep URL', async () => {
     history.replaceState(null, '', '/?path=docs%2Fdeep%2Fa.md');
     const fetch = vi.fn(async (url: string) => {

@@ -108,7 +108,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/":
 		s.static.ServeHTTP(w, r)
 	default:
-		if strings.HasPrefix(r.URL.Path, "/assets/") {
+		if strings.HasPrefix(r.URL.Path, "/api/preview/") {
+			s.preview(w, r)
+		} else if strings.HasPrefix(r.URL.Path, "/assets/") {
 			s.static.ServeHTTP(w, r)
 		} else {
 			http.NotFound(w, r)
@@ -277,13 +279,23 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 		apiError(w, err)
 		return
 	}
+	ext := strings.ToLower(path.Ext(name))
+	markdown := ext == ".md" || ext == ".markdown"
+	htmlFile := ext == ".html" || ext == ".htm"
+	if htmlFile && !source {
+		previewURL := "/api/preview/" + escapedPath(name) + "?v=" + strconv.FormatInt(info.ModTime().UnixNano(), 10) + "-" + strconv.FormatInt(info.Size(), 10)
+		jsonReply(w, 200, map[string]string{"path": name, "type": "html", "previewUrl": previewURL})
+		return
+	}
 	kind, output := "code", ""
 	if source {
-		if strings.EqualFold(path.Ext(name), ".md") || strings.EqualFold(path.Ext(name), ".markdown") {
+		if markdown {
 			kind = "markdown"
+		} else if htmlFile {
+			kind = "html"
 		}
 		output = render.Code(name, content)
-	} else if strings.EqualFold(path.Ext(name), ".md") || strings.EqualFold(path.Ext(name), ".markdown") {
+	} else if markdown {
 		kind = "markdown"
 		output, err = render.Markdown(name, content)
 		if err != nil {
@@ -294,6 +306,14 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 		output = render.Code(name, content)
 	}
 	jsonReply(w, 200, map[string]string{"path": name, "type": kind, "html": output})
+}
+
+func escapedPath(name string) string {
+	parts := strings.Split(name, "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
 }
 
 func fileVersion(info fs.FileInfo, source bool) string {
@@ -310,6 +330,10 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 		jsonReply(w, 415, map[string]string{"error": "unsupported_asset"})
 		return
 	}
+	s.serveImage(w, name, typeName)
+}
+
+func (s *Server) serveImage(w http.ResponseWriter, name, typeName string) {
 	b, err := s.Files.Read(name, maxAssetSize)
 	if err != nil {
 		apiError(w, err)
@@ -329,6 +353,38 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(200)
 	_, _ = w.Write(b)
+}
+
+func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, "/api/preview/")
+	if _, err := files.Parts(name); err != nil {
+		apiError(w, err)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	if typeName, ok := imageContentType(name); ok {
+		s.serveImage(w, name, typeName)
+		return
+	}
+	ext := strings.ToLower(path.Ext(name))
+	if ext != ".html" && ext != ".htm" && ext != ".css" {
+		jsonReply(w, http.StatusUnsupportedMediaType, map[string]string{"error": "unsupported_asset"})
+		return
+	}
+	content, err := s.Files.ReadText(name)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	if ext == ".css" {
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	} else {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Security-Policy", "sandbox allow-same-origin; script-src 'none'; object-src 'none'; form-action 'none'")
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, content)
 }
 
 func validSVG(data []byte) bool {

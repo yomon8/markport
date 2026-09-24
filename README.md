@@ -7,7 +7,7 @@
 
 [Read this in Japanese](README.ja.md)
 
-Markport is a CLI for browsing Markdown, code, and images created by AI agents in a local browser. It serves a selected directory in read-only mode. It supports Markdown tables, task lists, and Mermaid diagrams; syntax highlighting for code; relative links and images; direct previews of SVG, PNG, JPEG, GIF, and WebP files; and automatic updates when files change.
+Markport is a CLI for browsing Markdown, HTML, code, and images created by AI agents in a local browser. It serves a selected directory in read-only mode. It supports Markdown tables, task lists, and Mermaid diagrams; syntax highlighting for code; relative links and images; previews of HTML, SVG, PNG, JPEG, GIF, and WebP files; and automatic updates when files change. HTML previews load relative CSS and images from the selected directory and may load external CSS and images. JavaScript does not run. Use the Source button to inspect HTML code.
 
 ## Usage
 

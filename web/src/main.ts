@@ -8,7 +8,9 @@ import symbolLight from '../../logo/markport-symbol-light.svg';
 import symbolDark from '../../logo/markport-symbol-dark.svg';
 import favicon from '../../logo/markport-favicon.svg';
 
-type FileReply = { path: string; type: 'image'; assetUrl: string } | { path: string; type: 'markdown' | 'code'; html: string };
+type FileReply = { path: string; type: 'image'; assetUrl: string }
+  | { path: string; type: 'html'; previewUrl: string }
+  | { path: string; type: 'html' | 'markdown' | 'code'; html: string };
 type ApiError = { error?: string; message?: string };
 class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -41,6 +43,7 @@ const view = new TreeView(tree, search, count, selected,
   (path, offset) => { const current = revision; void loadPage(path, offset, '', false, current).catch(() => status('更新できません。再試行してください。', 'error')); });
 let revision = 0; let pending = false; let running = false;
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = false;
+let previewReload = 0;
 let displayedTag = '';
 let displayedTagCheckedAt = 0;
 const pageTags = new Map<string, { value: string; checkedAt: number }>();
@@ -181,10 +184,10 @@ function showTitle(path: string, kind = '', missing = false): void {
     const badge = document.createElement('span'); badge.className = 'kind-badge';
     const extension = path.split('.').at(-1)?.toLowerCase() ?? '';
     const languages: Record<string, string> = { py: 'Python', go: 'Go', js: 'JavaScript', ts: 'TypeScript', tsx: 'TypeScript', jsx: 'JavaScript', rs: 'Rust', java: 'Java', sh: 'Shell', html: 'HTML', css: 'CSS', json: 'JSON', yaml: 'YAML', yml: 'YAML' };
-    badge.textContent = kind === 'markdown' ? 'Markdown' : ((languages[extension] ?? extension.toUpperCase()) || 'Code'); actions.append(badge);
+    badge.textContent = kind === 'markdown' ? 'Markdown' : kind === 'html' ? 'HTML' : ((languages[extension] ?? extension.toUpperCase()) || 'Code'); actions.append(badge);
   }
   const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'パスをコピー'; copy.addEventListener('click', () => { void navigator.clipboard.writeText(path).then(() => { copy.textContent = 'コピーしました'; setTimeout(() => { copy.textContent = 'パスをコピー'; }, 2000); }); }); actions.append(copy);
-  if (kind === 'markdown') { const source = document.createElement('button'); source.type = 'button'; source.textContent = sourceMode ? '整形表示' : 'ソース'; source.addEventListener('click', () => { sourceMode = !sourceMode; requestRefresh(); }); actions.append(source); }
+  if (kind === 'markdown' || kind === 'html') { const source = document.createElement('button'); source.type = 'button'; source.textContent = sourceMode ? kind === 'html' ? 'プレビュー' : '整形表示' : 'ソース'; source.addEventListener('click', () => { sourceMode = !sourceMode; requestRefresh(); }); actions.append(source); }
   const toc = document.createElement('button'); toc.type = 'button'; toc.id = 'outline-toggle'; toc.textContent = '目次'; toc.hidden = outline.hidden; toc.addEventListener('click', () => outline.classList.toggle('open')); actions.append(toc);
   title.append(actions); document.title = `${parts.at(-1)} — markport`;
 }
@@ -275,7 +278,29 @@ function updateOutline(): void {
 function beginLoading(): void { content.setAttribute('aria-busy', 'true'); reload.disabled = true; clearTimeout(loadingTimer); loadingTimer = setTimeout(() => { progress.hidden = false; }, 200); }
 function endLoading(): void { clearTimeout(loadingTimer); progress.hidden = true; reload.disabled = false; content.setAttribute('aria-busy', 'false'); }
 function requestRefresh(): void { revision++; pending = true; if (!running) void refreshLoop(); }
-function manualRefresh(): void { displayedTag = ''; pageTags.clear(); requestRefresh(); }
+function manualRefresh(): void { displayedTag = ''; pageTags.clear(); previewReload++; requestRefresh(); }
+
+function attachPreviewNavigation(frame: HTMLIFrameElement, path: string): void {
+  frame.addEventListener('load', () => {
+    if (!frame.isConnected || selected() !== path) return;
+    let document: Document | null;
+    try { document = frame.contentDocument; } catch { return; }
+    document?.addEventListener('click', (event) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const link = (event.target as Element).closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!link) return;
+      const url = new URL(link.href);
+      const current = frame.contentWindow?.location.href;
+      if (url.hash && current && url.href.split('#')[0] === current.split('#')[0]) return;
+      if (url.origin === location.origin && url.pathname.startsWith('/api/preview/')) {
+        event.preventDefault();
+        try { navigate(fileURL(decodeURIComponent(url.pathname.slice('/api/preview/'.length))) + url.hash); } catch { /* Invalid URL encoding. */ }
+      } else if (url.protocol === 'http:' || url.protocol === 'https:') {
+        event.preventDefault(); window.open(url.href, '_blank', 'noopener,noreferrer');
+      }
+    });
+  });
+}
 async function refreshLoop(): Promise<void> {
   running = true;
   try {
@@ -297,12 +322,16 @@ async function refreshLoop(): Promise<void> {
         if (fileReply && 'value' in fileReply) {
           const file = fileReply.value;
           if (!file) { status('数秒おきに確認中', 'ok'); continue; }
-          const displayKey = file.type === 'image' ? file.assetUrl : file.html;
+          const displayKey = 'assetUrl' in file ? file.assetUrl : 'previewUrl' in file ? `${file.previewUrl}&reload=${previewReload}` : file.html;
           const changed = displayedHTML !== displayKey || displayedSource !== source;
           if (changed) {
             const oldScroll = main.scrollTop;
             content.dataset.kind = file.type === 'image' ? 'image' : source ? 'code' : file.type;
-            if (file.type === 'image') {
+            if ('previewUrl' in file) {
+              const frame = document.createElement('iframe'); frame.className = 'html-preview'; frame.title = `${path} のプレビュー`;
+              frame.setAttribute('sandbox', 'allow-same-origin'); frame.referrerPolicy = 'no-referrer';
+              attachPreviewNavigation(frame, path); frame.src = displayKey; content.replaceChildren(frame);
+            } else if (file.type === 'image') {
               const img = document.createElement('img'); img.className = 'image-preview'; img.alt = path.split('/').at(-1) ?? path;
               img.addEventListener('error', () => { if (img.isConnected && selected() === path) { displayedHTML = ''; showError(new RequestError('invalid_asset', 'image load failed'), path); } });
               img.src = file.assetUrl; content.replaceChildren(img);
@@ -310,7 +339,7 @@ async function refreshLoop(): Promise<void> {
             displayedHTML = displayKey; displayedSource = source;
             updateOutline(); showTitle(path, file.type);
             if (!pathChanged && oldScroll > 0) main.scrollTop = oldScroll;
-            if (location.hash) { try { document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ } }
+            if (location.hash && file.type !== 'html') { try { document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ } }
             if (!pathChanged && current > 1) {
               title.classList.add('updated'); const note = document.createElement('span'); note.className = 'update-note'; note.textContent = '更新しました'; title.querySelector('.title-actions')?.prepend(note);
               clearTimeout(updatedTimer); updatedTimer = setTimeout(() => { title.classList.remove('updated'); note.remove(); }, 3500);

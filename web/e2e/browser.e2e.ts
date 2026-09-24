@@ -44,12 +44,36 @@ test.beforeAll(async () => {
   await writeFile(join(directory, 'sample.py'), 'print("first")\n');
   await writeFile(join(directory, 'image.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><rect width="40" height="30" fill="blue"/></svg>');
   await writeFile(join(directory, 'image.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/c4sAAAAASUVORK5CYII=', 'base64'));
+  await mkdir(join(directory, 'docs'));
+  await writeFile(join(directory, 'docs', 'style.css'), 'h1 { color: rgb(10, 20, 30) }');
+  await writeFile(join(directory, 'docs', 'first.html'), '<!doctype html><html><head><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="https://cdn.example.test/external.css"></head><body><h1>HTML preview</h1><img src="../image.png"><img src="https://cdn.example.test/external.png"><script>window.previewScriptRan = true</script><a href="second.htm">Next HTML</a></body></html>');
+  await writeFile(join(directory, 'docs', 'second.htm'), '<!doctype html><html><body><h1>Second HTML</h1></body></html>');
   await startServer();
 });
 
 test.afterAll(async () => {
   await stopServer();
   if (directory) await rm(directory, { recursive: true, force: true });
+});
+
+test('previews HTML with CSS and images, blocks scripts, and follows local links', async ({ page }) => {
+  await page.route('https://cdn.example.test/external.css', (route) => route.fulfill({ contentType: 'text/css', body: 'h1 { background: rgb(40, 50, 60) }' }));
+  await page.route('https://cdn.example.test/external.png', (route) => route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/c4sAAAAASUVORK5CYII=', 'base64') }));
+  await page.goto(`http://127.0.0.1:${port}/?path=docs%2Ffirst.html`);
+  const frame = page.frameLocator('.html-preview');
+  await expect(frame.locator('h1')).toHaveText('HTML preview');
+  await expect(frame.locator('h1')).toHaveCSS('color', 'rgb(10, 20, 30)');
+  await expect(frame.locator('h1')).toHaveCSS('background-color', 'rgb(40, 50, 60)');
+  for (const image of await frame.locator('img').all()) await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
+  expect(await frame.locator('body').evaluate((body) => (body.ownerDocument.defaultView as Window & { previewScriptRan?: boolean }).previewScriptRan)).toBeUndefined();
+  await page.locator('.title-actions button', { hasText: 'ソース' }).click();
+  await expect(page.locator('article .lntd:last-child pre')).toContainText('HTML preview');
+  await page.locator('.title-actions button', { hasText: 'プレビュー' }).click();
+  await frame.locator('a', { hasText: 'Next HTML' }).click();
+  await expect(page).toHaveURL(/path=docs%2Fsecond\.htm/);
+  await expect(page.frameLocator('.html-preview').locator('h1')).toHaveText('Second HTML');
+  await writeFile(join(directory, 'docs', 'second.htm'), '<!doctype html><html><body><h1>Updated HTML</h1></body></html>');
+  await expect(page.frameLocator('.html-preview').locator('h1')).toHaveText('Updated HTML', { timeout: 15000 });
 });
 
 test('renders GFM, Mermaid and code, then tracks files', async ({ page }) => {

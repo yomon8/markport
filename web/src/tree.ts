@@ -23,7 +23,7 @@ function icon(name: string, directory = false): string {
   if (directory) return icons.directory;
   if (/\.md|\.markdown$/i.test(name)) return icons.markdown;
   if (/\.(png|jpe?g|gif|webp|svg)$/i.test(name)) return icons.image;
-  if (/\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html|json|ya?ml)$/i.test(name)) return icons.code;
+  if (/\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html?|json|ya?ml)$/i.test(name)) return icons.code;
   return icons.other;
 }
 function score(path: string, query: string): number {
@@ -55,7 +55,7 @@ function fileLink(node: Node, selected: string, query = ''): HTMLAnchorElement {
   const link = document.createElement('a');
   link.href = `/?path=${encodeURIComponent(node.path)}`;
   link.title = node.path;
-  link.className = `file file-${/\.(md|markdown)$/i.test(node.name) ? 'markdown' : /\.(png|jpe?g|gif|webp|svg)$/i.test(node.name) ? 'image' : /\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html|json|ya?ml)$/i.test(node.name) ? 'code' : 'other'}`;
+  link.className = `file file-${/\.(md|markdown)$/i.test(node.name) ? 'markdown' : /\.(png|jpe?g|gif|webp|svg)$/i.test(node.name) ? 'image' : /\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html?|json|ya?ml)$/i.test(node.name) ? 'code' : 'other'}`;
   link.innerHTML = icon(node.name);
   const label = document.createElement('span'); label.className = 'node-label'; label.append(query ? highlighted(node.path, query) : document.createTextNode(node.name)); link.append(label);
   if (node.path === selected) link.setAttribute('aria-current', 'page');
