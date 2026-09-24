@@ -38,16 +38,4 @@ jobs:
           cd web && npx playwright install --with-deps chromium
           cd .. && make test-e2e VERSION=ci
       - name: Executable smoke check
-        run: |
-          binary=./dist/markport
-          if [ "$RUNNER_OS" = Windows ]; then binary=./dist/markport.exe; fi
-          "$binary" --help
-          test "$("$binary" --version)" = ci
-          "$binary" testdata --port 39876 > server.log 2>&1 & server_pid=$!
-          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
-          for i in {1..30}; do
-            if curl --fail --silent --output /dev/null http://127.0.0.1:39876/; then break; fi
-            sleep 1
-          done
-          curl --fail --silent http://127.0.0.1:39876/api/tree > tree.json
-          test -s tree.json
+        run: sh scripts/smoke-test.sh
