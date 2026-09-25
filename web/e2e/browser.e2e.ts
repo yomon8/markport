@@ -91,6 +91,8 @@ test('keeps sidebar controls visible while file and change lists scroll', async 
     await expect(page.getByRole('searchbox', { name: 'Search files' })).toBeInViewport();
 
     await page.getByRole('button', { name: 'Changes' }).click();
+    await expect(page.locator('#changes-tree .hint')).toContainText('not a Git repository');
+    if (width < 700) await page.getByRole('button', { name: 'Open file list' }).click();
     await page.locator('#changes-tree').evaluate((tree) => {
       for (let i = 0; i < 80; i++) tree.appendChild(document.createElement('p')).textContent = `Change ${i}`;
       tree.scrollTop = tree.scrollHeight;
