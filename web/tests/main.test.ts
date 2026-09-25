@@ -27,7 +27,7 @@ describe('lazy browsing and refresh', () => {
     let patch = 'diff --git a/new.md b/new.md\n--- /dev/null\n+++ b/new.md\n@@ -0,0 +1,1 @@\n+<script>alert(1)</script>\n';
     const fetch = vi.fn(async (url: string) => {
       if (url === '/api/tree') return reply(page([entry('new.md')]));
-      if (url === '/api/git/changes') return reply({ available: true, changes: [{ path: 'new.md', status: 'added' }] });
+      if (url === '/api/git/changes') return reply({ available: true, rootId: 'root', changes: [{ path: 'new.md', status: 'added', revision: 'v1' }] });
       if (url === '/api/git/diff?path=new.md') return reply({ path: 'new.md', kind: 'text', patch });
       return reply({ path: 'new.md', type: 'markdown', html: '<h1>Preview</h1>' });
     });
@@ -47,6 +47,30 @@ describe('lazy browsing and refresh', () => {
     expect(document.querySelector('.diff-added .diff-code')?.textContent).toContain('alert(2)');
     [...document.querySelectorAll<HTMLButtonElement>('.title-actions button')].find((button) => button.textContent === 'File')!.click(); await flush();
     expect(document.querySelector('#content h1')?.textContent).toBe('Preview');
+  });
+
+  it('updates review counts and filtering as changes are edited', async () => {
+    history.replaceState(null, '', '/?view=changes');
+    let revision = 'v1';
+    const fetch = vi.fn(async (url: string) => {
+      if (url === '/api/tree') return reply(page([entry('a.md'), entry('b.md')]));
+      if (url === '/api/git/changes') return reply({ available: true, rootId: 'root', changes: [
+        { path: 'a.md', status: 'modified', revision }, { path: 'b.md', status: 'added', revision: 'b1' },
+      ] });
+      return reply({ path: 'a.md', kind: 'text', patch: 'diff --git a/a.md b/a.md\n+new\n' });
+    });
+    vi.stubGlobal('fetch', fetch);
+    await import('../src/main'); await flush();
+    expect(document.querySelector('#content .review-count')?.textContent).toBe('0 of 2 reviewed');
+    document.querySelector<HTMLButtonElement>('#content .review-toggle')!.click();
+    expect(document.querySelector('#content .review-count')?.textContent).toBe('1 of 2 reviewed');
+    expect(document.querySelector('#changes-tree .review-count')?.textContent).toBe('1 of 2 reviewed');
+    document.querySelector<HTMLInputElement>('#content .review-filter input')!.click();
+    expect([...document.querySelectorAll('#content .change-path')].map((item) => item.textContent)).toEqual(['b.md']);
+    revision = 'v2';
+    document.querySelector<HTMLButtonElement>('#reload')!.click(); await flush();
+    expect(document.querySelector('#content .review-count')?.textContent).toBe('0 of 2 reviewed');
+    expect([...document.querySelectorAll('#content .change-path')].map((item) => item.textContent)).toEqual(['a.md', 'b.md']);
   });
 
   it('explains when the selected directory is not a Git repository', async () => {

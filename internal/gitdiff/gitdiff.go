@@ -3,8 +3,11 @@ package gitdiff
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -26,13 +29,15 @@ var (
 )
 
 type Change struct {
-	Path   string `json:"path"`
-	Status string `json:"status"`
+	Path     string `json:"path"`
+	Status   string `json:"status"`
+	Revision string `json:"revision"`
 }
 
 type Listing struct {
 	Available bool     `json:"available"`
 	Reason    string   `json:"reason,omitempty"`
+	RootID    string   `json:"rootId,omitempty"`
 	Changes   []Change `json:"changes"`
 }
 
@@ -230,10 +235,41 @@ func collect(ctx context.Context, store *files.Store, repo repository) ([]Change
 	}
 	result := make([]Change, 0, len(unique))
 	for _, change := range unique {
+		if err := fingerprint(ctx, store, repo, &change); err != nil {
+			return nil, err
+		}
 		result = append(result, change)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
 	return result, nil
+}
+
+func fingerprint(ctx context.Context, store *files.Store, repo repository, change *Change) error {
+	hash := sha256.New()
+	_, _ = io.WriteString(hash, change.Status+"\x00")
+	if change.Status == "deleted" {
+		// A deleted file has no working-tree bytes; identify the removed blob.
+		blob, err := run(ctx, repo.root, "rev-parse", repo.head+":"+repo.path(change.Path))
+		if err != nil {
+			return err
+		}
+		_, _ = hash.Write(blob)
+	} else {
+		file, err := store.Open(change.Path)
+		if err != nil {
+			return err
+		}
+		_, copyErr := io.Copy(hash, file)
+		closeErr := file.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+	}
+	change.Revision = hex.EncodeToString(hash.Sum(nil))
+	return ctx.Err()
 }
 
 func List(ctx context.Context, store *files.Store) (Listing, error) {
@@ -245,7 +281,8 @@ func List(ctx context.Context, store *files.Store) (Listing, error) {
 		return Listing{Available: false, Reason: reason, Changes: []Change{}}, nil
 	}
 	changes, err := collect(ctx, store, repo)
-	return Listing{Available: true, Changes: changes}, err
+	rootID := sha256.Sum256([]byte(store.Path))
+	return Listing{Available: true, RootID: hex.EncodeToString(rootID[:]), Changes: changes}, err
 }
 
 func File(ctx context.Context, store *files.Store, name string) (Diff, error) {

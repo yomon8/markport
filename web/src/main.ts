@@ -2,7 +2,8 @@ import './style.css';
 import { drawMermaid } from './mermaid';
 import { TreeView, type Page } from './tree';
 import { effectiveTheme, initTheme } from './theme';
-import { renderChanges, renderDiff, diffURL, type ChangesReply, type DiffReply } from './diff';
+import { renderChanges, renderDiff, diffURL, type Change, type ChangesReply, type DiffReply } from './diff';
+import { ReviewState } from './review';
 import logoLight from '../../logo/markport-logo-horizontal-light.svg';
 import logoDark from '../../logo/markport-logo-horizontal-dark.svg';
 import symbolLight from '../../logo/markport-symbol-light.svg';
@@ -53,6 +54,9 @@ let displayedMode: 'file' | 'diff' | 'changes' = 'file'; let lastFilePath = '';
 let sidebarPanel: 'file' | 'changes' = selectedMode() === 'file' ? 'file' : 'changes';
 let currentChanges: ChangesReply | undefined;
 let displayedChanges = '';
+const review = new ReviewState();
+let reviewVersion = 0;
+let onlyUnreviewed = false;
 let previewReload = 0;
 let displayedTag = '';
 let displayedTagCheckedAt = 0;
@@ -273,6 +277,15 @@ function showTitle(path: string, kind = '', missing = false): void {
     badge.textContent = kind === 'diff' ? 'Git Diff' : kind === 'markdown' ? 'Markdown' : kind === 'html' ? 'HTML' : ((languages[extension] ?? extension.toUpperCase()) || 'Code'); actions.append(badge);
   }
   if (selectedMode() === 'diff') {
+    const change = currentChanges?.changes.find((item) => item.path === path);
+    if (change) {
+      const reviewed = review.has(change.path, change.revision);
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'review-toggle';
+      button.textContent = reviewed ? 'Reviewed' : 'Mark reviewed';
+      button.setAttribute('aria-pressed', String(reviewed));
+      button.setAttribute('aria-label', `${reviewed ? 'Mark unreviewed' : 'Mark reviewed'}: ${path}`);
+      button.addEventListener('click', () => toggleReview(change)); actions.append(button);
+    }
     if (currentChanges?.changes.find((change) => change.path === path)?.status !== 'deleted') {
       const file = document.createElement('button'); file.type = 'button'; file.textContent = 'File'; file.addEventListener('click', () => navigate(fileURL(path))); actions.append(file);
     }
@@ -283,6 +296,40 @@ function showTitle(path: string, kind = '', missing = false): void {
   if (kind === 'markdown' || kind === 'html') { const source = document.createElement('button'); source.type = 'button'; source.textContent = sourceMode ? kind === 'html' ? 'Preview' : 'Rendered view' : 'Source'; source.addEventListener('click', () => { sourceMode = !sourceMode; requestRefresh(); }); actions.append(source); }
   const toc = document.createElement('button'); toc.type = 'button'; toc.id = 'outline-toggle'; toc.textContent = 'Contents'; toc.hidden = outline.hidden; toc.addEventListener('click', () => outline.classList.toggle('open')); actions.append(toc);
   title.append(actions); document.title = `${parts.at(-1)} — markport`;
+}
+function toggleReview(change: Change): void {
+  review.set(change.path, change.revision, !review.has(change.path, change.revision));
+  reviewVersion++;
+  updateChangeViews();
+  if (selectedMode() === 'diff' && selected() === change.path) showTitle(change.path, 'diff');
+}
+function setReviewFilter(value: boolean): void {
+  onlyUnreviewed = value;
+  reviewVersion++;
+  updateChangeViews();
+}
+function updateChangeViews(): void {
+  if (!currentChanges) return;
+  const key = `${JSON.stringify(currentChanges)}:${reviewVersion}`;
+  const isReviewed = (change: Change): boolean => review.has(change.path, change.revision);
+  if (displayedChanges !== key) {
+    renderChanges(changesTree, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter, true);
+    displayedChanges = key;
+  }
+  const path = selected();
+  const active = [...changesTree.querySelectorAll<HTMLAnchorElement>('a[href]')].find((link) => selectedMode() === 'diff' && link.getAttribute('href') === diffURL(path));
+  active?.setAttribute('aria-current', 'page');
+  if (selectedMode() === 'diff' && displayedMode === 'diff' && displayedPath === path) {
+    const change = currentChanges.changes.find((item) => item.path === path);
+    const button = title.querySelector<HTMLButtonElement>('.review-toggle');
+    if (change && button?.getAttribute('aria-pressed') !== String(isReviewed(change))) showTitle(path, 'diff');
+  }
+  if (selectedMode() === 'changes' && displayedHTML !== key) {
+    content.dataset.kind = 'changes';
+    renderChanges(content, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter);
+    displayedHTML = key;
+    outline.hidden = true; showTitle('');
+  }
 }
 function showEmpty(): void {
   const detailText = `${view.fileCount()} ${view.fileCount() === 1 ? 'file' : 'files'} loaded from ${rootName || 'the root directory'}. Open a folder to see more, or press / to search.`;
@@ -430,18 +477,10 @@ async function refreshLoop(): Promise<void> {
         if (path) lastFilePath = path;
         if (changesReply) {
           currentChanges = changesReply;
-          const changesKey = JSON.stringify(changesReply);
-          if (displayedChanges !== changesKey) { renderChanges(changesTree, changesReply, true); displayedChanges = changesKey; }
-          const currentLink = changesTree.querySelector<HTMLAnchorElement>('a[aria-current="page"]');
-          const nextLink = [...changesTree.querySelectorAll<HTMLAnchorElement>('a[href]')].find((link) => mode === 'diff' && link.getAttribute('href') === diffURL(path));
-          if (currentLink !== nextLink) { currentLink?.removeAttribute('aria-current'); nextLink?.setAttribute('aria-current', 'page'); }
+          if (review.sync(changesReply)) reviewVersion++;
+          updateChangeViews();
         }
         if (mode === 'changes') {
-          const displayKey = JSON.stringify(changesReply);
-          if (displayedHTML !== displayKey) {
-            content.dataset.kind = 'changes'; renderChanges(content, changesReply!); displayedHTML = displayKey;
-            outline.hidden = true; showTitle('');
-          }
           status('Checking every few seconds', 'ok'); continue;
         }
         if (!path) { if (pathChanged) showTitle(''); showEmpty(); status('Checking every few seconds', 'ok'); continue; }
