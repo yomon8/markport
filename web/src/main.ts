@@ -5,6 +5,7 @@ import { effectiveTheme, initTheme } from './theme';
 import { renderChanges, renderDiff, diffURL, type Change, type ChangesReply, type DiffReply } from './diff';
 import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
+import { copyText } from './clipboard';
 import logoLight from '../../logo/markport-logo-horizontal-light.svg';
 import logoDark from '../../logo/markport-logo-horizontal-dark.svg';
 import symbolLight from '../../logo/markport-symbol-light.svg';
@@ -105,6 +106,14 @@ function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
     banner.append(document.createTextNode(state === 'error' ? 'Refresh failed. Check the connection and files.' : 'Checking connection.'));
     if (state === 'error') { const button = document.createElement('button'); button.textContent = 'Refresh now'; button.addEventListener('click', manualRefresh); banner.append(button); }
   }
+}
+const copyTimers = new WeakMap<HTMLButtonElement, ReturnType<typeof setTimeout>>();
+function copyWithFeedback(button: HTMLButtonElement, text: string, label: string): void {
+  void copyText(text).then((copied) => {
+    clearTimeout(copyTimers.get(button));
+    button.textContent = copied ? 'Copied' : 'Copy failed';
+    copyTimers.set(button, setTimeout(() => { button.textContent = label; copyTimers.delete(button); }, 2000));
+  });
 }
 function scheduleSearchIndexRefresh(): void {
   clearTimeout(searchIndexTimer);
@@ -304,7 +313,7 @@ function showTitle(path: string, kind = '', missing = false): void {
   } else {
     const diff = document.createElement('button'); diff.type = 'button'; diff.textContent = 'Diff'; diff.addEventListener('click', () => navigate(diffURL(path))); actions.append(diff);
   }
-  const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy path'; copy.addEventListener('click', () => { void navigator.clipboard.writeText(path).then(() => { copy.textContent = 'Copied'; setTimeout(() => { copy.textContent = 'Copy path'; }, 2000); }); }); actions.append(copy);
+  const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy path'; copy.addEventListener('click', () => copyWithFeedback(copy, path, 'Copy path')); actions.append(copy);
   if (kind === 'markdown' || kind === 'html') { const source = document.createElement('button'); source.type = 'button'; source.textContent = sourceMode ? kind === 'html' ? 'Preview' : 'Rendered view' : 'Source'; source.addEventListener('click', () => { sourceMode = !sourceMode; requestRefresh(); }); actions.append(source); }
   const toc = document.createElement('button'); toc.type = 'button'; toc.id = 'outline-toggle'; toc.textContent = 'Contents'; toc.hidden = outline.hidden; toc.addEventListener('click', () => outline.classList.toggle('open')); actions.append(toc);
   title.append(actions); document.title = `${parts.at(-1)} — markport`;
@@ -448,7 +457,7 @@ function decorateContent(): void {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Copy';
     button.addEventListener('click', () => {
       const code = element.querySelector<HTMLElement>('.lntd:last-child pre') ?? element;
-      void navigator.clipboard.writeText(code.textContent ?? '').then(() => { button.textContent = 'Copied'; setTimeout(() => { button.textContent = 'Copy'; }, 2000); });
+      copyWithFeedback(button, code.textContent ?? '', 'Copy');
     });
     toolbar.append(label, button); element.before(frame); frame.append(toolbar, element);
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {

@@ -381,6 +381,50 @@ test('opens README, switches source, searches by keyboard, and follows code line
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^print\(/);
 });
 
+test('copies Markdown blocks, code files, and paths without the Clipboard API', async ({ page, context }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await writeFile(join(directory, 'copy.md'), '```python\nprint("markdown")\n```\n\n```\nplain <text>\n```\n');
+  await writeFile(join(directory, 'copy.py'), 'print("code file")\n');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const hideClipboard = async () => page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+  });
+  const readClipboard = async () => page.evaluate(async () => {
+    Reflect.deleteProperty(navigator, 'clipboard');
+    return navigator.clipboard.readText();
+  });
+
+  await page.goto(`http://127.0.0.1:${port}/?path=copy.md`);
+  await expect(page.locator('.code-toolbar button')).toHaveCount(2);
+  await hideClipboard();
+  await page.locator('.code-toolbar button').first().click();
+  await expect(page.locator('.code-toolbar button').first()).toHaveText('Copied');
+  expect(await readClipboard()).toBe('print("markdown")\n');
+
+  await hideClipboard();
+  await page.locator('.code-toolbar button').last().click();
+  await expect(page.locator('.code-toolbar button').last()).toHaveText('Copied');
+  expect(await readClipboard()).toBe('plain <text>\n');
+
+  await page.goto(`http://127.0.0.1:${port}/?path=copy.py`);
+  await hideClipboard();
+  await page.locator('.code-toolbar button').click();
+  await expect(page.locator('.code-toolbar button')).toHaveText('Copied');
+  expect(await readClipboard()).toBe('print("code file")\n');
+
+  await hideClipboard();
+  await page.getByRole('button', { name: 'Copy path' }).click();
+  await expect(page.getByRole('button', { name: 'Copied' }).last()).toBeVisible();
+  expect(await readClipboard()).toBe('copy.py');
+
+  await hideClipboard();
+  await page.evaluate(() => { document.execCommand = () => false; });
+  await page.locator('.code-toolbar button').click();
+  await expect(page.locator('.code-toolbar button')).toHaveText('Copy failed');
+  expect(pageErrors).toEqual([]);
+});
+
 test('opens a deep link beyond the first directory page', async ({ page }) => {
   const paged = join(directory, 'paged');
   await mkdir(paged);
