@@ -425,8 +425,10 @@ test('desktop and mobile views in both themes', async ({ page }, testInfo) => {
       await page.reload();
       await expect(page.locator('.mermaid-source svg')).toBeVisible({ timeout: 15000 });
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
-      const brand = page.locator(width === 390 ? '.brand-symbol' : '.brand-horizontal');
+      const brand = page.locator('.brand-symbol');
       await expect(brand).toBeVisible();
+      await expect(page.getByRole('img', { name: 'markport' })).toBeVisible();
+      await expect(page.locator('header .brand img')).toHaveCount(1);
       const svg = await brand.evaluate(async (image: HTMLImageElement) => (await fetch(image.src)).text());
       expect(svg).toContain(theme === 'dark' ? '#75B7FF' : '#0969DA');
       expect(await brand.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
