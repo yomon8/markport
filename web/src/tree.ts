@@ -86,7 +86,8 @@ function highlighted(label: string, query: string): DocumentFragment {
   fragment.append(document.createTextNode(label.slice(index)));
   return fragment;
 }
-function fileLink(node: Node, selected: string, query = ''): HTMLAnchorElement {
+function fileLink(node: Node, selected: string, query = ''): DocumentFragment {
+  const row = document.createDocumentFragment();
   const link = document.createElement('a');
   link.href = `/?path=${encodeURIComponent(node.path)}`;
   link.title = node.path;
@@ -94,7 +95,9 @@ function fileLink(node: Node, selected: string, query = ''): HTMLAnchorElement {
   link.innerHTML = icon(node.name);
   const label = document.createElement('span'); label.className = 'node-label'; label.append(query ? highlighted(node.path, query) : document.createTextNode(node.name)); link.append(label);
   if (node.path === selected) link.setAttribute('aria-current', 'page');
-  return link;
+  const right = document.createElement('button'); right.type = 'button'; right.className = 'open-right'; right.dataset.rightPath = node.path;
+  right.title = `Open ${node.path} on right`; right.setAttribute('aria-label', `Open ${node.path} on right`); right.textContent = '⇥';
+  row.append(link, right); return row;
 }
 export class TreeView {
   private directories = new Map<string, Directory>();

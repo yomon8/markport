@@ -150,6 +150,54 @@ test('keeps an unchanged page still during automatic refresh', async ({ page }) 
   await expect(page.locator('#content')).toHaveAttribute('aria-busy', 'false');
 });
 
+test('opens and refreshes two independently scrolling files', async ({ page }) => {
+  await writeFile(join(directory, 'split-left.md'), `# Left\n${'Left line\n\n'.repeat(150)}`);
+  await writeFile(join(directory, 'split-right.md'), `# Right\n${'Right line\n\n'.repeat(150)}`);
+  await page.setViewportSize({ width: 1440, height: 800 });
+  await page.goto(`http://127.0.0.1:${port}/?path=split-left.md`);
+  await expect(page.locator('#content h1')).toHaveText('Left');
+  await page.locator('#main').evaluate((pane) => { pane.scrollTop = 350; });
+  const leftScroll = await page.locator('#main').evaluate((pane) => pane.scrollTop);
+  await page.getByRole('button', { name: 'Open split-right.md on right' }).click();
+  await expect(page.locator('#right-content h1')).toHaveText('Right');
+  expect(await page.locator('#main').evaluate((pane) => pane.scrollTop)).toBe(leftScroll);
+  await page.locator('#right-pane').evaluate((pane) => { pane.scrollTop = 480; });
+  expect(await page.locator('#right-pane').evaluate((pane) => pane.scrollTop)).toBeGreaterThan(0);
+  expect(await page.locator('#main').evaluate((pane) => pane.scrollTop)).toBe(leftScroll);
+  await writeFile(join(directory, 'split-left.md'), `# Left updated\n${'Left line\n\n'.repeat(150)}`);
+  await writeFile(join(directory, 'split-right.md'), `# Right updated\n${'Right line\n\n'.repeat(150)}`);
+  await expect(page.locator('#content h1')).toHaveText('Left updated', { timeout: 15000 });
+  await expect(page.locator('#right-content h1')).toHaveText('Right updated', { timeout: 15000 });
+  expect(await page.locator('#main').evaluate((pane) => pane.scrollTop)).toBe(leftScroll);
+  expect(await page.locator('#right-pane').evaluate((pane) => pane.scrollTop)).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Close split view' }).click();
+  await expect(page.locator('#right-pane')).toBeHidden();
+  await expect(page.locator('#content h1')).toHaveText('Left updated');
+});
+
+test('keeps the HTML preview sandbox in the right pane and works on a narrow screen', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await page.getByRole('button', { name: 'Open file list' }).click();
+  await page.locator('details[data-path="docs"] > summary').click();
+  await page.getByRole('button', { name: 'Open docs/first.html on right' }).click();
+  const frame = page.locator('#right-content .html-preview');
+  await expect(frame).toHaveAttribute('sandbox', 'allow-same-origin');
+  await expect(page.frameLocator('#right-content .html-preview').locator('h1')).toHaveText('HTML preview');
+  expect(await page.frameLocator('#right-content .html-preview').locator('body').evaluate((body) => (body.ownerDocument.defaultView as Window & { previewScriptRan?: boolean }).previewScriptRan)).toBeUndefined();
+  await expect(page.locator('#main')).toBeVisible();
+  await expect(page.locator('#right-pane')).toBeVisible();
+  const scrollable = await page.locator('#right-pane').evaluate((pane) => getComputedStyle(pane).overflowY);
+  expect(scrollable).toBe('auto');
+  await page.frameLocator('#right-content .html-preview').getByRole('link', { name: 'Next HTML' }).click();
+  await expect(page.locator('#right-path')).toHaveText('docs/second.htm');
+  await expect(page.locator('#content h1')).toHaveText('Demo');
+  await page.locator('#right-source').click();
+  await expect(page.locator('#right-content .lntd:last-child pre')).toContainText('Second HTML');
+  await page.getByRole('button', { name: 'Close split view' }).click();
+  await expect(page.locator('#right-pane')).toBeHidden();
+});
+
 test('desktop sidebar toggle keeps the content full width', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
