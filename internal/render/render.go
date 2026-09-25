@@ -82,6 +82,15 @@ func renderFence(w util.BufWriter, source []byte, n ast.Node, entering bool) (as
 }
 
 func Markdown(filename, content string) (string, error) {
+	return markdown(filename, content, false)
+}
+
+// PastedMarkdown renders text without resolving links against the browsed directory.
+func PastedMarkdown(content string) (string, error) {
+	return markdown("", content, true)
+}
+
+func markdown(filename, content string, pasted bool) (string, error) {
 	source := []byte(content)
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
@@ -89,25 +98,48 @@ func Markdown(filename, content string) (string, error) {
 		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(codeRenderer{}, 100))),
 	)
 	doc := md.Parser().Parse(text.NewReader(source))
+	var unresolved []ast.Node
 	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
 		switch v := n.(type) {
 		case *ast.Link:
+			if pasted && !pastedDestination(string(v.Destination), false) {
+				unresolved = append(unresolved, n)
+				break
+			}
 			v.Destination = rewrite(filename, string(v.Destination), false)
 		case *ast.Image:
+			if pasted && !pastedDestination(string(v.Destination), true) {
+				unresolved = append(unresolved, n)
+				break
+			}
 			v.Destination = rewrite(filename, string(v.Destination), true)
 		case *ast.AutoLink:
 			// Goldmark applies its own URL safety filter when rendering.
 		}
 		return ast.WalkContinue, nil
 	})
+	for i := len(unresolved) - 1; i >= 0; i-- {
+		n := unresolved[i]
+		if parent := n.Parent(); parent != nil {
+			parent.ReplaceChild(parent, n, ast.NewString(n.Text(source)))
+		}
+	}
 	var out bytes.Buffer
 	if err := md.Renderer().Render(&out, source, doc); err != nil {
 		return "", err
 	}
 	return out.String(), nil
+}
+
+func pastedDestination(raw string, image bool) bool {
+	if strings.HasPrefix(raw, "#") && !image {
+		return true
+	}
+	u, err := url.Parse(raw)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 func rewrite(filename, raw string, image bool) []byte {

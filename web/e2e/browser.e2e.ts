@@ -114,6 +114,29 @@ test('shows partial content results and cancels an active search', async ({ page
   await expect(page.locator('.content-search-status')).toHaveText('Search canceled.');
 });
 
+test('previews pasted Markdown and restores it after reloading the tab', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await page.getByRole('button', { name: 'Paste Markdown' }).click();
+  await page.getByLabel('Markdown Text').fill('# Pasted\n\n[Local](sample.py) [Jump](#pasted)');
+  await expect(page.locator('.paste-preview')).toBeHidden();
+  await page.getByRole('button', { name: 'Rendered view' }).click();
+  await expect(page.locator('.paste-preview h1')).toHaveText('Pasted');
+  await expect(page.getByLabel('Markdown Text')).toBeHidden();
+  await expect(page.locator('.paste-preview a', { hasText: 'Local' })).toHaveCount(0);
+  await expect(page.locator('.paste-preview a', { hasText: 'Jump' })).toHaveAttribute('href', '#pasted');
+  await page.getByRole('button', { name: 'Markdown Text' }).click();
+  await expect(page.getByLabel('Markdown Text')).toBeVisible();
+  await expect(page.locator('.paste-preview')).toBeHidden();
+  await page.getByRole('button', { name: 'Rendered view' }).click();
+  await expect(page.locator('.paste-preview h1')).toHaveText('Pasted');
+  await page.reload();
+  await expect(page.getByLabel('Markdown Text')).toHaveValue('# Pasted\n\n[Local](sample.py) [Jump](#pasted)');
+  await expect(page.locator('.paste-preview')).toBeHidden();
+  await page.getByRole('button', { name: 'Clear' }).click();
+  await expect(page.getByLabel('Markdown Text')).toBeEmpty();
+  await expect(page.locator('.paste-preview h1')).toHaveCount(0);
+});
+
 test('keeps an unchanged page still during automatic refresh', async ({ page }) => {
   await page.goto(`http://127.0.0.1:${port}/?path=sample.py`);
   await expect(page.locator('article .lntd:last-child pre')).toContainText('first');
@@ -356,6 +379,50 @@ test('opens README, switches source, searches by keyboard, and follows code line
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.locator('.code-toolbar button').click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^print\(/);
+});
+
+test('copies Markdown blocks, code files, and paths without the Clipboard API', async ({ page, context }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await writeFile(join(directory, 'copy.md'), '```python\nprint("markdown")\n```\n\n```\nplain <text>\n```\n');
+  await writeFile(join(directory, 'copy.py'), 'print("code file")\n');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const hideClipboard = async () => page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+  });
+  const readClipboard = async () => page.evaluate(async () => {
+    Reflect.deleteProperty(navigator, 'clipboard');
+    return navigator.clipboard.readText();
+  });
+
+  await page.goto(`http://127.0.0.1:${port}/?path=copy.md`);
+  await expect(page.locator('.code-toolbar button')).toHaveCount(2);
+  await hideClipboard();
+  await page.locator('.code-toolbar button').first().click();
+  await expect(page.locator('.code-toolbar button').first()).toHaveText('Copied');
+  expect(await readClipboard()).toBe('print("markdown")\n');
+
+  await hideClipboard();
+  await page.locator('.code-toolbar button').last().click();
+  await expect(page.locator('.code-toolbar button').last()).toHaveText('Copied');
+  expect(await readClipboard()).toBe('plain <text>\n');
+
+  await page.goto(`http://127.0.0.1:${port}/?path=copy.py`);
+  await hideClipboard();
+  await page.locator('.code-toolbar button').click();
+  await expect(page.locator('.code-toolbar button')).toHaveText('Copied');
+  expect(await readClipboard()).toBe('print("code file")\n');
+
+  await hideClipboard();
+  await page.getByRole('button', { name: 'Copy path' }).click();
+  await expect(page.getByRole('button', { name: 'Copied' }).last()).toBeVisible();
+  expect(await readClipboard()).toBe('copy.py');
+
+  await hideClipboard();
+  await page.evaluate(() => { document.execCommand = () => false; });
+  await page.locator('.code-toolbar button').click();
+  await expect(page.locator('.code-toolbar button')).toHaveText('Copy failed');
+  expect(pageErrors).toEqual([]);
 });
 
 test('opens a deep link beyond the first directory page', async ({ page }) => {

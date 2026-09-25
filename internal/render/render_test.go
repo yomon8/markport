@@ -22,6 +22,23 @@ func TestMarkdown(t *testing.T) {
 		}
 	}
 }
+
+func TestPastedMarkdown(t *testing.T) {
+	out, err := PastedMarkdown("# Preview\n\n[local](docs/a.md) ![image](image.png) [jump](#preview) [web](https://example.com)\n\n<script>alert(1)</script>\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`id="preview"`, "local", "image", `href="#preview"`, `href="https://example.com"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %s", want, out)
+		}
+	}
+	for _, bad := range []string{"docs/a.md", "image.png", "/api/asset", "/?path=", "<script>"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("unsafe pasted reference %q in %s", bad, out)
+		}
+	}
+}
 func TestCodeEscapes(t *testing.T) {
 	for _, name := range []string{"file.unknown", "file.py"} {
 		out := Code(name, "<script>alert(1)</script>")

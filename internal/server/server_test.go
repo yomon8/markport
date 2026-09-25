@@ -111,6 +111,48 @@ func TestHostAndAPI(t *testing.T) {
 	}
 }
 
+func TestRenderPastedMarkdown(t *testing.T) {
+	app, _ := newTestServer(t)
+	post := func(body, contentType string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/api/render", strings.NewReader(body))
+		req.Host = "localhost:3000"
+		req.Header.Set("Content-Type", contentType)
+		response := httptest.NewRecorder()
+		app.ServeHTTP(response, req)
+		return response
+	}
+	good := post(`{"markdown":"# Preview\n\n[local](code.py)"}`, "application/json")
+	var rendered map[string]string
+	if err := json.Unmarshal(good.Body.Bytes(), &rendered); err != nil {
+		t.Fatal(err)
+	}
+	if good.Code != http.StatusOK || !strings.Contains(rendered["html"], "<h1") || strings.Contains(rendered["html"], "/?path=") {
+		t.Fatalf("render response: %d %s", good.Code, good.Body.String())
+	}
+	for _, test := range []struct {
+		body, contentType string
+		status            int
+	}{
+		{`{"markdown":`, "application/json", http.StatusBadRequest},
+		{`{}`, "application/json", http.StatusBadRequest},
+		{`{"markdown":"ok","unexpected":true}`, "application/json", http.StatusBadRequest},
+		{`{"markdown":"ok"}{"markdown":"again"}`, "application/json", http.StatusBadRequest},
+		{`{"markdown":"ok"}`, "text/plain", http.StatusUnsupportedMediaType},
+		{`{"markdown":"` + strings.Repeat("a", maxPastedMarkdownSize+1) + `"}`, "application/json", http.StatusRequestEntityTooLarge},
+		{strings.Repeat(" ", maxRenderRequestSize+1), "application/json", http.StatusRequestEntityTooLarge},
+	} {
+		got := post(test.body, test.contentType)
+		if got.Code != test.status {
+			t.Errorf("status %d for request length %d: %d %s", test.status, len(test.body), got.Code, got.Body.String())
+		}
+	}
+	wrongMethod := request(app, "localhost:3000", "/api/render")
+	if wrongMethod.Code != http.StatusMethodNotAllowed || wrongMethod.Header().Get("Allow") != "POST" {
+		t.Fatalf("method: %d %s", wrongMethod.Code, wrongMethod.Header().Get("Allow"))
+	}
+}
+
 func TestDefaultHTTPPortHost(t *testing.T) {
 	if !validHost("localhost", "127.0.0.1", 80) || !validHost("LOCALHOST:80", "127.0.0.1", 80) || validHost("localhost", "127.0.0.1", 3000) {
 		t.Fatal("port 80 host rules")

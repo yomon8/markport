@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"net/netip"
@@ -25,7 +26,11 @@ import (
 	"github.com/markport/markport/internal/web"
 )
 
-const maxAssetSize = 32 << 20
+const (
+	maxAssetSize          = 32 << 20
+	maxPastedMarkdownSize = 1 << 20
+	maxRenderRequestSize  = 8 << 20
+)
 
 var imageContentTypes = map[string]string{
 	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -96,6 +101,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid Host", http.StatusBadRequest)
 		return
 	}
+	if r.URL.Path == "/api/render" {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.render(w, r)
+		return
+	}
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -129,6 +143,54 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 		}
 	}
+}
+
+func (s *Server) render(w http.ResponseWriter, r *http.Request) {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		jsonReply(w, http.StatusUnsupportedMediaType, map[string]string{"error": "unsupported_media_type", "message": "Content-Type must be application/json"})
+		return
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRenderRequestSize))
+	decoder.DisallowUnknownFields()
+	var input struct {
+		Markdown *string `json:"markdown"`
+	}
+	if err := decoder.Decode(&input); err != nil {
+		renderInputError(w, err)
+		return
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			err = errors.New("only one JSON object is allowed")
+		}
+		renderInputError(w, err)
+		return
+	}
+	if input.Markdown == nil {
+		jsonReply(w, http.StatusBadRequest, map[string]string{"error": "invalid_input", "message": "markdown is required"})
+		return
+	}
+	if len(*input.Markdown) > maxPastedMarkdownSize {
+		jsonReply(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "too_large", "message": "Markdown exceeds the 1 MiB limit"})
+		return
+	}
+	output, err := render.PastedMarkdown(*input.Markdown)
+	if err != nil {
+		jsonReply(w, http.StatusInternalServerError, map[string]string{"error": "render_failed", "message": "Cannot render Markdown"})
+		return
+	}
+	jsonReply(w, http.StatusOK, map[string]string{"html": output})
+}
+
+func renderInputError(w http.ResponseWriter, err error) {
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		jsonReply(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "too_large", "message": "Request body is too large"})
+		return
+	}
+	jsonReply(w, http.StatusBadRequest, map[string]string{"error": "invalid_input", "message": "Invalid JSON request"})
 }
 
 func validHost(raw, bindHost string, port int) bool {
