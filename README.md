@@ -7,9 +7,32 @@
 
 [Read this in Japanese](README.ja.md)
 
-Markport is a CLI for browsing Markdown, HTML, code, and images created by AI agents in a local browser. It serves a selected directory in read-only mode. It supports Markdown tables, task lists, and Mermaid diagrams; syntax highlighting for code; relative links and images; previews of HTML, SVG, PNG, JPEG, GIF, and WebP files; and automatic updates when files change. HTML previews load relative CSS and images from the selected directory and may load external CSS and images. JavaScript does not run. Use the Source button to inspect HTML code.
+Markport opens a folder in your browser so you can read and review Markdown, HTML, code, and images together. It is useful for checking documents and files created by AI agents. Point the CLI at a directory; Markport serves it locally without changing its files.
 
-## Usage
+![Markport showing a Markdown file and content search results](docs/screenshots/content-search.png)
+
+## What you can do
+
+- **Read files in context:** browse folders, follow relative links and images, and preview Markdown, HTML, SVG, PNG, JPEG, GIF, and WebP. Markdown supports tables, task lists, code highlighting, and Mermaid diagrams. Switch to source view for Markdown or HTML.
+- **Find what you need:** search by file name or path, or search text inside files and jump to matching lines.
+- **Review Git changes:** see changed files and their diffs, mark each revision as reviewed, and filter to unreviewed files. Review marks are kept in this browser.
+- **Check fresh output:** open files refresh automatically as they change. Paste Markdown from your clipboard for a quick preview without creating a file.
+
+[See the Git review screen](docs/screenshots/reviewed-changes.png) · [See the pasted Markdown preview](docs/screenshots/pasted-markdown.png)
+
+HTML previews can load relative CSS and images from the selected directory, plus external CSS and images. JavaScript does not run in previews.
+
+## Get started
+
+After installing or downloading the executable, run:
+
+```sh
+markport ./notes
+```
+
+Open the `http://127.0.0.1:3000/` URL printed at startup. Omit the directory to browse the current directory. Press `Ctrl+C` to stop Markport.
+
+### Install and run
 
 On Linux, install the latest release for your CPU with the installer:
 
@@ -36,7 +59,7 @@ To verify a download, place `checksums_<version>.txt` from the release alongside
 ./markport_v0.1.5_linux_amd64 --version
 ```
 
-With no arguments, Markport serves the current directory on port 3000. Open the `http://127.0.0.1:<port>/` URL printed at startup. Press `Ctrl+C` to stop the server. By default, it listens only on `127.0.0.1`. To allow devices on the same LAN to connect, use `--host 0.0.0.0` and open `http://<this-machine-LAN-IP>:<port>/` on those devices. You can also bind to a specific IPv4 address with `--host`. The LAN mode has no authentication or TLS; anyone who can reach the port can browse the selected directory, including dotfiles other than the excluded directories.
+By default, Markport listens only on `127.0.0.1`. To allow devices on the same LAN to connect, use `--host 0.0.0.0` and open `http://<this-machine-LAN-IP>:<port>/` on those devices. You can also bind to a specific IPv4 address with `--host`. The LAN mode has no authentication or TLS; anyone who can reach the port can browse the selected directory, including dotfiles other than the excluded directories.
 
 Markport excludes `.git`, `node_modules`, and `.venv` from browsing. Other dotfiles remain visible. It does not read symbolic links, Windows junctions, or special files such as FIFOs. Text files are limited to 10 MiB, and image files to 32 MiB. Binary or unreadable files show an error for that file only. Folders load when opened, 200 entries at a time; filename search covers all browsable files and shows the top 100 matches. The browser checks the open folders and selected file about every three seconds, and refreshes the filename list every ten seconds while searching. Closed folders refresh when opened. Use the refresh button to fetch the latest state immediately.
 
@@ -75,4 +98,4 @@ Before running browser tests for the first time, install Chromium and its requir
 
 Pushing a `v*` tag triggers GitHub Actions to validate each OS build and create a release for that tag. Before a release, you can also run `make test`, `make lint`, and `make dist VERSION=<tag>` locally. The initial release does not include code signing or macOS notarization.
 
-Current releases do not include editing, comments, full-text search, standard-input import, or authenticated network hosting.
+Current releases do not include editing files, comments, standard-input import, or authenticated network hosting.
