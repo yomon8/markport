@@ -14,10 +14,16 @@ Markport is a CLI for browsing Markdown, HTML, code, and images created by AI ag
 On Linux, install the latest release for your CPU with the installer:
 
 ```sh
-curl -fsSLo install-markport.sh https://raw.githubusercontent.com/yomon8/markport/main/scripts/install-linux.sh && sh install-markport.sh
+(
+  installer=$(mktemp) || exit
+  trap 'rm -f "$installer"' 0
+  trap 'exit 1' 1 2 3 15
+  curl -fsSLo "$installer" https://raw.githubusercontent.com/yomon8/markport/main/scripts/install-linux.sh &&
+    sh "$installer"
+)
 ```
 
-It installs `markport` in `~/.local/bin`. Run the same command again to replace an older version. The installer checks the release checksum before replacing the binary, so a failed download or check leaves the installed version in place. Add `~/.local/bin` to your `PATH` if needed, then run `markport ./notes`.
+It installs `markport` in `~/.local/bin` without leaving an installer script behind. Run the same command again to replace an older version. The installer checks the release checksum before replacing the binary, so a failed download or check leaves the installed version in place. Add `~/.local/bin` to your `PATH` if needed, then run `markport ./notes`.
 
 Download the executable for your OS and CPU from the GitHub Releases page. Builds are available for Linux, macOS, and Windows on `amd64` (x64) and `arm64`. The Windows executable has a `.exe` extension. You do not need Go, Node.js, npm, or separate web assets to run it, but you do need a browser.
 

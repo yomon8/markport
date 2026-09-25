@@ -12,10 +12,16 @@ AI Agent が作った Markdown・HTML・コード・画像を、ローカルの�
 Linux では、次のスクリプトで CPU に合う最新リリースをインストールできます。
 
 ```sh
-curl -fsSLo install-markport.sh https://raw.githubusercontent.com/yomon8/markport/main/scripts/install-linux.sh && sh install-markport.sh
+(
+  installer=$(mktemp) || exit
+  trap 'rm -f "$installer"' 0
+  trap 'exit 1' 1 2 3 15
+  curl -fsSLo "$installer" https://raw.githubusercontent.com/yomon8/markport/main/scripts/install-linux.sh &&
+    sh "$installer"
+)
 ```
 
-導入先は `~/.local/bin/markport` です。同じコマンドを再実行すると、古いバージョンを最新版に置き換えます。スクリプトは置き換え前にチェックサムを確認するため、ダウンロードや検証に失敗しても既存のバージョンは残ります。必要に応じて `~/.local/bin` を `PATH` に追加し、`markport ./notes` で起動してください。
+導入先は `~/.local/bin/markport` で、インストーラのファイルは残りません。同じコマンドを再実行すると、古いバージョンを最新版に置き換えます。スクリプトは置き換え前にチェックサムを確認するため、ダウンロードや検証に失敗しても既存のバージョンは残ります。必要に応じて `~/.local/bin` を `PATH` に追加し、`markport ./notes` で起動してください。
 
 GitHub Release から OS・CPU に合う実行ファイルを選びます。Linux、macOS、Windows の `amd64`（x64）と `arm64` を用意します。Windows 版は `.exe` です。利用時に Go、Node.js、npm や別置きの Web アセットは不要です。ブラウザは別途必要です。
 
