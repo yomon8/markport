@@ -17,7 +17,7 @@ type ApiError = { error?: string; message?: string };
 class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
-app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs"><button id="files-tab" type="button">Files</button><button id="changes-tab" type="button">Changes</button></div><div id="files-panel"><form role="search" onsubmit="return false"><label for="search">Search files</label><input id="search" type="search" placeholder="Path or file name /"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" aria-label="Changed files" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><strong id="right-path"></strong><div class="right-actions"><button id="right-source" type="button" hidden>Source</button><button id="right-close" type="button" aria-label="Close split view">Close split</button></div></div><article id="right-content" aria-busy="false"></article></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
+app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><label for="search">Search files</label><input id="search" type="search" placeholder="Path or file name /"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><strong id="right-path"></strong><div class="right-actions"><button id="right-source" type="button" hidden>Source</button><button id="right-close" type="button" aria-label="Close split view">Close split</button></div></div><article id="right-content" aria-busy="false"></article></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
 if (!icon.isConnected) document.head.append(icon);
@@ -52,6 +52,7 @@ const rightContent = document.querySelector<HTMLElement>('#right-content')!;
 const rightPath = document.querySelector<HTMLElement>('#right-path')!;
 const rightSource = document.querySelector<HTMLButtonElement>('#right-source')!;
 let rightShownPath = ''; let rightShownKey = ''; let rightSourceMode = false; let rightRequest = 0;
+let rightTag = ''; let rightTagCheckedAt = 0;
 const progress = document.querySelector<HTMLElement>('#progress')!;
 const outline = document.querySelector<HTMLElement>('#outline')!;
 const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
@@ -65,6 +66,7 @@ let revision = 0; let pending = false; let pendingForeground = false; let active
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = new URL(location.href).searchParams.get('source') === '1';
 let displayedMode: 'file' | 'diff' | 'changes' | 'paste' = 'file'; let lastFilePath = '';
 let sidebarPanel: 'file' | 'changes' = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file';
+let keepTabFocus = false;
 let currentChanges: ChangesReply | undefined;
 let displayedChanges = '';
 const review = new ReviewState();
@@ -88,6 +90,7 @@ let searchIndexRequest: AbortController | undefined;
 let searchIndexVersion = 0;
 let searchIndexState: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
 let searchIndexCheckedAt = 0;
+let searchIndexTag = '';
 const savedWidth = Number(localStorage.getItem('markport-sidebar-width'));
 if (savedWidth >= 200 && savedWidth <= 480) document.documentElement.style.setProperty('--sidebar-width', `${savedWidth}px`);
 
@@ -100,7 +103,8 @@ function selectedMode(): 'file' | 'diff' | 'changes' | 'paste' {
 function showSidebar(mode: 'file' | 'changes'): void {
   const git = mode === 'changes';
   filesPanel.hidden = git; changesTree.hidden = !git;
-  filesTab.setAttribute('aria-pressed', String(!git)); changesTab.setAttribute('aria-pressed', String(git));
+  filesTab.setAttribute('aria-selected', String(!git)); changesTab.setAttribute('aria-selected', String(git));
+  filesTab.tabIndex = git ? -1 : 0; changesTab.tabIndex = git ? 0 : -1;
 }
 function saveScroll(): void { history.replaceState({ scroll: main.scrollTop }, '', location.href); }
 function navigate(url: string): void {
@@ -118,6 +122,7 @@ function openRight(path: string): void {
 function closeRight(): void {
   const url = new URL(location.href); url.searchParams.delete('right');
   history.pushState(history.state, '', url); rightRequest++; rightPane.hidden = true; layout.classList.remove('split'); rightShownPath = ''; rightShownKey = '';
+  rightTag = '';
 }
 function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
   if (connection.dataset.state === state && connection.title === message) return;
@@ -144,27 +149,32 @@ function scheduleSearchIndexRefresh(): void {
     void loadSearchIndex();
   }, 10000);
 }
-async function loadSearchIndex(): Promise<void> {
+async function loadSearchIndex(force = false): Promise<void> {
   clearTimeout(searchIndexTimer);
   searchIndexRequest?.abort();
   const request = new AbortController();
   searchIndexRequest = request;
   const current = ++searchIndexVersion;
-  searchIndexState = 'loading';
-  view.setSearchIndex([], 'loading');
+  const hadResults = searchIndexState === 'ready';
+  if (!hadResults) { searchIndexState = 'loading'; view.setSearchIndex([], 'loading'); }
   try {
-    const response = await fetch('/api/search-index', { cache: 'no-store', signal: request.signal });
+    const headers: Record<string, string> = {};
+    if (searchIndexTag) headers['If-None-Match'] = searchIndexTag;
+    if (force) headers['Cache-Control'] = 'no-cache';
+    const response = await fetch('/api/search-index', { cache: 'no-store', signal: request.signal, headers });
+    if (current !== searchIndexVersion || !search.value.trim()) return;
+    searchIndexCheckedAt = Date.now();
+    if (response.status === 304) return;
     const body = await response.json() as { paths?: string[] } & ApiError;
     if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
     if (!Array.isArray(body.paths)) throw new RequestError('invalid_response', 'Invalid file list');
     if (current !== searchIndexVersion || !search.value.trim()) return;
-    searchIndexCheckedAt = Date.now();
+    searchIndexTag = response.headers.get('ETag') ?? '';
     searchIndexState = 'ready';
     view.setSearchIndex(body.paths, 'ready');
   } catch {
     if (current !== searchIndexVersion || !search.value.trim()) return;
-    searchIndexState = 'error';
-    view.setSearchIndex([], 'error');
+    if (!hadResults) { searchIndexState = 'error'; view.setSearchIndex([], 'error'); }
   } finally {
     if (current === searchIndexVersion) {
       searchIndexRequest = undefined;
@@ -178,8 +188,9 @@ function onSearchChange(query: string): void {
     searchIndexRequest?.abort(); searchIndexRequest = undefined;
     clearTimeout(searchIndexTimer);
     searchIndexState = 'idle';
+    searchIndexTag = '';
     view.setSearchIndex([], 'idle');
-  } else if (searchIndexState === 'idle' || searchIndexState === 'error') void loadSearchIndex();
+  } else if (searchIndexState === 'idle' || searchIndexState === 'error') void loadSearchIndex(true);
 }
 async function getPage(path: string, offset: number, focus: string, conditional: boolean, expectedRevision?: number): Promise<Page | null> {
   const tag = pageTags.get(path);
@@ -312,6 +323,15 @@ function showTitle(path: string, kind = '', missing = false): void {
   });
   title.append(crumbs);
   const actions = document.createElement('div'); actions.className = 'title-actions';
+  const segment = (choices: { label: string; selected: boolean; disabled?: boolean; select: () => void }[]): void => {
+    const group = document.createElement('div'); group.className = 'view-segment'; group.setAttribute('role', 'group'); group.setAttribute('aria-label', choices.map((choice) => choice.label).join(' or '));
+    for (const choice of choices) {
+      const button = document.createElement('button'); button.type = 'button'; button.textContent = choice.label;
+      button.setAttribute('aria-pressed', String(choice.selected)); button.disabled = Boolean(choice.disabled);
+      button.addEventListener('click', choice.select); group.append(button);
+    }
+    actions.append(group);
+  };
   if (kind) {
     const badge = document.createElement('span'); badge.className = 'kind-badge';
     const extension = path.split('.').at(-1)?.toLowerCase() ?? '';
@@ -328,16 +348,35 @@ function showTitle(path: string, kind = '', missing = false): void {
       button.setAttribute('aria-label', `${reviewed ? 'Mark unreviewed' : 'Mark reviewed'}: ${path}`);
       button.addEventListener('click', () => toggleReview(change)); actions.append(button);
     }
-    if (currentChanges?.changes.find((change) => change.path === path)?.status !== 'deleted') {
-      const file = document.createElement('button'); file.type = 'button'; file.textContent = 'File'; file.addEventListener('click', () => navigate(fileURL(path))); actions.append(file);
-    }
+    const deleted = currentChanges?.changes.find((change) => change.path === path)?.status === 'deleted';
+    segment([{ label: 'File', selected: false, disabled: deleted, select: () => navigate(fileURL(path)) }, { label: 'Diff', selected: true, select: () => {} }]);
   } else {
-    const diff = document.createElement('button'); diff.type = 'button'; diff.textContent = 'Diff'; diff.addEventListener('click', () => navigate(diffURL(path))); actions.append(diff);
-    if (selectedMode() === 'file') { const split = document.createElement('button'); split.type = 'button'; split.textContent = 'Open on right'; split.addEventListener('click', () => openRight(path)); actions.append(split); }
+    segment([{ label: 'File', selected: true, select: () => {} }, { label: 'Diff', selected: false, select: () => navigate(diffURL(path)) }]);
   }
-  const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy path'; copy.addEventListener('click', () => copyWithFeedback(copy, path, 'Copy path')); actions.append(copy);
-  if (kind === 'markdown' || kind === 'html') { const source = document.createElement('button'); source.type = 'button'; source.textContent = sourceMode ? kind === 'html' ? 'Preview' : 'Rendered view' : 'Source'; source.addEventListener('click', () => { sourceMode = !sourceMode; requestRefresh(); }); actions.append(source); }
-  const toc = document.createElement('button'); toc.type = 'button'; toc.id = 'outline-toggle'; toc.textContent = 'Contents'; toc.hidden = outline.hidden; toc.addEventListener('click', () => outline.classList.toggle('open')); actions.append(toc);
+  if (kind === 'markdown' || kind === 'html') {
+    const rendered = kind === 'html' ? 'Preview' : 'Rendered view';
+    segment([{ label: rendered, selected: !sourceMode, select: () => { if (sourceMode) { sourceMode = false; requestRefresh(); } } }, { label: 'Source', selected: sourceMode, select: () => { if (!sourceMode) { sourceMode = true; requestRefresh(); } } }]);
+  }
+  const auxiliary = document.createElement('div'); auxiliary.className = 'title-auxiliary';
+  const menuButton = document.createElement('button'); menuButton.type = 'button'; menuButton.className = 'title-more'; menuButton.textContent = '⋯'; menuButton.title = 'More actions'; menuButton.setAttribute('aria-label', 'More actions'); menuButton.setAttribute('aria-expanded', 'false'); menuButton.setAttribute('aria-haspopup', 'menu');
+  const menu = document.createElement('div'); menu.className = 'title-menu'; menu.setAttribute('role', 'menu'); menu.hidden = true;
+  const closeMenu = (): void => { menu.hidden = true; menuButton.setAttribute('aria-expanded', 'false'); menuButton.focus(); };
+  menuButton.addEventListener('click', () => { menu.hidden = !menu.hidden; menuButton.setAttribute('aria-expanded', String(!menu.hidden)); if (!menu.hidden) menu.querySelector<HTMLButtonElement>('button')?.focus(); });
+  menu.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') { event.preventDefault(); closeMenu(); return; }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault(); const items = [...menu.querySelectorAll<HTMLButtonElement>('button')]; const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    items[(index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
+  });
+  const addAux = (label: string, icon: string, action: (button: HTMLButtonElement) => void, visible = true): void => {
+    if (!visible) return;
+    const desktop = document.createElement('button'); desktop.type = 'button'; desktop.className = 'title-icon'; desktop.textContent = icon; desktop.title = label; desktop.setAttribute('aria-label', label); desktop.addEventListener('click', () => action(desktop)); auxiliary.append(desktop);
+    const mobile = document.createElement('button'); mobile.type = 'button'; mobile.setAttribute('role', 'menuitem'); mobile.textContent = label; mobile.addEventListener('click', () => { action(mobile); closeMenu(); }); menu.append(mobile);
+  };
+  addAux('Open on right', '◫', () => openRight(path), selectedMode() === 'file');
+  addAux('Copy path', '⧉', (button) => copyWithFeedback(button, path, button.classList.contains('title-icon') ? '⧉' : 'Copy path'));
+  addAux('Contents', '☷', () => outline.classList.toggle('open'), !outline.hidden);
+  actions.append(auxiliary, menuButton, menu);
   title.append(actions); document.title = `${parts.at(-1)} — markport`;
 }
 function toggleReview(change: Change): void {
@@ -536,9 +575,9 @@ function requestRefresh(foreground = true): void {
   revision++; pending = true; pendingForeground ||= foreground; if (!running) void refreshLoop();
 }
 function manualRefresh(): void {
-  displayedTag = ''; pageTags.clear(); previewReload++; requestRefresh();
+  displayedTag = ''; rightTag = ''; pageTags.clear(); previewReload++; requestRefresh();
   if (selectedMode() === 'paste') refreshPastedPreview?.();
-  if (search.value.trim()) void loadSearchIndex();
+  if (search.value.trim()) void loadSearchIndex(true);
 }
 
 function attachPreviewNavigation(frame: HTMLIFrameElement, path: string, pane: 'left' | 'right' = 'left'): void {
@@ -569,10 +608,16 @@ async function refreshRight(): Promise<void> {
   const path = rightSelected(); const request = ++rightRequest;
   rightPane.hidden = !path; layout.classList.toggle('split', Boolean(path));
   if (!path) { rightShownPath = ''; rightShownKey = ''; return; }
-  if (path !== rightShownPath) { rightPane.scrollTop = 0; rightShownKey = ''; rightSourceMode = false; }
+  if (path !== rightShownPath) { rightPane.scrollTop = 0; rightShownKey = ''; rightTag = ''; rightSourceMode = false; }
   rightContent.setAttribute('aria-busy', 'true'); rightPath.textContent = path;
   try {
-    const response = await fetch(`/api/file?path=${encodeURIComponent(path)}${rightSourceMode ? '&source=1' : ''}`, { cache: 'no-store' });
+    const headers: Record<string, string> = {};
+    if (rightShownPath === path && rightTag && Date.now() - rightTagCheckedAt < 60000) headers['If-None-Match'] = rightTag;
+    const response = await fetch(`/api/file?path=${encodeURIComponent(path)}${rightSourceMode ? '&source=1' : ''}`, { cache: 'no-store', headers });
+    if (request !== rightRequest || path !== rightSelected()) return;
+    rightTag = response.headers.get('ETag') ?? '';
+    rightTagCheckedAt = Date.now();
+    if (response.status === 304) return;
     const file = await response.json() as FileReply & ApiError;
     if (!response.ok) throw new RequestError(file.error ?? 'network', file.message ?? `HTTP ${response.status}`);
     if (request !== rightRequest || path !== rightSelected()) return;
@@ -606,7 +651,7 @@ async function refreshLoop(): Promise<void> {
   try {
     while (pending) {
       pending = false; const foreground = pendingForeground; pendingForeground = false;
-      const current = revision; const path = selected(); const source = sourceMode; const mode = selectedMode();
+      const current = revision; const path = selected(); const source = sourceMode; const mode = selectedMode(); const preserveTabFocus = keepTabFocus; keepTabFocus = false;
       void refreshRight();
       showSidebar(sidebarPanel);
       if (path !== displayedPath || mode !== displayedMode) displayedTag = '';
@@ -677,7 +722,7 @@ async function refreshLoop(): Promise<void> {
             void drawMermaid(content, () => path === selected() && source === sourceMode);
           }
           if (pathChanged) view.reveal(path);
-          if (pathChanged) title.focus({ preventScroll: true });
+          if (pathChanged && !preserveTabFocus) title.focus({ preventScroll: true });
         }
         status('Checking every few seconds', 'ok');
       } catch (error) {
@@ -701,8 +746,22 @@ changesTree.addEventListener('click', (event) => {
   if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
   event.preventDefault(); navigate(link.href);
 });
-filesTab.addEventListener('click', () => navigate(lastFilePath ? fileURL(lastFilePath) : '/'));
-changesTab.addEventListener('click', () => navigate('/?view=changes'));
+function selectSidebarTab(mode: 'file' | 'changes'): void {
+  const target = mode === 'file' ? lastFilePath ? fileURL(lastFilePath) : '/' : '/?view=changes';
+  keepTabFocus = new URL(target, location.href).href !== location.href;
+  sidebarPanel = mode; showSidebar(mode);
+  navigate(target);
+  if (window.innerWidth <= 700) sidebar.classList.add('open');
+  (mode === 'file' ? filesTab : changesTab).focus();
+}
+filesTab.addEventListener('click', () => selectSidebarTab('file'));
+changesTab.addEventListener('click', () => selectSidebarTab('changes'));
+document.querySelector<HTMLElement>('.sidebar-tabs')!.addEventListener('keydown', (event) => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const mode = event.key === 'Home' ? 'file' : event.key === 'End' ? 'changes' : document.activeElement === filesTab ? 'changes' : 'file';
+  selectSidebarTab(mode);
+});
 pasteToggle.addEventListener('click', () => navigate('/?view=paste'));
 function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
   const target = event.target as HTMLElement;
@@ -732,7 +791,11 @@ rightSource.addEventListener('click', () => { rightSourceMode = !rightSourceMode
 document.querySelector('#overlay-close')!.addEventListener('click', () => { document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; });
 window.addEventListener('popstate', () => { pasteVersion++; sidebarPanel = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); });
 window.addEventListener('keydown', (event) => {
-  if ((event.key === '/' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k')) && !(event.target instanceof HTMLInputElement)) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
+  if (event.isComposing || event.keyCode === 229) return;
+  const target = event.target;
+  const editing = target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, [contenteditable]') !== null);
+  if (editing) return;
+  if ((event.key === '/' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k'))) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') { event.preventDefault(); sidebarToggle.click(); }
   if (event.key === 'Escape') { sidebar.classList.remove('open'); outline.classList.remove('open'); document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; }
 });
@@ -740,8 +803,10 @@ reload.addEventListener('click', manualRefresh);
 drawerToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
 sidebarToggle.addEventListener('click', () => { const collapsed = sidebar.classList.toggle('collapsed'); sidebarToggle.setAttribute('aria-expanded', String(!collapsed)); sidebarToggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar'); });
 const resize = document.querySelector<HTMLElement>('#sidebar-resize')!;
-resize.addEventListener('pointerdown', (event) => { resize.setPointerCapture(event.pointerId); });
+resize.addEventListener('pointerdown', (event) => { resize.setPointerCapture(event.pointerId); resize.classList.add('dragging'); });
 resize.addEventListener('pointermove', (event) => { if (!resize.hasPointerCapture(event.pointerId)) return; const width = Math.max(200, Math.min(480, event.clientX)); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
+resize.addEventListener('pointerup', () => resize.classList.remove('dragging'));
+resize.addEventListener('pointercancel', () => resize.classList.remove('dragging'));
 resize.addEventListener('keydown', (event) => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; const width = Math.max(200, Math.min(480, Number(localStorage.getItem('markport-sidebar-width') ?? 280) + (event.key === 'ArrowRight' ? 10 : -10))); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
 initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => { updateBrand(); if (content.querySelector('[data-mermaid]')) { if (selectedMode() === 'paste') refreshPastedPreview?.(); else { displayedHTML = ''; requestRefresh(); } } if (rightContent.querySelector('[data-mermaid]')) { rightShownKey = ''; void refreshRight(); } });
 updateBrand();

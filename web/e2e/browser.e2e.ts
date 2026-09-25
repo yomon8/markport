@@ -48,6 +48,8 @@ test.beforeAll(async () => {
   await writeFile(join(directory, 'docs', 'style.css'), 'h1 { color: rgb(10, 20, 30) }');
   await writeFile(join(directory, 'docs', 'first.html'), '<!doctype html><html><head><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="https://cdn.example.test/external.css"></head><body><h1>HTML preview</h1><img src="../image.png"><img src="https://cdn.example.test/external.png"><script>window.previewScriptRan = true</script><a href="second.htm">Next HTML</a></body></html>');
   await writeFile(join(directory, 'docs', 'second.htm'), '<!doctype html><html><body><h1>Second HTML</h1></body></html>');
+  await writeFile(join(directory, 'docs', 'transparent.html'), '<!doctype html><html><body style="background:transparent"><h1>Transparent HTML</h1></body></html>');
+  await writeFile(join(directory, 'docs', 'colored.html'), '<!doctype html><html><body style="background:#ff8080"><h1>Colored HTML</h1></body></html>');
   await startServer();
 });
 
@@ -63,11 +65,115 @@ test('shows English controls with a Japanese browser locale', async ({ browser }
     await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.getByRole('button', { name: 'Refresh' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Files' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Files' })).toBeVisible();
     await expect(page.locator('#file-title').getByRole('button', { name: 'Source' })).toBeVisible();
   } finally {
     await context.close();
   }
+});
+
+test('keeps global shortcuts out of Markdown and editable text', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/`);
+  await page.getByRole('button', { name: 'Paste Markdown' }).click();
+  const editor = page.getByLabel('Markdown Text');
+  await editor.click();
+  await page.keyboard.type('docs/file.md https://example.test/a');
+  await expect(editor).toHaveValue('docs/file.md https://example.test/a');
+  await expect(editor).toBeFocused();
+  await page.keyboard.press('Control+k');
+  await page.keyboard.press('Control+b');
+  await expect(editor).toBeFocused();
+  const editable = page.locator('#content').evaluate((content) => {
+    const node = document.createElement('div'); node.contentEditable = 'true'; node.id = 'shortcut-editable'; content.append(node);
+  });
+  await editable;
+  await page.locator('#shortcut-editable').focus();
+  await page.keyboard.type('a/b');
+  await expect(page.locator('#shortcut-editable')).toHaveText('a/b');
+  await expect(page.locator('#shortcut-editable')).toBeFocused();
+  await page.locator('#file-title').click();
+  await page.keyboard.press('/');
+  await expect(page.getByRole('searchbox', { name: 'Search files' })).toBeFocused();
+  await page.locator('#file-title').click();
+  await page.keyboard.press('Control+k');
+  await expect(page.getByRole('searchbox', { name: 'Search files' })).toBeFocused();
+});
+
+test('theme colors follow the selected theme and HTML keeps document colors', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('markport-theme', 'light'));
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  const colors = async () => page.evaluate(() => {
+    const css = getComputedStyle(document.documentElement);
+    return ['--mark-bg', '--mark-text', '--icon-image', '--icon-code', '--success-bg', '--success-text'].map((name) => css.getPropertyValue(name).trim());
+  });
+  const light = await colors();
+  await page.getByRole('button', { name: 'Theme: Light' }).click();
+  const dark = await colors();
+  expect(dark.every((value, index) => value !== light[index])).toBe(true);
+  for (const name of ['first.html', 'transparent.html', 'colored.html']) {
+    await page.goto(`http://127.0.0.1:${port}/?path=docs%2F${name}`);
+    const frame = page.frameLocator('.html-preview');
+    await expect(frame.locator('h1')).toBeVisible();
+    const background = await frame.locator('body').evaluate((body) => getComputedStyle(body).backgroundColor);
+    if (name === 'colored.html') expect(background).toBe('rgb(255, 128, 128)');
+    else expect(background).toBe('rgba(0, 0, 0, 0)');
+    await expect(page.locator('.html-preview')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  }
+});
+
+test('title controls show active views and keep auxiliary actions reachable on mobile', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  const title = page.locator('#file-title');
+  await expect(title.getByRole('button', { name: 'File', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await title.getByRole('button', { name: 'Source' }).click();
+  await expect(title.getByRole('button', { name: 'Source' })).toHaveAttribute('aria-pressed', 'true');
+  await title.getByRole('button', { name: 'Rendered view' }).click();
+  await expect(title.getByRole('button', { name: 'Rendered view' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(title.getByRole('button', { name: 'Copy path' })).toHaveAttribute('title', 'Copy path');
+  await page.setViewportSize({ width: 390, height: 720 });
+  const more = title.getByRole('button', { name: 'More actions' });
+  await more.focus(); await page.keyboard.press('Enter');
+  await expect(title.getByRole('menuitem', { name: 'Open on right' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(title.getByRole('menuitem', { name: 'Copy path' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(more).toBeFocused();
+  await expect(more).toHaveAttribute('aria-expanded', 'false');
+  await more.click();
+  await title.getByRole('menuitem', { name: 'Open on right' }).click();
+  await expect(page.locator('#right-pane')).toBeVisible();
+});
+
+test('sidebar tabs and resize handle work with keyboard, pointer, and mobile drawer', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  const files = page.getByRole('tab', { name: 'Files' });
+  const changes = page.getByRole('tab', { name: 'Changes' });
+  await expect(files).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tabpanel', { name: 'Files' })).toBeVisible();
+  await files.focus(); await page.keyboard.press('ArrowRight');
+  await expect(changes).toBeFocused();
+  await expect(changes).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tabpanel', { name: 'Changes' })).toBeVisible();
+  await page.keyboard.press('Home');
+  await expect(files).toBeFocused();
+  await expect(files).toHaveAttribute('aria-selected', 'true');
+  const resize = page.locator('#sidebar-resize');
+  const box = (await resize.boundingBox())!;
+  expect(box.width).toBe(8);
+  expect(await resize.evaluate((element) => getComputedStyle(element, '::before').width)).toBe('1px');
+  await resize.focus(); await page.keyboard.press('ArrowRight');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('markport-sidebar-width'))).toBe('290');
+  const movedBox = (await resize.boundingBox())!;
+  await page.mouse.move(movedBox.x + 2, movedBox.y + 50);
+  await page.mouse.down(); await page.mouse.move(340, movedBox.y + 50); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => Number(localStorage.getItem('markport-sidebar-width')))).toBeGreaterThan(320);
+  await page.setViewportSize({ width: 390, height: 720 });
+  await page.getByRole('button', { name: 'Open file list' }).click();
+  await expect(files).toBeVisible();
+  await changes.click();
+  await expect(changes).toHaveAttribute('aria-selected', 'true');
+  await expect(changes).toBeVisible();
+  await expect(resize).toBeHidden();
 });
 
 test('keeps sidebar controls visible while file and change lists scroll', async ({ page }) => {
@@ -90,7 +196,7 @@ test('keeps sidebar controls visible while file and change lists scroll', async 
     expect((await search.boundingBox())!.y).toBe(searchTop);
     await expect(page.getByRole('searchbox', { name: 'Search files' })).toBeInViewport();
 
-    await page.getByRole('button', { name: 'Changes' }).click();
+    await page.getByRole('tab', { name: 'Changes' }).click();
     await expect(page.locator('#changes-tree .hint')).toContainText('not a Git repository');
     if (width < 700) await page.getByRole('button', { name: 'Open file list' }).click();
     await page.locator('#changes-tree').evaluate((tree) => {
@@ -99,7 +205,7 @@ test('keeps sidebar controls visible while file and change lists scroll', async 
     });
     await expect.poll(() => page.locator('#changes-tree').evaluate((tree) => tree.scrollTop)).toBeGreaterThan(0);
     expect((await tabs.boundingBox())!.y).toBe(tabsTop);
-    await expect(page.getByRole('button', { name: 'Files' })).toBeInViewport();
+    await expect(page.getByRole('tab', { name: 'Files' })).toBeInViewport();
   }
 });
 
@@ -608,7 +714,7 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   await writeFile(join(directory, 'new-diff.md'), '<script>alert(2)</script>\n');
   await expect(page.locator('#file-title .review-toggle')).toHaveAttribute('aria-pressed', 'false', { timeout: 15000 });
   await expect(page.locator('.diff-added .diff-code')).toContainText('alert(2)');
-  await page.getByRole('button', { name: 'Changes' }).click();
+  await page.getByRole('tab', { name: 'Changes' }).click();
   await expect(page.locator('#content .review-count')).toContainText('0 of');
   await page.locator('#content .review-filter input').check();
   await expect(page.locator('#content .change-path', { hasText: 'new-diff.md' })).toBeVisible();

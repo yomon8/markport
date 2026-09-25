@@ -247,14 +247,15 @@ func collect(ctx context.Context, store *files.Store, repo repository) ([]Change
 func fingerprint(ctx context.Context, store *files.Store, repo repository, change *Change) error {
 	hash := sha256.New()
 	_, _ = io.WriteString(hash, change.Status+"\x00")
-	if change.Status == "deleted" {
-		// A deleted file has no working-tree bytes; identify the removed blob.
+	if change.Status != "added" {
+		// A review is tied to this file's HEAD blob, not the HEAD commit.
 		blob, err := run(ctx, repo.root, "rev-parse", repo.head+":"+repo.path(change.Path))
 		if err != nil {
 			return err
 		}
 		_, _ = hash.Write(blob)
-	} else {
+	}
+	if change.Status != "deleted" {
 		file, err := store.Open(change.Path)
 		if err != nil {
 			return err
