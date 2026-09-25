@@ -254,4 +254,19 @@ export class TreeView {
     const target = [...this.tree.querySelectorAll<HTMLAnchorElement>('a')].find((link) => new URL(link.href).searchParams.get('path') === path);
     target?.scrollIntoView?.({ block: 'nearest' });
   }
+  revealDirectory(path: string): void {
+    if (this.search.value) { this.search.value = ''; this.onSearch(''); }
+    let current = '';
+    for (const part of path.split('/')) {
+      current = current ? `${current}/${part}` : part;
+      opened.add(current);
+      if (!this.has(current)) this.onOpen(current);
+    }
+    try { localStorage.setItem(storageKey, JSON.stringify([...opened])); } catch { /* Storage may be unavailable. */ }
+    this.render();
+    const target = [...this.tree.querySelectorAll<HTMLDetailsElement>('details[data-path]')].find((details) => details.dataset.path === path);
+    const summary = target?.querySelector<HTMLElement>(':scope > summary');
+    summary?.scrollIntoView?.({ block: 'nearest' });
+    summary?.focus({ preventScroll: true });
+  }
 }

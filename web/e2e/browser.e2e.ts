@@ -89,6 +89,40 @@ test('desktop sidebar toggle keeps the content full width', async ({ page }) => 
   await expect.poll(async () => (await main.boundingBox())?.width).toBeLessThan(1280);
 });
 
+test('directory breadcrumbs reveal the folder in the sidebar', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`http://127.0.0.1:${port}/?path=docs%2Ffirst.html`);
+  await expect(page.locator('#content .html-preview')).toBeVisible();
+  const url = page.url();
+  await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+  await page.locator('.crumb', { hasText: 'docs' }).click();
+  await expect(page.locator('#sidebar')).toBeVisible();
+  await expect(page.locator('details[data-path="docs"]')).toHaveAttribute('open');
+  await expect(page.locator('details[data-path="docs"] > summary')).toBeFocused();
+  expect(page.url()).toBe(url);
+
+  await page.setViewportSize({ width: 390, height: 800 });
+  await page.locator('.crumb', { hasText: 'docs' }).click();
+  await expect(page.locator('#sidebar')).toHaveClass(/open/);
+  await expect(page.locator('details[data-path="docs"] > summary')).toBeFocused();
+  expect(page.url()).toBe(url);
+});
+
+test('uses the outline column only when the outline is visible', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const columns = async (): Promise<number> => page.locator('.content-layout').evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(' ').length);
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await expect(page.locator('#outline')).toBeHidden();
+  expect(await columns()).toBe(1);
+  await page.goto(`http://127.0.0.1:${port}/?path=sample.py`);
+  await expect(page.locator('article[data-kind="code"]')).toBeVisible();
+  expect(await columns()).toBe(1);
+  await writeFile(join(directory, 'outline-layout.md'), '# First\n\n## Second\n\n### Third\n');
+  await page.goto(`http://127.0.0.1:${port}/?path=outline-layout.md`);
+  await expect(page.locator('#outline a')).toHaveCount(3);
+  expect(await columns()).toBe(2);
+});
+
 test('previews HTML with CSS and images, blocks scripts, and follows local links', async ({ page }) => {
   await page.route('https://cdn.example.test/external.css', (route) => route.fulfill({ contentType: 'text/css', body: 'h1 { background: rgb(40, 50, 60) }' }));
   await page.route('https://cdn.example.test/external.png', (route) => route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/c4sAAAAASUVORK5CYII=', 'base64') }));
@@ -350,4 +384,13 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   await expect(page.locator('.diff-added .diff-code')).toContainText('changed again', { timeout: 15000 });
   await page.getByRole('button', { name: 'File', exact: true }).last().click();
   await expect(page.locator('article .lntd:last-child pre')).toContainText('changed again');
+  await writeFile(join(directory, 'docs', 'style.css'), 'h1 { color: red }');
+  await page.goto(`http://127.0.0.1:${port}/?view=diff&path=docs%2Fstyle.css`);
+  await expect(page.locator('.diff-added .diff-code')).toContainText('color: red');
+  await page.locator('.crumb', { hasText: 'docs' }).click();
+  await expect(page.locator('#files-panel')).toBeVisible();
+  await expect(page.locator('details[data-path="docs"] > summary')).toBeFocused();
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(page.locator('#files-panel')).toBeVisible();
+  await expect(page.locator('.diff-added .diff-code')).toContainText('color: red');
 });

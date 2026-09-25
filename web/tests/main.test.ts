@@ -81,6 +81,7 @@ describe('lazy browsing and refresh', () => {
       if (url === '/api/tree') return reply(page([entry('docs', 'directory')]));
       if (url.startsWith('/api/tree?path=docs%2Fdeep')) return reply(page([entry('a.md', 'file', 'docs/deep')]));
       if (url.startsWith('/api/tree?path=docs')) return reply(page([entry('deep', 'directory', 'docs')]));
+      if (url === '/api/search-index') return reply({ paths: ['docs/deep/a.md'] });
       return reply({ path: 'docs/deep/a.md', type: 'markdown', html: '<h1>A</h1>' });
     });
     vi.stubGlobal('fetch', fetch);
@@ -89,6 +90,16 @@ describe('lazy browsing and refresh', () => {
     expect(document.querySelector<HTMLDetailsElement>('details[data-path="docs"]')?.open).toBe(true);
     expect(document.querySelector<HTMLDetailsElement>('details[data-path="docs/deep"]')?.open).toBe(true);
     expect(fetch.mock.calls.map(([url]) => url)).toContain('/api/tree?path=docs%2Fdeep&focus=a.md');
+    document.querySelector<HTMLButtonElement>('#sidebar-toggle')!.click();
+    const search = document.querySelector<HTMLInputElement>('#search')!;
+    search.value = 'a'; search.dispatchEvent(new Event('input')); await flush();
+    const locationBefore = location.href;
+    document.querySelector<HTMLButtonElement>('.crumb')!.click();
+    expect(search.value).toBe('');
+    expect(document.querySelector('#sidebar')?.classList.contains('collapsed')).toBe(false);
+    expect(document.querySelector<HTMLDetailsElement>('details[data-path="docs"]')?.open).toBe(true);
+    expect(document.activeElement).toBe(document.querySelector('details[data-path="docs"] > summary'));
+    expect(location.href).toBe(locationBefore);
   });
 
   it('loads tree pages on request but searches every file path', async () => {

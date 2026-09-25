@@ -22,10 +22,10 @@ GitHub Release から OS・CPU に合う実行ファイルを選びます。Linu
 Release の `checksums_<version>.txt` をダウンロードし、バイナリと同じフォルダで Linux は `sha256sum --check checksums_<version>.txt`、macOS は `shasum -a 256 -c checksums_<version>.txt` でハッシュを確認できます。Windows では `Get-FileHash` で個別に確認できます。
 
 ```sh
-./markport_v0.1.3_linux_amd64 ./notes --port 3000
-./markport_v0.1.3_linux_amd64 ./notes --host 0.0.0.0 --port 3000
-./markport_v0.1.3_linux_amd64 --help
-./markport_v0.1.3_linux_amd64 --version
+./markport_v0.1.4_linux_amd64 ./notes --port 3000
+./markport_v0.1.4_linux_amd64 ./notes --host 0.0.0.0 --port 3000
+./markport_v0.1.4_linux_amd64 --help
+./markport_v0.1.4_linux_amd64 --version
 ```
 
 引数を省略すると現在のディレクトリをポート 3000 で表示します。起動後に表示される `http://127.0.0.1:<port>/` を開いてください。`Ctrl+C` で終了します。既定では `127.0.0.1` でのみ待ち受けます。同じ LAN の端末から開くには `--host 0.0.0.0` を指定し、別端末で `http://<このマシンのLAN内IP>:<port>/` を開きます。`--host` には特定の IPv4 アドレスも指定できます。LAN 公開には認証と TLS がありません。ポートに接続できる人は、除外対象以外のドットファイルも含め、選択したディレクトリを閲覧できます。
@@ -56,7 +56,7 @@ make run DIR=./testdata HOST=0.0.0.0 PORT=3000  # LAN からアクセス
 make test                  # Go と画面のテスト
 make test-e2e             # Chromium の画面受け入れテスト（Playwright のブラウザ導入が必要）
 make lint                  # go vet、TypeScript、ESLint
-make dist VERSION=v0.1.3  # 6 種類と SHA-256 チェックサム
+make dist VERSION=v0.1.4  # 6 種類と SHA-256 チェックサム
 ```
 
 `make setup` の後に `make lint` を単独で実行できます。画面は各 Make タスクでビルドされ、実行ファイルへ埋め込まれます。開発画面の API は Vite から Go へプロキシされます。
@@ -65,4 +65,4 @@ make dist VERSION=v0.1.3  # 6 種類と SHA-256 チェックサム
 
 `v*` タグを push すると GitHub Actions が各 OS で検証してから、既存タグに対して Release を作成します。リリース実行前に `make test`、`make lint`、`make dist VERSION=<tag>` をローカルでも確認できます。コード署名と macOS の公証は初版では行いません。
 
-初版に編集、コメント、差分表示、本文全文検索、標準入力からの取り込み、認証付きのネットワーク公開は含めません。
+現行版に編集、コメント、本文全文検索、標準入力からの取り込み、認証付きのネットワーク公開は含めません。

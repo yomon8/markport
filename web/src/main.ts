@@ -50,6 +50,7 @@ const view = new TreeView(tree, search, count, selected,
 let revision = 0; let pending = false; let running = false;
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = false;
 let displayedMode: 'file' | 'diff' | 'changes' = 'file'; let lastFilePath = '';
+let sidebarPanel: 'file' | 'changes' = selectedMode() === 'file' ? 'file' : 'changes';
 let currentChanges: ChangesReply | undefined;
 let previewReload = 0;
 let displayedTag = '';
@@ -72,13 +73,13 @@ function selectedMode(): 'file' | 'diff' | 'changes' {
   const view = new URL(location.href).searchParams.get('view');
   return view === 'changes' ? 'changes' : view === 'diff' && selected() ? 'diff' : 'file';
 }
-function showSidebar(mode: 'file' | 'diff' | 'changes'): void {
-  const git = mode !== 'file';
+function showSidebar(mode: 'file' | 'changes'): void {
+  const git = mode === 'changes';
   filesPanel.hidden = git; changesTree.hidden = !git;
   filesTab.setAttribute('aria-pressed', String(!git)); changesTab.setAttribute('aria-pressed', String(git));
 }
 function saveScroll(): void { history.replaceState({ scroll: main.scrollTop }, '', location.href); }
-function navigate(url: string): void { saveScroll(); history.pushState({ scroll: 0 }, '', url); sourceMode = false; sidebar.classList.remove('open'); requestRefresh(); }
+function navigate(url: string): void { saveScroll(); history.pushState({ scroll: 0 }, '', url); sidebarPanel = selectedMode() === 'file' ? 'file' : 'changes'; sourceMode = false; sidebar.classList.remove('open'); requestRefresh(); }
 function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
   connection.querySelector<HTMLElement>('.connection-label')!.textContent = message; connection.dataset.state = state; connection.title = message;
   banner.hidden = state === 'ok'; banner.replaceChildren();
@@ -253,7 +254,12 @@ function showTitle(path: string, kind = '', missing = false): void {
     if (index) crumbs.append(document.createTextNode(' / '));
     if (index < parts.length - 1) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'crumb'; button.textContent = part;
-      button.addEventListener('click', () => { view.reveal(parts.slice(0, index + 1).join('/')); sidebar.classList.add('open'); }); crumbs.append(button);
+      button.addEventListener('click', () => {
+        sidebarPanel = 'file'; showSidebar(sidebarPanel);
+        if (sidebar.classList.contains('collapsed')) sidebarToggle.click();
+        if (window.innerWidth <= 700) sidebar.classList.add('open');
+        view.revealDirectory(parts.slice(0, index + 1).join('/'));
+      }); crumbs.append(button);
     } else { const label = document.createElement('strong'); label.textContent = part; if (missing) label.className = 'missing'; crumbs.append(label); }
   });
   title.append(crumbs);
@@ -303,7 +309,7 @@ function showError(error: unknown, path: string): void {
   const size = code === 'too_large' && error instanceof RequestError ? error.message.match(/(\d+ MiB) limit \(actual (\d+(?:\.\d+)? MiB)\)/) : undefined;
   p.textContent = size ? `This file exceeds the ${size[1]} limit (${size[2]}).` : description;
   const button = document.createElement('button'); button.type = 'button'; button.textContent = code === 'not_found' ? 'Back to root' : 'Try again'; button.addEventListener('click', () => code === 'not_found' ? navigate('/') : manualRefresh());
-  box.append(icon, h, p, button); content.append(box); showTitle(path, '', code === 'not_found'); outline.hidden = true;
+  box.append(icon, h, p, button); content.append(box); outline.hidden = true; showTitle(path, '', code === 'not_found');
 }
 function decorateContent(): void {
   function wrapCode(element: HTMLElement): void {
@@ -397,7 +403,7 @@ async function refreshLoop(): Promise<void> {
   try {
     while (pending) {
       pending = false; const current = revision; const path = selected(); const source = sourceMode; const mode = selectedMode();
-      showSidebar(mode);
+      showSidebar(sidebarPanel);
       if (path !== displayedPath || mode !== displayedMode) displayedTag = '';
       beginLoading();
       const treePromise = refreshDirectories(mode === 'changes' ? '' : path, current);
@@ -509,7 +515,7 @@ content.addEventListener('click', (event) => {
   event.preventDefault(); navigate(link.href);
 });
 document.querySelector('#overlay-close')!.addEventListener('click', () => { document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; });
-window.addEventListener('popstate', requestRefresh);
+window.addEventListener('popstate', () => { sidebarPanel = selectedMode() === 'file' ? 'file' : 'changes'; requestRefresh(); });
 window.addEventListener('keydown', (event) => {
   if ((event.key === '/' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k')) && !(event.target instanceof HTMLInputElement)) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') { event.preventDefault(); sidebarToggle.click(); }
