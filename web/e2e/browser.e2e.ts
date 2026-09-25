@@ -70,6 +70,33 @@ test('shows English controls with a Japanese browser locale', async ({ browser }
   }
 });
 
+test('keeps global shortcuts out of Markdown and editable text', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/`);
+  await page.getByRole('button', { name: 'Paste Markdown' }).click();
+  const editor = page.getByLabel('Markdown Text');
+  await editor.click();
+  await page.keyboard.type('docs/file.md https://example.test/a');
+  await expect(editor).toHaveValue('docs/file.md https://example.test/a');
+  await expect(editor).toBeFocused();
+  await page.keyboard.press('Control+k');
+  await page.keyboard.press('Control+b');
+  await expect(editor).toBeFocused();
+  const editable = page.locator('#content').evaluate((content) => {
+    const node = document.createElement('div'); node.contentEditable = 'true'; node.id = 'shortcut-editable'; content.append(node);
+  });
+  await editable;
+  await page.locator('#shortcut-editable').focus();
+  await page.keyboard.type('a/b');
+  await expect(page.locator('#shortcut-editable')).toHaveText('a/b');
+  await expect(page.locator('#shortcut-editable')).toBeFocused();
+  await page.locator('#file-title').click();
+  await page.keyboard.press('/');
+  await expect(page.getByRole('searchbox', { name: 'Search files' })).toBeFocused();
+  await page.locator('#file-title').click();
+  await page.keyboard.press('Control+k');
+  await expect(page.getByRole('searchbox', { name: 'Search files' })).toBeFocused();
+});
+
 test('keeps sidebar controls visible while file and change lists scroll', async ({ page }) => {
   for (const width of [1024, 390]) {
     await page.setViewportSize({ width, height: 500 });

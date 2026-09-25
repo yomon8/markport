@@ -732,7 +732,11 @@ rightSource.addEventListener('click', () => { rightSourceMode = !rightSourceMode
 document.querySelector('#overlay-close')!.addEventListener('click', () => { document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; });
 window.addEventListener('popstate', () => { pasteVersion++; sidebarPanel = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); });
 window.addEventListener('keydown', (event) => {
-  if ((event.key === '/' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k')) && !(event.target instanceof HTMLInputElement)) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
+  if (event.isComposing || event.keyCode === 229) return;
+  const target = event.target;
+  const editing = target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, [contenteditable]') !== null);
+  if (editing) return;
+  if ((event.key === '/' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k'))) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') { event.preventDefault(); sidebarToggle.click(); }
   if (event.key === 'Escape') { sidebar.classList.remove('open'); outline.classList.remove('open'); document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; }
 });
