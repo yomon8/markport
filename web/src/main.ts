@@ -321,6 +321,15 @@ function showTitle(path: string, kind = '', missing = false): void {
   });
   title.append(crumbs);
   const actions = document.createElement('div'); actions.className = 'title-actions';
+  const segment = (choices: { label: string; selected: boolean; disabled?: boolean; select: () => void }[]): void => {
+    const group = document.createElement('div'); group.className = 'view-segment'; group.setAttribute('role', 'group'); group.setAttribute('aria-label', choices.map((choice) => choice.label).join(' or '));
+    for (const choice of choices) {
+      const button = document.createElement('button'); button.type = 'button'; button.textContent = choice.label;
+      button.setAttribute('aria-pressed', String(choice.selected)); button.disabled = Boolean(choice.disabled);
+      button.addEventListener('click', choice.select); group.append(button);
+    }
+    actions.append(group);
+  };
   if (kind) {
     const badge = document.createElement('span'); badge.className = 'kind-badge';
     const extension = path.split('.').at(-1)?.toLowerCase() ?? '';
@@ -337,16 +346,35 @@ function showTitle(path: string, kind = '', missing = false): void {
       button.setAttribute('aria-label', `${reviewed ? 'Mark unreviewed' : 'Mark reviewed'}: ${path}`);
       button.addEventListener('click', () => toggleReview(change)); actions.append(button);
     }
-    if (currentChanges?.changes.find((change) => change.path === path)?.status !== 'deleted') {
-      const file = document.createElement('button'); file.type = 'button'; file.textContent = 'File'; file.addEventListener('click', () => navigate(fileURL(path))); actions.append(file);
-    }
+    const deleted = currentChanges?.changes.find((change) => change.path === path)?.status === 'deleted';
+    segment([{ label: 'File', selected: false, disabled: deleted, select: () => navigate(fileURL(path)) }, { label: 'Diff', selected: true, select: () => {} }]);
   } else {
-    const diff = document.createElement('button'); diff.type = 'button'; diff.textContent = 'Diff'; diff.addEventListener('click', () => navigate(diffURL(path))); actions.append(diff);
-    if (selectedMode() === 'file') { const split = document.createElement('button'); split.type = 'button'; split.textContent = 'Open on right'; split.addEventListener('click', () => openRight(path)); actions.append(split); }
+    segment([{ label: 'File', selected: true, select: () => {} }, { label: 'Diff', selected: false, select: () => navigate(diffURL(path)) }]);
   }
-  const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy path'; copy.addEventListener('click', () => copyWithFeedback(copy, path, 'Copy path')); actions.append(copy);
-  if (kind === 'markdown' || kind === 'html') { const source = document.createElement('button'); source.type = 'button'; source.textContent = sourceMode ? kind === 'html' ? 'Preview' : 'Rendered view' : 'Source'; source.addEventListener('click', () => { sourceMode = !sourceMode; requestRefresh(); }); actions.append(source); }
-  const toc = document.createElement('button'); toc.type = 'button'; toc.id = 'outline-toggle'; toc.textContent = 'Contents'; toc.hidden = outline.hidden; toc.addEventListener('click', () => outline.classList.toggle('open')); actions.append(toc);
+  if (kind === 'markdown' || kind === 'html') {
+    const rendered = kind === 'html' ? 'Preview' : 'Rendered view';
+    segment([{ label: rendered, selected: !sourceMode, select: () => { if (sourceMode) { sourceMode = false; requestRefresh(); } } }, { label: 'Source', selected: sourceMode, select: () => { if (!sourceMode) { sourceMode = true; requestRefresh(); } } }]);
+  }
+  const auxiliary = document.createElement('div'); auxiliary.className = 'title-auxiliary';
+  const menuButton = document.createElement('button'); menuButton.type = 'button'; menuButton.className = 'title-more'; menuButton.textContent = '⋯'; menuButton.title = 'More actions'; menuButton.setAttribute('aria-label', 'More actions'); menuButton.setAttribute('aria-expanded', 'false'); menuButton.setAttribute('aria-haspopup', 'menu');
+  const menu = document.createElement('div'); menu.className = 'title-menu'; menu.setAttribute('role', 'menu'); menu.hidden = true;
+  const closeMenu = (): void => { menu.hidden = true; menuButton.setAttribute('aria-expanded', 'false'); menuButton.focus(); };
+  menuButton.addEventListener('click', () => { menu.hidden = !menu.hidden; menuButton.setAttribute('aria-expanded', String(!menu.hidden)); if (!menu.hidden) menu.querySelector<HTMLButtonElement>('button')?.focus(); });
+  menu.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') { event.preventDefault(); closeMenu(); return; }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault(); const items = [...menu.querySelectorAll<HTMLButtonElement>('button')]; const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    items[(index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
+  });
+  const addAux = (label: string, icon: string, action: (button: HTMLButtonElement) => void, visible = true): void => {
+    if (!visible) return;
+    const desktop = document.createElement('button'); desktop.type = 'button'; desktop.className = 'title-icon'; desktop.textContent = icon; desktop.title = label; desktop.setAttribute('aria-label', label); desktop.addEventListener('click', () => action(desktop)); auxiliary.append(desktop);
+    const mobile = document.createElement('button'); mobile.type = 'button'; mobile.setAttribute('role', 'menuitem'); mobile.textContent = label; mobile.addEventListener('click', () => { action(mobile); closeMenu(); }); menu.append(mobile);
+  };
+  addAux('Open on right', '◫', () => openRight(path), selectedMode() === 'file');
+  addAux('Copy path', '⧉', (button) => copyWithFeedback(button, path, button.classList.contains('title-icon') ? '⧉' : 'Copy path'));
+  addAux('Contents', '☷', () => outline.classList.toggle('open'), !outline.hidden);
+  actions.append(auxiliary, menuButton, menu);
   title.append(actions); document.title = `${parts.at(-1)} — markport`;
 }
 function toggleReview(change: Change): void {

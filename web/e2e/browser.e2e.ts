@@ -121,6 +121,29 @@ test('theme colors follow the selected theme and HTML keeps document colors', as
   }
 });
 
+test('title controls show active views and keep auxiliary actions reachable on mobile', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  const title = page.locator('#file-title');
+  await expect(title.getByRole('button', { name: 'File', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await title.getByRole('button', { name: 'Source' }).click();
+  await expect(title.getByRole('button', { name: 'Source' })).toHaveAttribute('aria-pressed', 'true');
+  await title.getByRole('button', { name: 'Rendered view' }).click();
+  await expect(title.getByRole('button', { name: 'Rendered view' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(title.getByRole('button', { name: 'Copy path' })).toHaveAttribute('title', 'Copy path');
+  await page.setViewportSize({ width: 390, height: 720 });
+  const more = title.getByRole('button', { name: 'More actions' });
+  await more.focus(); await page.keyboard.press('Enter');
+  await expect(title.getByRole('menuitem', { name: 'Open on right' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(title.getByRole('menuitem', { name: 'Copy path' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(more).toBeFocused();
+  await expect(more).toHaveAttribute('aria-expanded', 'false');
+  await more.click();
+  await title.getByRole('menuitem', { name: 'Open on right' }).click();
+  await expect(page.locator('#right-pane')).toBeVisible();
+});
+
 test('keeps sidebar controls visible while file and change lists scroll', async ({ page }) => {
   for (const width of [1024, 390]) {
     await page.setViewportSize({ width, height: 500 });
