@@ -237,7 +237,7 @@ test('opens README, switches source, searches by keyboard, and follows code line
   await page.keyboard.press('Control+k');
   await expect(page.locator('#search')).toBeFocused();
   await page.locator('#search').fill('smpy');
-  await expect(page.locator('#result-count')).toContainText('1 match in loaded files');
+  await expect(page.locator('#result-count')).toContainText('1 match');
   await page.keyboard.press('ArrowDown');
   await expect(page.getByRole('link', { name: 'sample.py' })).toBeFocused();
   await page.keyboard.press('Enter');
@@ -259,6 +259,23 @@ test('opens a deep link beyond the first directory page', async ({ page }) => {
   await expect(page.locator('details[data-path="paged"] a')).toHaveCount(205);
   await page.locator('#search').fill('file000');
   await expect(page.getByRole('link', { name: 'paged/file000.md' })).toBeVisible();
+});
+
+test('searches a closed folder and refreshes search results after file changes', async ({ page }) => {
+  test.setTimeout(45000);
+  const folder = join(directory, 'search-refresh');
+  await mkdir(folder);
+  await writeFile(join(folder, 'hidden-target.md'), '# Hidden\n');
+  await page.goto(`http://127.0.0.1:${port}/`);
+  await expect(page.locator('details[data-path="search-refresh"]')).toHaveCount(1);
+  await expect(page.locator('details[data-path="search-refresh"]')).not.toHaveAttribute('open');
+  await page.locator('#search').fill('hidden-target');
+  await expect(page.getByRole('link', { name: 'search-refresh/hidden-target.md' })).toBeVisible();
+  await writeFile(join(folder, 'hidden-target-new.md'), '# New\n');
+  await expect(page.locator('#result-count')).toHaveText('2 matches', { timeout: 20000 });
+  await unlink(join(folder, 'hidden-target.md'));
+  await expect(page.locator('#result-count')).toHaveText('1 match', { timeout: 20000 });
+  await expect(page.getByRole('link', { name: 'search-refresh/hidden-target-new.md' })).toBeVisible();
 });
 
 test('shows an outline and keeps a long table header visible', async ({ page }) => {

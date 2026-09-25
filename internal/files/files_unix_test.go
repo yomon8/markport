@@ -59,6 +59,10 @@ func TestLinksAndFIFO(t *testing.T) {
 	if len(nodes) != 1 || nodes[0].Name != "inside" {
 		t.Fatalf("tree: %+v", nodes)
 	}
+	paths, err := s.FilePaths(context.Background())
+	if err != nil || len(paths) != 1 || paths[0] != "inside" {
+		t.Fatalf("file paths: %+v %v", paths, err)
+	}
 	page, err := s.List(context.Background(), "", 0, "")
 	if err != nil || len(page.Entries) != 1 || page.Entries[0].Name != "inside" {
 		t.Fatalf("listing: %+v %v", page, err)

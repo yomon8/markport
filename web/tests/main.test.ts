@@ -91,22 +91,73 @@ describe('lazy browsing and refresh', () => {
     expect(fetch.mock.calls.map(([url]) => url)).toContain('/api/tree?path=docs%2Fdeep&focus=a.md');
   });
 
-  it('loads the next page only when requested and searches loaded files', async () => {
+  it('loads tree pages on request but searches every file path', async () => {
     const first = Array.from({ length: 200 }, (_, i) => entry(`file${String(i).padStart(3, '0')}.md`));
     const fetch = vi.fn(async (url: string) => url === '/api/tree'
       ? reply(page(first, '1', 200))
+      : url === '/api/search-index' ? reply({ paths: ['last.md', 'nested/hidden.md'] })
       : reply(page([entry('last.md')], '1', null, 200)));
     vi.stubGlobal('fetch', fetch);
     await import('../src/main'); await flush();
     expect(document.querySelectorAll('#tree a').length).toBe(200);
     const search = document.querySelector<HTMLInputElement>('#search')!;
     search.value = 'last'; search.dispatchEvent(new Event('input'));
-    expect(document.querySelector('#result-count')?.textContent).toContain('0 matches in loaded files');
+    await flush();
+    expect(document.querySelector('#result-count')?.textContent).toBe('1 match');
+    expect(document.querySelector('#tree a')?.textContent).toBe('last.md');
+    search.value = 'hidden'; search.dispatchEvent(new Event('input'));
+    expect(document.querySelector('#tree a')?.textContent).toBe('nested/hidden.md');
+    expect(fetch.mock.calls.filter(([url]) => url === '/api/search-index')).toHaveLength(1);
     search.value = ''; search.dispatchEvent(new Event('input'));
     document.querySelector<HTMLButtonElement>('button[data-offset="200"]')!.click(); await flush();
-    search.value = 'last'; search.dispatchEvent(new Event('input'));
-    expect(document.querySelector('#tree a')?.textContent).toBe('last.md');
     expect(fetch.mock.calls.map(([url]) => url)).toContain('/api/tree?offset=200');
+  });
+
+  it('shows only the best 100 matches and the exact total', async () => {
+    const paths = Array.from({ length: 125 }, (_, i) => `docs/item${String(i).padStart(3, '0')}.md`);
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths }) : reply(page([]))));
+    await import('../src/main'); await flush();
+    const search = document.querySelector<HTMLInputElement>('#search')!;
+    search.value = 'item'; search.dispatchEvent(new Event('input')); await flush();
+    expect(document.querySelector('#result-count')?.textContent).toBe('Showing top 100 of 125 matches');
+    expect(document.querySelectorAll('#tree a')).toHaveLength(100);
+    expect(document.querySelector('#tree')?.textContent).toContain('item099.md');
+    expect(document.querySelector('#tree')?.textContent).not.toContain('item100.md');
+  });
+
+  it('includes a matching file even when its path is very long', async () => {
+    const longPath = `${'folder/'.repeat(90)}target.md`;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: [longPath] }) : reply(page([]))));
+    await import('../src/main'); await flush();
+    const search = document.querySelector<HTMLInputElement>('#search')!;
+    search.value = 't'; search.dispatchEvent(new Event('input')); await flush();
+    expect(document.querySelector('#result-count')?.textContent).toBe('1 match');
+    expect(document.querySelector<HTMLAnchorElement>('#tree a')?.title).toBe(longPath);
+  });
+
+  it('ignores a stale index after clearing search and retries after failure', async () => {
+    let releaseFirst: ((value: Response) => void) | undefined;
+    let calls = 0;
+    const fetch = vi.fn((url: string) => {
+      if (url === '/api/search-index') {
+        calls++;
+        if (calls === 1) return new Promise<Response>((resolve) => { releaseFirst = resolve; });
+        if (calls === 2) return Promise.resolve(reply({ error: 'unreadable', message: 'failed' }, 403));
+        return Promise.resolve(reply({ paths: ['fresh.md'] }));
+      }
+      return Promise.resolve(reply(page([entry('root.md')])));
+    });
+    vi.stubGlobal('fetch', fetch);
+    await import('../src/main'); await flush();
+    const search = document.querySelector<HTMLInputElement>('#search')!;
+    search.value = 'old'; search.dispatchEvent(new Event('input'));
+    search.value = ''; search.dispatchEvent(new Event('input'));
+    releaseFirst?.(reply({ paths: ['old.md'] })); await flush();
+    expect(document.querySelector('#tree')?.textContent).toContain('root.md');
+    search.value = 'fresh'; search.dispatchEvent(new Event('input')); await flush();
+    expect(document.querySelector('#result-count')?.textContent).toBe('Search unavailable');
+    search.value = 'fresh.md'; search.dispatchEvent(new Event('input')); await flush();
+    expect(document.querySelector('#tree a')?.textContent).toBe('fresh.md');
   });
 
   it('polls visible data, sends the file validator, and keeps the DOM on 304', async () => {

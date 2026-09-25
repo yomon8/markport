@@ -319,6 +319,59 @@ func naturalLess(a, b string) bool {
 
 func (s *Store) Tree() ([]Node, error) { return s.tree("") }
 
+// FilePaths lists browsable files without reading their contents. Directories
+// are opened through Store so a replaced link cannot lead outside the root.
+func (s *Store) FilePaths(ctx context.Context) ([]string, error) {
+	paths := make([]string, 0)
+	var visit func(string) error
+	visit = func(dir string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		f, err := s.OpenDir(dir)
+		if err != nil {
+			if dir != "" {
+				return nil
+			}
+			return err
+		}
+		entries, err := f.ReadDir(-1)
+		_ = f.Close()
+		if err != nil {
+			if dir != "" {
+				return nil
+			}
+			return err
+		}
+		for _, entry := range entries {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if Excluded(entry.Name()) {
+				continue
+			}
+			rel := path.Join(dir, entry.Name())
+			info, err := s.root.Lstat(rel)
+			if err != nil || info.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+				continue
+			}
+			if info.IsDir() {
+				if err := visit(rel); err != nil {
+					return err
+				}
+			} else if info.Mode().IsRegular() {
+				paths = append(paths, rel)
+			}
+		}
+		return nil
+	}
+	if err := visit(""); err != nil {
+		return nil, err
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
 func (s *Store) tree(dir string) ([]Node, error) {
 	f, err := s.OpenDir(dir)
 	if err != nil {

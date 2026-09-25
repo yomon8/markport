@@ -100,6 +100,49 @@ func TestReadAndTree(t *testing.T) {
 	}
 }
 
+func TestFilePaths(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{".hidden", "docs/deep/page.md", "node_modules/skip.js", ".git/config", ".venv/data"} {
+		full := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("ok"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range 205 {
+		name := filepath.Join(dir, "docs", fmt.Sprintf("item%03d.md", i))
+		if err := os.WriteFile(name, []byte("ok"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	paths, err := s.FilePaths(context.Background())
+	if err != nil || len(paths) != 207 || paths[0] != ".hidden" || paths[len(paths)-1] != "docs/item204.md" {
+		t.Fatalf("paths: %d %+v %v", len(paths), paths, err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := s.FilePaths(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled scan: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docs", "new.md"), []byte("ok"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, ".hidden")); err != nil {
+		t.Fatal(err)
+	}
+	paths, err = s.FilePaths(context.Background())
+	if err != nil || len(paths) != 207 || paths[0] != "docs/deep/page.md" || paths[len(paths)-1] != "docs/new.md" {
+		t.Fatalf("updated paths: %d %+v %v", len(paths), paths, err)
+	}
+}
+
 func TestTextLimit(t *testing.T) {
 	dir := t.TempDir()
 	s, err := New(dir)

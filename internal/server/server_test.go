@@ -168,6 +168,29 @@ func TestPagedTreeAndFileValidator(t *testing.T) {
 		t.Fatalf("unchanged file: %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestSearchIndex(t *testing.T) {
+	app, dir := newTestServer(t)
+	if err := os.MkdirAll(filepath.Join(dir, "docs", "deep"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docs", "deep", "page.md"), []byte("# Page"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	response := request(app, "localhost:3000", "/api/search-index")
+	if response.Code != http.StatusOK {
+		t.Fatalf("search index: %d %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(body.Paths, ",") != "code.py,docs/deep/page.md,readme.md" {
+		t.Fatalf("paths: %v", body.Paths)
+	}
+}
 func TestImageFilePreview(t *testing.T) {
 	app, dir := newTestServer(t)
 	imagePath := filepath.Join(dir, "sample image.png")

@@ -94,6 +94,10 @@ func TestJunctionRejected(t *testing.T) {
 	if len(nodes) != 0 {
 		t.Fatalf("junction in tree: %+v", nodes)
 	}
+	paths, err := s.FilePaths(context.Background())
+	if err != nil || len(paths) != 0 {
+		t.Fatalf("junction in file paths: %+v %v", paths, err)
+	}
 	page, err := s.List(context.Background(), "", 0, "")
 	if err != nil || len(page.Entries) != 0 {
 		t.Fatalf("junction in listing: %+v %v", page, err)

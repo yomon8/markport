@@ -1,6 +1,9 @@
 export type Node = { name: string; path: string; type: 'directory' | 'file' };
 export type Page = { entries: Node[]; offset: number; nextOffset: number | null; revision: string; root: string; readme?: string };
 type Directory = { pages: Map<number, Node[]>; next: Map<number, number | null>; revision: string };
+type SearchMatch = { path: string; rank: number };
+type SearchState = 'idle' | 'loading' | 'ready' | 'error';
+const searchResultLimit = 100;
 
 const icons = {
   directory: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4h5l1.4 1.5h6.6v7.8H1.5z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
@@ -36,7 +39,39 @@ function score(path: string, query: string): number {
     if (found === 0 || '/-_.'.includes(target[found - 1])) points += 5;
     last = found; position = found + 1;
   }
-  return points - path.length / 100;
+  return Math.max(0, points - path.length / 100);
+}
+function better(a: SearchMatch, b: SearchMatch): boolean {
+  return a.rank > b.rank || (a.rank === b.rank && compareNames(a.path, b.path) < 0);
+}
+function searchMatches(paths: string[], query: string): { matches: SearchMatch[]; count: number } {
+  const heap: SearchMatch[] = []; let count = 0;
+  const siftUp = (start: number): void => {
+    let child = start;
+    while (child > 0) {
+      const parent = Math.floor((child - 1) / 2);
+      if (!better(heap[parent], heap[child])) break;
+      [heap[parent], heap[child]] = [heap[child], heap[parent]]; child = parent;
+    }
+  };
+  const siftDown = (): void => {
+    let parent = 0;
+    for (;;) {
+      const left = parent * 2 + 1; if (left >= heap.length) break;
+      const right = left + 1;
+      const child = right < heap.length && better(heap[left], heap[right]) ? right : left;
+      if (!better(heap[parent], heap[child])) break;
+      [heap[parent], heap[child]] = [heap[child], heap[parent]]; parent = child;
+    }
+  };
+  for (const path of paths) {
+    const rank = score(path, query); if (rank < 0) continue;
+    count++;
+    const candidate = { path, rank };
+    if (heap.length < searchResultLimit) { heap.push(candidate); siftUp(heap.length - 1); }
+    else if (better(candidate, heap[0])) { heap[0] = candidate; siftDown(); }
+  }
+  return { matches: heap.sort((a, b) => better(a, b) ? -1 : better(b, a) ? 1 : 0), count };
 }
 function highlighted(label: string, query: string): DocumentFragment {
   const fragment = document.createDocumentFragment();
@@ -65,8 +100,11 @@ export class TreeView {
   private directories = new Map<string, Directory>();
   private readme = '';
   private loading = new Set<string>();
+  private searchPaths: string[] = [];
+  private searchState: SearchState = 'idle';
   constructor(private tree: HTMLElement, private search: HTMLInputElement, private count: HTMLElement, private selected: () => string,
-    private onOpen: (path: string) => void, private onPage: (path: string, offset: number) => void) {
+    private onOpen: (path: string) => void, private onPage: (path: string, offset: number) => void,
+    private onSearch: (query: string) => void) {
     tree.addEventListener('click', (event) => {
       const more = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-dir][data-offset]');
       if (more) { this.onPage(more.dataset.dir!, Number(more.dataset.offset)); return; }
@@ -79,10 +117,10 @@ export class TreeView {
       else { opened.add(path); this.onOpen(path); }
       try { localStorage.setItem(storageKey, JSON.stringify([...opened])); } catch { /* Storage may be unavailable. */ }
     }, true);
-    search.addEventListener('input', () => this.render());
+    search.addEventListener('input', () => { this.render(); this.onSearch(search.value.trim()); });
     search.addEventListener('keydown', (event) => {
       const links = [...tree.querySelectorAll<HTMLAnchorElement>('a')];
-      if (event.key === 'Escape') { search.value = ''; this.render(); return; }
+      if (event.key === 'Escape') { search.value = ''; this.render(); this.onSearch(''); return; }
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
         event.preventDefault(); const active = links.indexOf(document.activeElement as HTMLAnchorElement);
         links[Math.max(0, Math.min(links.length - 1, active + (event.key === 'ArrowDown' ? 1 : -1))) ]?.focus();
@@ -146,6 +184,9 @@ export class TreeView {
     this.render();
   }
   firstReadme(): string | undefined { return this.readme || undefined; }
+  setSearchIndex(paths: string[], state: SearchState): void {
+    this.searchPaths = paths; this.searchState = state; this.render();
+  }
   private allFiles(): Node[] { return [...this.directories.keys()].flatMap((path) => this.nodes(path)).filter((node) => node.type === 'file'); }
   fileCount(): number { return this.allFiles().length; }
   private appendNodes(parent: HTMLElement, path: string): void {
@@ -185,10 +226,23 @@ export class TreeView {
     const query = this.search.value.trim().toLocaleLowerCase();
     this.tree.replaceChildren();
     if (query) {
-      const matches = this.allFiles().map((node) => ({ node, rank: score(node.path, query) })).filter((item) => item.rank >= 0).sort((a, b) => b.rank - a.rank || compareNames(a.node.path, b.node.path));
-      this.count.textContent = `${matches.length} ${matches.length === 1 ? 'match' : 'matches'} in loaded files`;
-      if (!matches.length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = 'No matches in loaded files.'; this.tree.append(empty); }
-      else { const list = document.createElement('ul'); list.className = 'search-results'; for (const { node } of matches) { const item = document.createElement('li'); item.append(fileLink(node, this.selected(), query)); list.append(item); } this.tree.append(list); }
+      if (this.searchState !== 'ready') {
+        this.count.textContent = this.searchState === 'error' ? 'Search unavailable' : 'Loading file names…';
+        const hint = document.createElement('p'); hint.className = 'hint';
+        hint.textContent = this.searchState === 'error' ? 'Could not load file names. Try again or refresh.' : 'Searching all files…';
+        this.tree.append(hint); return;
+      }
+      const { matches, count } = searchMatches(this.searchPaths, query);
+      this.count.textContent = count > searchResultLimit ? `Showing top ${searchResultLimit} of ${count} matches` : `${count} ${count === 1 ? 'match' : 'matches'}`;
+      if (!count) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = 'No matching files.'; this.tree.append(empty); }
+      else {
+        const list = document.createElement('ul'); list.className = 'search-results';
+        for (const { path } of matches) {
+          const item = document.createElement('li');
+          item.append(fileLink({ name: path.split('/').at(-1)!, path, type: 'file' }, this.selected(), query)); list.append(item);
+        }
+        this.tree.append(list);
+      }
     } else {
       this.count.textContent = `${this.fileCount()} ${this.fileCount() === 1 ? 'file' : 'files'} loaded`;
       if (this.has('') && !this.nodes('').length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = 'No files to display (.git, node_modules, and .venv are excluded).'; this.tree.append(empty); }
@@ -196,7 +250,7 @@ export class TreeView {
     }
   }
   reveal(path: string): void {
-    if (this.search.value) { this.search.value = ''; this.render(); }
+    if (this.search.value) { this.search.value = ''; this.render(); this.onSearch(''); }
     const target = [...this.tree.querySelectorAll<HTMLAnchorElement>('a')].find((link) => new URL(link.href).searchParams.get('path') === path);
     target?.scrollIntoView?.({ block: 'nearest' });
   }

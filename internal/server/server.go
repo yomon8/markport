@@ -104,6 +104,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/tree":
 		s.tree(w, r)
+	case "/api/search-index":
+		s.searchIndex(w, r)
 	case "/api/file":
 		s.file(w, r)
 	case "/api/asset":
@@ -245,6 +247,17 @@ func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
 	}
 	gitReply(w, r, diff)
 }
+func (s *Server) searchIndex(w http.ResponseWriter, r *http.Request) {
+	paths, err := s.Files.FilePaths(r.Context())
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	jsonReply(w, http.StatusOK, struct {
+		Paths []string `json:"paths"`
+	}{Paths: paths})
+}
+
 func (s *Server) tree(w http.ResponseWriter, r *http.Request) {
 	paths := r.URL.Query()["path"]
 	if len(paths) > 1 {

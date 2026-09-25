@@ -45,7 +45,8 @@ const drawerToggle = document.querySelector<HTMLButtonElement>('#drawer-toggle')
 const sidebarToggle = document.querySelector<HTMLButtonElement>('#sidebar-toggle')!;
 const view = new TreeView(tree, search, count, selected,
   (path) => { const current = revision; void loadPage(path, 0, '', false, current).then(() => loadOpenDirectories(current)).catch(() => status('Refresh failed. Please try again.', 'error')); },
-  (path, offset) => { const current = revision; void loadPage(path, offset, '', false, current).catch(() => status('Refresh failed. Please try again.', 'error')); });
+  (path, offset) => { const current = revision; void loadPage(path, offset, '', false, current).catch(() => status('Refresh failed. Please try again.', 'error')); },
+  onSearchChange);
 let revision = 0; let pending = false; let running = false;
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = false;
 let displayedMode: 'file' | 'diff' | 'changes' = 'file'; let lastFilePath = '';
@@ -57,6 +58,11 @@ const pageTags = new Map<string, { value: string; checkedAt: number }>();
 let rootName = ''; let outlineObserver: IntersectionObserver | undefined;
 let loadingTimer: ReturnType<typeof setTimeout> | undefined;
 let updatedTimer: ReturnType<typeof setTimeout> | undefined;
+let searchIndexTimer: ReturnType<typeof setTimeout> | undefined;
+let searchIndexRequest: AbortController | undefined;
+let searchIndexVersion = 0;
+let searchIndexState: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
+let searchIndexCheckedAt = 0;
 const savedWidth = Number(localStorage.getItem('markport-sidebar-width'));
 if (savedWidth >= 200 && savedWidth <= 480) document.documentElement.style.setProperty('--sidebar-width', `${savedWidth}px`);
 
@@ -80,6 +86,51 @@ function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
     banner.append(document.createTextNode(state === 'error' ? 'Refresh failed. Check the connection and files.' : 'Checking connection.'));
     if (state === 'error') { const button = document.createElement('button'); button.textContent = 'Refresh now'; button.addEventListener('click', manualRefresh); banner.append(button); }
   }
+}
+function scheduleSearchIndexRefresh(): void {
+  clearTimeout(searchIndexTimer);
+  if (!search.value.trim()) return;
+  searchIndexTimer = setTimeout(() => {
+    if (document.hidden) { scheduleSearchIndexRefresh(); return; }
+    void loadSearchIndex();
+  }, 10000);
+}
+async function loadSearchIndex(): Promise<void> {
+  clearTimeout(searchIndexTimer);
+  searchIndexRequest?.abort();
+  const request = new AbortController();
+  searchIndexRequest = request;
+  const current = ++searchIndexVersion;
+  searchIndexState = 'loading';
+  view.setSearchIndex([], 'loading');
+  try {
+    const response = await fetch('/api/search-index', { cache: 'no-store', signal: request.signal });
+    const body = await response.json() as { paths?: string[] } & ApiError;
+    if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
+    if (!Array.isArray(body.paths)) throw new RequestError('invalid_response', 'Invalid file list');
+    if (current !== searchIndexVersion || !search.value.trim()) return;
+    searchIndexCheckedAt = Date.now();
+    searchIndexState = 'ready';
+    view.setSearchIndex(body.paths, 'ready');
+  } catch {
+    if (current !== searchIndexVersion || !search.value.trim()) return;
+    searchIndexState = 'error';
+    view.setSearchIndex([], 'error');
+  } finally {
+    if (current === searchIndexVersion) {
+      searchIndexRequest = undefined;
+      scheduleSearchIndexRefresh();
+    }
+  }
+}
+function onSearchChange(query: string): void {
+  if (!query) {
+    searchIndexVersion++;
+    searchIndexRequest?.abort(); searchIndexRequest = undefined;
+    clearTimeout(searchIndexTimer);
+    searchIndexState = 'idle';
+    view.setSearchIndex([], 'idle');
+  } else if (searchIndexState === 'idle' || searchIndexState === 'error') void loadSearchIndex();
 }
 async function getPage(path: string, offset: number, focus: string, conditional: boolean, expectedRevision?: number): Promise<Page | null> {
   const tag = pageTags.get(path);
@@ -315,7 +366,10 @@ function updateOutline(): void {
 function beginLoading(): void { content.setAttribute('aria-busy', 'true'); reload.disabled = true; clearTimeout(loadingTimer); loadingTimer = setTimeout(() => { progress.hidden = false; }, 200); }
 function endLoading(): void { clearTimeout(loadingTimer); progress.hidden = true; reload.disabled = false; content.setAttribute('aria-busy', 'false'); }
 function requestRefresh(): void { revision++; pending = true; if (!running) void refreshLoop(); }
-function manualRefresh(): void { displayedTag = ''; pageTags.clear(); previewReload++; requestRefresh(); }
+function manualRefresh(): void {
+  displayedTag = ''; pageTags.clear(); previewReload++; requestRefresh();
+  if (search.value.trim()) void loadSearchIndex();
+}
 
 function attachPreviewNavigation(frame: HTMLIFrameElement, path: string): void {
   frame.addEventListener('load', () => {
@@ -409,7 +463,7 @@ async function refreshLoop(): Promise<void> {
             }
             void drawMermaid(content, () => path === selected() && source === sourceMode);
           }
-          view.reveal(path);
+          if (pathChanged) view.reveal(path);
           if (pathChanged) title.focus({ preventScroll: true });
         }
         status('Checking every few seconds', 'ok');
@@ -473,5 +527,10 @@ updateBrand();
 status('Checking every few seconds', 'ok');
 requestRefresh();
 const pollTimer = setInterval(() => { if (!document.hidden) requestRefresh(); }, 3000);
-window.addEventListener('pagehide', () => clearInterval(pollTimer));
-document.addEventListener('visibilitychange', () => { if (!document.hidden) requestRefresh(); });
+window.addEventListener('pagehide', () => { clearInterval(pollTimer); onSearchChange(''); });
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    requestRefresh();
+    if (search.value.trim() && Date.now() - searchIndexCheckedAt >= 10000 && !searchIndexRequest) void loadSearchIndex();
+  }
+});
