@@ -35,6 +35,9 @@ describe('lazy browsing and refresh', () => {
     await import('../src/main'); await flush();
     expect(document.querySelector('#content .change-path')?.textContent).toBe('new.md');
     expect(document.querySelector('#changes-tree .change-path')?.textContent).toBe('new.md');
+    const changeLink = document.querySelector('#changes-tree a');
+    document.dispatchEvent(new Event('visibilitychange')); await flush();
+    expect(document.querySelector('#changes-tree a')).toBe(changeLink);
     document.querySelector<HTMLAnchorElement>('#content .change-list a')!.click(); await flush();
     expect(document.querySelector('.diff-added .diff-code')?.textContent).toContain('<script>');
     expect(document.querySelector('#content script')).toBeNull();
@@ -191,6 +194,67 @@ describe('lazy browsing and refresh', () => {
     expect(document.querySelector<HTMLAnchorElement>('a[href="/?path=new.md"]')).not.toBeNull();
   });
 
+  it('checks in the background without loading animation or replacing unchanged content', async () => {
+    history.replaceState(null, '', '/?path=a.md');
+    let releaseFile: ((value: Response) => void) | undefined;
+    let fileCalls = 0;
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url.startsWith('/api/tree')) return Promise.resolve(reply(page([entry('a.md')])));
+      fileCalls++;
+      if (fileCalls === 2) return new Promise<Response>((resolve) => { releaseFile = resolve; });
+      return Promise.resolve(reply({ path: 'a.md', type: 'markdown', html: '<h1>Stable</h1>' }, 200, 'v1'));
+    }));
+    await import('../src/main'); await flush();
+    const heading = document.querySelector('#content h1');
+    const label = document.querySelector('#connection .connection-label');
+    document.dispatchEvent(new Event('visibilitychange')); await flush();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(document.querySelector<HTMLButtonElement>('#reload')?.disabled).toBe(false);
+    expect(document.querySelector<HTMLElement>('#progress')?.hidden).toBe(true);
+    expect(document.querySelector('#content')?.getAttribute('aria-busy')).toBe('false');
+    releaseFile?.(reply(null, 304)); await flush();
+    expect(document.querySelector('#content h1')).toBe(heading);
+    expect(document.querySelector('#connection .connection-label')).toBe(label);
+  });
+
+  it('keeps a manual refresh active when an automatic check is due', async () => {
+    history.replaceState(null, '', '/?path=manual-priority.md');
+    let releaseFile: ((value: Response) => void) | undefined;
+    let fileCalls = 0;
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url.startsWith('/api/tree')) return Promise.resolve(reply(page([entry('manual-priority.md')])));
+      if (url === '/api/file?path=manual-priority.md') {
+        fileCalls++;
+        if (fileCalls === 2) return new Promise<Response>((resolve) => { releaseFile = resolve; });
+      }
+      return Promise.resolve(reply({ path: 'manual-priority.md', type: 'markdown', html: '<h1>Before</h1>' }));
+    }));
+    await import('../src/main'); await flush();
+    document.querySelector<HTMLButtonElement>('#reload')!.click(); await flush();
+    expect(document.querySelector<HTMLButtonElement>('#reload')?.disabled).toBe(true);
+    expect(document.querySelector('#content')?.getAttribute('aria-busy')).toBe('true');
+    document.dispatchEvent(new Event('visibilitychange'));
+    releaseFile?.(reply({ path: 'manual-priority.md', type: 'markdown', html: '<h1>After</h1>' })); await flush();
+    expect(document.querySelector('#content h1')?.textContent).toBe('After');
+    expect(document.querySelector<HTMLButtonElement>('#reload')?.disabled).toBe(false);
+  });
+
+  it('keeps the current file visible during a background connection failure', async () => {
+    history.replaceState(null, '', '/?path=a.md');
+    let offline = false;
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (offline) throw new Error('offline');
+      return url === '/api/tree' ? reply(page([entry('a.md')])) : reply({ path: 'a.md', type: 'markdown', html: '<h1>Readable</h1>' });
+    }));
+    await import('../src/main'); await flush();
+    const heading = document.querySelector('#content h1');
+    offline = true;
+    document.dispatchEvent(new Event('visibilitychange')); await flush();
+    expect(document.querySelector('#content h1')).toBe(heading);
+    expect(document.querySelector('#connection')?.textContent).toContain('Refresh failed');
+    expect(document.querySelector('#connection-banner')?.hasAttribute('hidden')).toBe(false);
+  });
+
   it('discards a stale listing after a newer refresh starts', async () => {
     let releaseFirst: ((value: Response) => void) | undefined;
     let calls = 0;
@@ -199,7 +263,7 @@ describe('lazy browsing and refresh', () => {
       return Promise.resolve(reply(page([entry('new.md')], '2')));
     }));
     await import('../src/main'); await flush();
-    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('popstate'));
     releaseFirst?.(reply(page([entry('old.md')], '1')));
     await flush(); await flush();
     expect(document.querySelector('#tree')?.textContent).toContain('new.md');

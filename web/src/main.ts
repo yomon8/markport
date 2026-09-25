@@ -47,11 +47,12 @@ const view = new TreeView(tree, search, count, selected,
   (path) => { const current = revision; void loadPage(path, 0, '', false, current).then(() => loadOpenDirectories(current)).catch(() => status('Refresh failed. Please try again.', 'error')); },
   (path, offset) => { const current = revision; void loadPage(path, offset, '', false, current).catch(() => status('Refresh failed. Please try again.', 'error')); },
   onSearchChange);
-let revision = 0; let pending = false; let running = false;
+let revision = 0; let pending = false; let pendingForeground = false; let activeForeground = false; let running = false;
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = false;
 let displayedMode: 'file' | 'diff' | 'changes' = 'file'; let lastFilePath = '';
 let sidebarPanel: 'file' | 'changes' = selectedMode() === 'file' ? 'file' : 'changes';
 let currentChanges: ChangesReply | undefined;
+let displayedChanges = '';
 let previewReload = 0;
 let displayedTag = '';
 let displayedTagCheckedAt = 0;
@@ -81,6 +82,7 @@ function showSidebar(mode: 'file' | 'changes'): void {
 function saveScroll(): void { history.replaceState({ scroll: main.scrollTop }, '', location.href); }
 function navigate(url: string): void { saveScroll(); history.pushState({ scroll: 0 }, '', url); sidebarPanel = selectedMode() === 'file' ? 'file' : 'changes'; sourceMode = false; sidebar.classList.remove('open'); requestRefresh(); }
 function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
+  if (connection.dataset.state === state && connection.title === message) return;
   connection.querySelector<HTMLElement>('.connection-label')!.textContent = message; connection.dataset.state = state; connection.title = message;
   banner.hidden = state === 'ok'; banner.replaceChildren();
   if (state !== 'ok') {
@@ -283,13 +285,17 @@ function showTitle(path: string, kind = '', missing = false): void {
   title.append(actions); document.title = `${parts.at(-1)} — markport`;
 }
 function showEmpty(): void {
+  const detailText = `${view.fileCount()} ${view.fileCount() === 1 ? 'file' : 'files'} loaded from ${rootName || 'the root directory'}. Open a folder to see more, or press / to search.`;
+  if (content.querySelector('.empty-state p')?.textContent === detailText) return;
   content.replaceChildren(); const box = document.createElement('div'); box.className = 'empty-state';
   const heading = document.createElement('h2'); heading.textContent = 'Select a file';
-  const detail = document.createElement('p'); detail.textContent = `${view.fileCount()} ${view.fileCount() === 1 ? 'file' : 'files'} loaded from ${rootName || 'the root directory'}. Open a folder to see more, or press / to search.`;
+  const detail = document.createElement('p'); detail.textContent = detailText;
   box.append(heading, detail); content.append(box); outline.hidden = true;
 }
 function showError(error: unknown, path: string): void {
   const code = error instanceof RequestError ? error.code : 'network';
+  const errorKey = JSON.stringify([path, code, error instanceof Error ? error.message : '']);
+  if (content.querySelector('.file-error')?.getAttribute('data-error-key') === errorKey) return;
   const messages: Record<string, [string, string]> = {
     not_found: ['File not found', 'This file was deleted or moved.'],
     too_large: ['File too large', 'This file exceeds the size limit.'],
@@ -303,7 +309,7 @@ function showError(error: unknown, path: string): void {
     git_failure: ['Cannot load Git diff', 'Please try again.'],
   };
   const [heading, description] = messages[code] ?? ['Cannot display file', 'Please try again.'];
-  content.replaceChildren(); const box = document.createElement('div'); box.className = 'file-error'; box.setAttribute('role', 'alert');
+  content.replaceChildren(); const box = document.createElement('div'); box.className = 'file-error'; box.dataset.errorKey = errorKey; box.setAttribute('role', 'alert');
   const icon = document.createElement('span'); icon.textContent = '⚠'; icon.setAttribute('aria-hidden', 'true');
   const h = document.createElement('h2'); h.textContent = heading; const p = document.createElement('p');
   const size = code === 'too_large' && error instanceof RequestError ? error.message.match(/(\d+ MiB) limit \(actual (\d+(?:\.\d+)? MiB)\)/) : undefined;
@@ -371,7 +377,10 @@ function updateOutline(): void {
 }
 function beginLoading(): void { content.setAttribute('aria-busy', 'true'); reload.disabled = true; clearTimeout(loadingTimer); loadingTimer = setTimeout(() => { progress.hidden = false; }, 200); }
 function endLoading(): void { clearTimeout(loadingTimer); progress.hidden = true; reload.disabled = false; content.setAttribute('aria-busy', 'false'); }
-function requestRefresh(): void { revision++; pending = true; if (!running) void refreshLoop(); }
+function requestRefresh(foreground = true): void {
+  if (!foreground && (activeForeground || pendingForeground)) return;
+  revision++; pending = true; pendingForeground ||= foreground; if (!running) void refreshLoop();
+}
 function manualRefresh(): void {
   displayedTag = ''; pageTags.clear(); previewReload++; requestRefresh();
   if (search.value.trim()) void loadSearchIndex();
@@ -402,10 +411,11 @@ async function refreshLoop(): Promise<void> {
   running = true;
   try {
     while (pending) {
-      pending = false; const current = revision; const path = selected(); const source = sourceMode; const mode = selectedMode();
+      pending = false; const foreground = pendingForeground; pendingForeground = false;
+      const current = revision; const path = selected(); const source = sourceMode; const mode = selectedMode();
       showSidebar(sidebarPanel);
       if (path !== displayedPath || mode !== displayedMode) displayedTag = '';
-      beginLoading();
+      if (foreground) { activeForeground = true; beginLoading(); }
       const treePromise = refreshDirectories(mode === 'changes' ? '' : path, current);
       const gitPromise = mode !== 'file' ? getGit<ChangesReply>('/api/git/changes') : Promise.resolve(undefined);
       const filePromise = mode === 'diff' ? getGit<DiffReply>(`/api/git/diff?path=${encodeURIComponent(path)}`).then((value) => ({ value }), (error: unknown) => ({ error }))
@@ -413,15 +423,18 @@ async function refreshLoop(): Promise<void> {
       try {
         const [, fileReply, changesReply] = await Promise.all([treePromise, filePromise, gitPromise]);
         if (current !== revision || path !== selected() || mode !== selectedMode()) { pending = true; continue; }
-        if (mode === 'file' && !path && view.firstReadme()) { history.replaceState({ scroll: 0 }, '', fileURL(view.firstReadme()!)); pending = true; revision++; continue; }
+        if (mode === 'file' && !path && view.firstReadme()) { history.replaceState({ scroll: 0 }, '', fileURL(view.firstReadme()!)); pending = true; pendingForeground ||= foreground; revision++; continue; }
         const pathChanged = path !== displayedPath || mode !== displayedMode;
         if (pathChanged) { main.scrollTop = history.state?.scroll ?? 0; displayedHTML = ''; view.pruneInactive(); }
         displayedPath = path; displayedMode = mode;
         if (path) lastFilePath = path;
         if (changesReply) {
           currentChanges = changesReply;
-          renderChanges(changesTree, changesReply, true);
-          [...changesTree.querySelectorAll<HTMLAnchorElement>('a[href]')].find((link) => link.getAttribute('href') === diffURL(path))?.setAttribute('aria-current', 'page');
+          const changesKey = JSON.stringify(changesReply);
+          if (displayedChanges !== changesKey) { renderChanges(changesTree, changesReply, true); displayedChanges = changesKey; }
+          const currentLink = changesTree.querySelector<HTMLAnchorElement>('a[aria-current="page"]');
+          const nextLink = [...changesTree.querySelectorAll<HTMLAnchorElement>('a[href]')].find((link) => mode === 'diff' && link.getAttribute('href') === diffURL(path));
+          if (currentLink !== nextLink) { currentLink?.removeAttribute('aria-current'); nextLink?.setAttribute('aria-current', 'page'); }
         }
         if (mode === 'changes') {
           const displayKey = JSON.stringify(changesReply);
@@ -431,8 +444,11 @@ async function refreshLoop(): Promise<void> {
           }
           status('Checking every few seconds', 'ok'); continue;
         }
-        if (!path) { showTitle(''); showEmpty(); continue; }
-        if (fileReply && 'error' in fileReply) { showError(fileReply.error, path); displayedHTML = ''; displayedTag = ''; continue; }
+        if (!path) { if (pathChanged) showTitle(''); showEmpty(); status('Checking every few seconds', 'ok'); continue; }
+        if (fileReply && 'error' in fileReply) {
+          if (fileReply.error instanceof RequestError && fileReply.error.code === 'network') throw fileReply.error;
+          showError(fileReply.error, path); displayedHTML = ''; displayedTag = ''; status('Checking every few seconds', 'ok'); continue;
+        }
         if (mode === 'diff' && fileReply && 'value' in fileReply) {
           const diff = fileReply.value as DiffReply;
           const displayKey = `${diff.kind}\n${diff.patch}`;
@@ -475,8 +491,9 @@ async function refreshLoop(): Promise<void> {
         status('Checking every few seconds', 'ok');
       } catch (error) {
         if (current !== revision) { pending = true; continue; }
-        showError(error, path); status('Refresh failed. Please try again.', 'error');
-      } finally { endLoading(); }
+        if (foreground || path !== displayedPath || mode !== displayedMode || !(error instanceof RequestError && error.code === 'network')) showError(error, path);
+        status('Refresh failed. Please try again.', 'error');
+      } finally { if (foreground) { activeForeground = false; endLoading(); } }
     }
   } finally { running = false; if (pending) void refreshLoop(); }
 }
@@ -532,11 +549,11 @@ initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => { u
 updateBrand();
 status('Checking every few seconds', 'ok');
 requestRefresh();
-const pollTimer = setInterval(() => { if (!document.hidden) requestRefresh(); }, 3000);
+const pollTimer = setInterval(() => { if (!document.hidden) requestRefresh(false); }, 3000);
 window.addEventListener('pagehide', () => { clearInterval(pollTimer); onSearchChange(''); });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
-    requestRefresh();
+    requestRefresh(false);
     if (search.value.trim() && Date.now() - searchIndexCheckedAt >= 10000 && !searchIndexRequest) void loadSearchIndex();
   }
 });

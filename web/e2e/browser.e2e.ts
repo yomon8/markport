@@ -70,6 +70,19 @@ test('shows English controls with a Japanese browser locale', async ({ browser }
   }
 });
 
+test('keeps an unchanged page still during automatic refresh', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=sample.py`);
+  await expect(page.locator('article .lntd:last-child pre')).toContainText('first');
+  await page.evaluate(() => {
+    (window as Window & { originalContent?: Element | null }).originalContent = document.querySelector('article .code-frame');
+  });
+  await page.waitForTimeout(3500);
+  expect(await page.evaluate(() => (window as Window & { originalContent?: Element | null }).originalContent === document.querySelector('article .code-frame'))).toBe(true);
+  await expect(page.locator('#reload')).toBeEnabled();
+  await expect(page.locator('#progress')).toBeHidden();
+  await expect(page.locator('#content')).toHaveAttribute('aria-busy', 'false');
+});
+
 test('desktop sidebar toggle keeps the content full width', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
