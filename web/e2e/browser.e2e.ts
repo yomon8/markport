@@ -70,6 +70,37 @@ test('shows English controls with a Japanese browser locale', async ({ browser }
   }
 });
 
+test('keeps sidebar controls visible while file and change lists scroll', async ({ page }) => {
+  for (const width of [1024, 390]) {
+    await page.setViewportSize({ width, height: 500 });
+    await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+    if (width < 700) await page.getByRole('button', { name: 'Open file list' }).click();
+
+    const tabs = page.locator('.sidebar-tabs');
+    const search = page.locator('#files-panel > form');
+    const tabsTop = (await tabs.boundingBox())!.y;
+    const searchTop = (await search.boundingBox())!.y;
+    await page.locator('#files-list').evaluate((list) => {
+      const tree = list.querySelector('#tree')!;
+      for (let i = 0; i < 80; i++) tree.appendChild(document.createElement('p')).textContent = `File ${i}`;
+      list.scrollTop = list.scrollHeight;
+    });
+    await expect.poll(() => page.locator('#files-list').evaluate((list) => list.scrollTop)).toBeGreaterThan(0);
+    expect((await tabs.boundingBox())!.y).toBe(tabsTop);
+    expect((await search.boundingBox())!.y).toBe(searchTop);
+    await expect(page.getByRole('searchbox', { name: 'Search files' })).toBeInViewport();
+
+    await page.getByRole('button', { name: 'Changes' }).click();
+    await page.locator('#changes-tree').evaluate((tree) => {
+      for (let i = 0; i < 80; i++) tree.appendChild(document.createElement('p')).textContent = `Change ${i}`;
+      tree.scrollTop = tree.scrollHeight;
+    });
+    await expect.poll(() => page.locator('#changes-tree').evaluate((tree) => tree.scrollTop)).toBeGreaterThan(0);
+    expect((await tabs.boundingBox())!.y).toBe(tabsTop);
+    await expect(page.getByRole('button', { name: 'Files' })).toBeInViewport();
+  }
+});
+
 test('searches text within a folder and opens the matching source line', async ({ page }) => {
   await mkdir(join(directory, 'content-scope'), { recursive: true });
   await writeFile(join(directory, 'content-scope', 'guide.md'), '# Guide\n\nBefore the answer\nThe auth needle is here\nAfter the answer\n');
