@@ -24,10 +24,10 @@ Download the executable for your OS and CPU from the GitHub Releases page. Build
 To verify a download, place `checksums_<version>.txt` from the release alongside the executable. Run `sha256sum --check checksums_<version>.txt` on Linux or `shasum -a 256 -c checksums_<version>.txt` on macOS. On Windows, use `Get-FileHash` to check an individual file.
 
 ```sh
-./markport_v0.1.2_linux_amd64 ./notes --port 3000
-./markport_v0.1.2_linux_amd64 ./notes --host 0.0.0.0 --port 3000
-./markport_v0.1.2_linux_amd64 --help
-./markport_v0.1.2_linux_amd64 --version
+./markport_v0.1.3_linux_amd64 ./notes --port 3000
+./markport_v0.1.3_linux_amd64 ./notes --host 0.0.0.0 --port 3000
+./markport_v0.1.3_linux_amd64 --help
+./markport_v0.1.3_linux_amd64 --version
 ```
 
 With no arguments, Markport serves the current directory on port 3000. Open the `http://127.0.0.1:<port>/` URL printed at startup. Press `Ctrl+C` to stop the server. By default, it listens only on `127.0.0.1`. To allow devices on the same LAN to connect, use `--host 0.0.0.0` and open `http://<this-machine-LAN-IP>:<port>/` on those devices. You can also bind to a specific IPv4 address with `--host`. The LAN mode has no authentication or TLS; anyone who can reach the port can browse the selected directory, including dotfiles other than the excluded directories.
@@ -58,7 +58,7 @@ make run DIR=./testdata HOST=0.0.0.0 PORT=3000  # Allow LAN access
 make test                  # Run Go and UI tests
 make test-e2e             # Run Chromium browser tests (requires Playwright browser setup)
 make lint                  # Run go vet, TypeScript checks, and ESLint
-make dist VERSION=v0.1.2  # Build six executables and SHA-256 checksums
+make dist VERSION=v0.1.3  # Build six executables and SHA-256 checksums
 ```
 
 After `make setup`, you can run `make lint` on its own. Each relevant Make target builds the web UI and embeds it in the executable. During development, Vite proxies API requests to Go.

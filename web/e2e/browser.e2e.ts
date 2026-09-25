@@ -70,6 +70,25 @@ test('shows English controls with a Japanese browser locale', async ({ browser }
   }
 });
 
+test('desktop sidebar toggle keeps the content full width', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  const sidebar = page.locator('#sidebar');
+  const main = page.locator('#main');
+  await expect(sidebar).toBeVisible();
+
+  await page.getByRole('button', { name: 'Collapse sidebar' }).click();
+  await expect(sidebar).toBeHidden();
+  await expect(page.locator('#sidebar-resize')).toBeHidden();
+  await expect.poll(async () => (await main.boundingBox())?.width).toBe(1280);
+  await expect.poll(async () => (await main.boundingBox())?.x).toBe(0);
+
+  await page.getByRole('button', { name: 'Expand sidebar' }).click();
+  await expect(sidebar).toBeVisible();
+  await expect(page.locator('#sidebar-resize')).toBeVisible();
+  await expect.poll(async () => (await main.boundingBox())?.width).toBeLessThan(1280);
+});
+
 test('previews HTML with CSS and images, blocks scripts, and follows local links', async ({ page }) => {
   await page.route('https://cdn.example.test/external.css', (route) => route.fulfill({ contentType: 'text/css', body: 'h1 { background: rgb(40, 50, 60) }' }));
   await page.route('https://cdn.example.test/external.png', (route) => route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/c4sAAAAASUVORK5CYII=', 'base64') }));
