@@ -48,6 +48,8 @@ test.beforeAll(async () => {
   await writeFile(join(directory, 'docs', 'style.css'), 'h1 { color: rgb(10, 20, 30) }');
   await writeFile(join(directory, 'docs', 'first.html'), '<!doctype html><html><head><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="https://cdn.example.test/external.css"></head><body><h1>HTML preview</h1><img src="../image.png"><img src="https://cdn.example.test/external.png"><script>window.previewScriptRan = true</script><a href="second.htm">Next HTML</a></body></html>');
   await writeFile(join(directory, 'docs', 'second.htm'), '<!doctype html><html><body><h1>Second HTML</h1></body></html>');
+  await writeFile(join(directory, 'docs', 'transparent.html'), '<!doctype html><html><body style="background:transparent"><h1>Transparent HTML</h1></body></html>');
+  await writeFile(join(directory, 'docs', 'colored.html'), '<!doctype html><html><body style="background:#ff8080"><h1>Colored HTML</h1></body></html>');
   await startServer();
 });
 
@@ -95,6 +97,28 @@ test('keeps global shortcuts out of Markdown and editable text', async ({ page }
   await page.locator('#file-title').click();
   await page.keyboard.press('Control+k');
   await expect(page.getByRole('searchbox', { name: 'Search files' })).toBeFocused();
+});
+
+test('theme colors follow the selected theme and HTML keeps document colors', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('markport-theme', 'light'));
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  const colors = async () => page.evaluate(() => {
+    const css = getComputedStyle(document.documentElement);
+    return ['--mark-bg', '--mark-text', '--icon-image', '--icon-code', '--success-bg', '--success-text'].map((name) => css.getPropertyValue(name).trim());
+  });
+  const light = await colors();
+  await page.getByRole('button', { name: 'Theme: Light' }).click();
+  const dark = await colors();
+  expect(dark.every((value, index) => value !== light[index])).toBe(true);
+  for (const name of ['first.html', 'transparent.html', 'colored.html']) {
+    await page.goto(`http://127.0.0.1:${port}/?path=docs%2F${name}`);
+    const frame = page.frameLocator('.html-preview');
+    await expect(frame.locator('h1')).toBeVisible();
+    const background = await frame.locator('body').evaluate((body) => getComputedStyle(body).backgroundColor);
+    if (name === 'colored.html') expect(background).toBe('rgb(255, 128, 128)');
+    else expect(background).toBe('rgba(0, 0, 0, 0)');
+    await expect(page.locator('.html-preview')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  }
 });
 
 test('keeps sidebar controls visible while file and change lists scroll', async ({ page }) => {
