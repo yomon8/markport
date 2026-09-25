@@ -117,16 +117,23 @@ test('shows partial content results and cancels an active search', async ({ page
 test('previews pasted Markdown and restores it after reloading the tab', async ({ page }) => {
   await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
   await page.getByRole('button', { name: 'Paste Markdown' }).click();
-  await page.getByLabel('Markdown text').fill('# Pasted\n\n[Local](sample.py) [Jump](#pasted)');
-  await page.getByRole('button', { name: 'Render', exact: true }).click();
+  await page.getByLabel('Markdown Text').fill('# Pasted\n\n[Local](sample.py) [Jump](#pasted)');
+  await expect(page.locator('.paste-preview')).toBeHidden();
+  await page.getByRole('button', { name: 'Rendered view' }).click();
   await expect(page.locator('.paste-preview h1')).toHaveText('Pasted');
+  await expect(page.getByLabel('Markdown Text')).toBeHidden();
   await expect(page.locator('.paste-preview a', { hasText: 'Local' })).toHaveCount(0);
   await expect(page.locator('.paste-preview a', { hasText: 'Jump' })).toHaveAttribute('href', '#pasted');
-  await page.reload();
-  await expect(page.getByLabel('Markdown text')).toHaveValue('# Pasted\n\n[Local](sample.py) [Jump](#pasted)');
+  await page.getByRole('button', { name: 'Markdown Text' }).click();
+  await expect(page.getByLabel('Markdown Text')).toBeVisible();
+  await expect(page.locator('.paste-preview')).toBeHidden();
+  await page.getByRole('button', { name: 'Rendered view' }).click();
   await expect(page.locator('.paste-preview h1')).toHaveText('Pasted');
+  await page.reload();
+  await expect(page.getByLabel('Markdown Text')).toHaveValue('# Pasted\n\n[Local](sample.py) [Jump](#pasted)');
+  await expect(page.locator('.paste-preview')).toBeHidden();
   await page.getByRole('button', { name: 'Clear' }).click();
-  await expect(page.getByLabel('Markdown text')).toBeEmpty();
+  await expect(page.getByLabel('Markdown Text')).toBeEmpty();
   await expect(page.locator('.paste-preview h1')).toHaveCount(0);
 });
 

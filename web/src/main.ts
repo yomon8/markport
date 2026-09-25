@@ -73,6 +73,7 @@ const maxPasteBytes = 1 << 20;
 let pastedMarkdown = '';
 try { pastedMarkdown = sessionStorage.getItem(pasteStorageKey) ?? ''; } catch { /* Storage may be unavailable. */ }
 let pasteVersion = 0;
+let refreshPastedPreview: (() => void) | undefined;
 let loadingTimer: ReturnType<typeof setTimeout> | undefined;
 let updatedTimer: ReturnType<typeof setTimeout> | undefined;
 let searchIndexTimer: ReturnType<typeof setTimeout> | undefined;
@@ -352,43 +353,53 @@ function showEmpty(): void {
 }
 function showPaste(): void {
   content.dataset.kind = 'paste';
-  title.textContent = 'Pasted Markdown';
+  const heading = document.createElement('strong'); heading.textContent = 'Pasted Markdown';
+  const titleActions = document.createElement('div'); titleActions.className = 'title-actions';
+  const toggle = document.createElement('button'); toggle.type = 'button'; toggle.id = 'paste-view-toggle'; toggle.textContent = 'Rendered view';
+  titleActions.append(toggle); title.replaceChildren(heading, titleActions);
   document.title = 'Pasted Markdown — markport';
   outline.hidden = true;
   const editor = document.createElement('div'); editor.className = 'paste-editor';
-  const label = document.createElement('label'); label.htmlFor = 'paste-input'; label.textContent = 'Markdown text';
+  const label = document.createElement('label'); label.htmlFor = 'paste-input'; label.textContent = 'Markdown Text';
   const input = document.createElement('textarea'); input.id = 'paste-input'; input.placeholder = 'Paste Markdown here'; input.value = pastedMarkdown;
   const actions = document.createElement('div'); actions.className = 'paste-actions';
-  const renderButton = document.createElement('button'); renderButton.type = 'button'; renderButton.textContent = 'Render';
   const clearButton = document.createElement('button'); clearButton.type = 'button'; clearButton.textContent = 'Clear';
   const notice = document.createElement('p'); notice.className = 'paste-notice'; notice.setAttribute('role', 'status');
-  const preview = document.createElement('div'); preview.className = 'paste-preview';
-  actions.append(renderButton, clearButton); editor.append(label, input, actions, notice);
+  const preview = document.createElement('div'); preview.className = 'paste-preview'; preview.hidden = true;
+  actions.append(clearButton); editor.append(label, input, actions, notice);
   content.replaceChildren(editor, preview);
+  let rendered = false;
+  let renderedMarkdown = '';
   const message = (text: string, error = false): void => { notice.textContent = text; notice.classList.toggle('error', error); };
-  const clearPreview = (): void => { preview.replaceChildren(); updateOutline(); };
-  const renderPaste = async (): Promise<void> => {
+  const showText = (): void => {
+    pasteVersion++; rendered = false; editor.hidden = false; preview.hidden = true; toggle.textContent = 'Rendered view';
+    outlineObserver?.disconnect(); outline.replaceChildren(); outline.hidden = true; input.focus();
+  };
+  const renderPaste = async (force = false): Promise<void> => {
     const markdown = input.value;
-    const current = ++pasteVersion;
-    clearPreview();
     if (!markdown.trim()) { message('Paste Markdown text to render.', true); return; }
     if (new TextEncoder().encode(markdown).length > maxPasteBytes) { message('Markdown exceeds the 1 MiB limit.', true); return; }
-    renderButton.disabled = true; message('Rendering…');
+    const current = ++pasteVersion;
+    rendered = true; editor.hidden = true; preview.hidden = false; toggle.textContent = 'Markdown Text';
+    if (!force && renderedMarkdown === markdown) { updateOutline(); return; }
+    preview.textContent = 'Rendering…'; outline.hidden = true;
     try {
       const response = await fetch('/api/render', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ markdown }) });
       const body = await response.json() as { html?: string } & ApiError;
       if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
       if (typeof body.html !== 'string') throw new RequestError('invalid_response', 'Invalid render response');
-      if (current !== pasteVersion || selectedMode() !== 'paste') return;
-      preview.innerHTML = body.html; decorateContent(); updateOutline();
+      if (current !== pasteVersion || selectedMode() !== 'paste' || !rendered) return;
+      preview.innerHTML = body.html; renderedMarkdown = markdown; decorateContent(); updateOutline();
       message('');
-      void drawMermaid(content, () => current === pasteVersion && selectedMode() === 'paste');
+      void drawMermaid(content, () => current === pasteVersion && selectedMode() === 'paste' && rendered);
     } catch (error) {
-      if (current === pasteVersion && selectedMode() === 'paste') message(error instanceof Error ? error.message : 'Cannot render Markdown.', true);
-    } finally { if (current === pasteVersion) renderButton.disabled = false; }
+      if (current === pasteVersion && selectedMode() === 'paste' && rendered) {
+        showText(); message(error instanceof Error ? error.message : 'Cannot render Markdown.', true);
+      }
+    }
   };
   input.addEventListener('input', () => {
-    pasteVersion++; pastedMarkdown = input.value; renderButton.disabled = false; clearPreview(); message('');
+    pasteVersion++; pastedMarkdown = input.value; renderedMarkdown = ''; preview.replaceChildren(); message('');
     try {
       if (new TextEncoder().encode(pastedMarkdown).length > maxPasteBytes) {
         sessionStorage.removeItem(pasteStorageKey); message('Markdown exceeds the 1 MiB limit.', true);
@@ -396,13 +407,13 @@ function showPaste(): void {
       else sessionStorage.removeItem(pasteStorageKey);
     } catch { message('This tab could not save the text for reloading.', true); }
   });
-  renderButton.addEventListener('click', () => { void renderPaste(); });
+  toggle.addEventListener('click', () => { if (rendered) showText(); else void renderPaste(); });
   clearButton.addEventListener('click', () => {
-    pasteVersion++; pastedMarkdown = ''; input.value = ''; renderButton.disabled = false; clearPreview(); message('');
+    pasteVersion++; pastedMarkdown = ''; renderedMarkdown = ''; input.value = ''; preview.replaceChildren(); message('');
     try { sessionStorage.removeItem(pasteStorageKey); } catch { message('This tab could not clear saved text.', true); }
     input.focus();
   });
-  if (pastedMarkdown) void renderPaste();
+  refreshPastedPreview = () => { if (rendered) void renderPaste(true); };
 }
 function showError(error: unknown, path: string): void {
   const code = error instanceof RequestError ? error.code : 'network';
@@ -495,7 +506,7 @@ function requestRefresh(foreground = true): void {
 }
 function manualRefresh(): void {
   displayedTag = ''; pageTags.clear(); previewReload++; requestRefresh();
-  if (selectedMode() === 'paste' && pastedMarkdown) document.querySelector<HTMLButtonElement>('.paste-actions button')?.click();
+  if (selectedMode() === 'paste') refreshPastedPreview?.();
   if (search.value.trim()) void loadSearchIndex();
 }
 
@@ -655,7 +666,7 @@ const resize = document.querySelector<HTMLElement>('#sidebar-resize')!;
 resize.addEventListener('pointerdown', (event) => { resize.setPointerCapture(event.pointerId); });
 resize.addEventListener('pointermove', (event) => { if (!resize.hasPointerCapture(event.pointerId)) return; const width = Math.max(200, Math.min(480, event.clientX)); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
 resize.addEventListener('keydown', (event) => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; const width = Math.max(200, Math.min(480, Number(localStorage.getItem('markport-sidebar-width') ?? 280) + (event.key === 'ArrowRight' ? 10 : -10))); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
-initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => { updateBrand(); if (content.querySelector('[data-mermaid]')) { if (selectedMode() === 'paste') document.querySelector<HTMLButtonElement>('.paste-actions button')?.click(); else { displayedHTML = ''; requestRefresh(); } } });
+initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => { updateBrand(); if (content.querySelector('[data-mermaid]')) { if (selectedMode() === 'paste') refreshPastedPreview?.(); else { displayedHTML = ''; requestRefresh(); } } });
 updateBrand();
 status('Checking every few seconds', 'ok');
 requestRefresh();
