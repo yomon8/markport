@@ -76,13 +76,24 @@ test('searches text within a folder and opens the matching source line', async (
   await writeFile(join(directory, 'content-scope', 'code.py'), 'print("before")\nprint("auth needle")\nprint("after")\n');
   await writeFile(join(directory, 'outside.md'), 'auth needle outside');
   await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  const contentSearch = page.locator('#content-search');
+  const toggle = contentSearch.locator('summary');
+  await expect(contentSearch).not.toHaveAttribute('open', '');
+  await expect(page.locator('#content-query')).toBeHidden();
+  await toggle.click();
+  await expect(page.locator('#content-query')).toBeVisible();
   await page.locator('#content-query').fill('auth needle');
   await page.locator('#content-folder').fill('content-scope');
-  await page.locator('#content-search').getByRole('button', { name: 'Search' }).click();
+  await contentSearch.getByRole('button', { name: 'Search' }).click();
   await expect(page.locator('.content-search-status')).toContainText('2 matches');
   await expect(page.locator('.content-search-results a')).toHaveCount(2);
   await expect(page.locator('.content-search-results')).not.toContainText('outside.md');
   await expect(page.locator('.content-search-results a', { hasText: 'code.py' })).toContainText('print("before")');
+  await toggle.click();
+  await expect(page.locator('.content-search-results')).toBeHidden();
+  await toggle.click();
+  await expect(page.locator('#content-query')).toHaveValue('auth needle');
+  await expect(page.locator('.content-search-results a')).toHaveCount(2);
   await page.locator('.content-search-results a', { hasText: 'code.py' }).click();
   await expect(page).toHaveURL(/path=content-scope%2Fcode\.py#L2$/);
   await expect(page.locator('#L2')).toBeVisible();
@@ -91,13 +102,14 @@ test('searches text within a folder and opens the matching source line', async (
   await expect(page.locator('#file-title').getByRole('button', { name: 'Rendered view' })).toBeVisible();
   await expect(page.locator('#L4')).toBeVisible();
   await page.locator('#content-folder').fill('missing-folder');
-  await page.locator('#content-search').getByRole('button', { name: 'Search' }).click();
+  await contentSearch.getByRole('button', { name: 'Search' }).click();
   await expect(page.locator('.content-search-status')).toHaveText('Folder not found.');
 });
 
 test('shows partial content results and cancels an active search', async ({ page }) => {
   await writeFile(join(directory, 'content-limit.md'), 'needle\n'.repeat(101));
   await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await page.locator('#content-search summary').click();
   await page.locator('#content-query').fill('needle');
   await page.locator('#content-search').getByRole('button', { name: 'Search' }).click();
   await expect(page.locator('.content-search-status')).toContainText('Partial results: match limit reached.');

@@ -361,10 +361,10 @@ describe('lazy browsing and refresh', () => {
       : reply(page([entry('a.md', 'file', 'docs')])));
     vi.stubGlobal('fetch', fetch);
     await import('../src/main'); await flush();
-    document.querySelector('summary')!.click(); await flush();
+    document.querySelector<HTMLElement>('#tree summary')!.click(); await flush();
     expect(document.querySelector('#tree a')?.textContent).toBe('a.md');
-    document.querySelector('summary')!.click();
-    document.querySelector('summary')!.click(); await flush();
+    document.querySelector<HTMLElement>('#tree summary')!.click();
+    document.querySelector<HTMLElement>('#tree summary')!.click(); await flush();
     expect(fetch.mock.calls.filter(([url]) => url === '/api/tree?path=docs').length).toBe(2);
   });
 });

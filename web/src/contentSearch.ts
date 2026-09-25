@@ -2,15 +2,17 @@ type Match = { path: string; line: number; before: string; text: string; after: 
 type SearchReply = { matches: Match[]; filesScanned: number; bytesRead: number; limit?: 'files' | 'entries' | 'bytes' | 'matches' };
 
 export function initContentSearch(container: HTMLElement, navigate: (url: string) => void): void {
+  const summary = document.createElement('summary');
+  summary.textContent = 'Search contents';
   const form = document.createElement('form');
   form.className = 'content-search-form';
-  form.innerHTML = '<label for="content-query">Search contents</label><input id="content-query" type="search" required maxlength="200" placeholder="Text to find"><label for="content-folder">Folder</label><input id="content-folder" type="text" placeholder="Root (or path/to/folder)"><div class="content-search-actions"><button type="submit">Search</button><button type="button" id="content-cancel" hidden>Cancel</button></div>';
+  form.innerHTML = '<label for="content-query">Text to find</label><input id="content-query" type="search" required maxlength="200" placeholder="Text to find"><label for="content-folder">Folder</label><input id="content-folder" type="text" placeholder="Root (or path/to/folder)"><div class="content-search-actions"><button type="submit">Search</button><button type="button" id="content-cancel" hidden>Cancel</button></div>';
   const query = form.querySelector<HTMLInputElement>('#content-query')!;
   const folder = form.querySelector<HTMLInputElement>('#content-folder')!;
   const cancel = form.querySelector<HTMLButtonElement>('#content-cancel')!;
   const status = document.createElement('p'); status.className = 'content-search-status'; status.setAttribute('role', 'status');
   const results = document.createElement('nav'); results.className = 'content-search-results'; results.setAttribute('aria-label', 'Content search results');
-  container.append(form, status, results);
+  container.append(summary, form, status, results);
   let request: AbortController | undefined;
   let version = 0;
 

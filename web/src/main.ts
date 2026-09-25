@@ -31,7 +31,7 @@ function updateBrand(): void {
 const tree = document.querySelector<HTMLElement>('#tree')!;
 const changesTree = document.querySelector<HTMLElement>('#changes-tree')!;
 const filesPanel = document.querySelector<HTMLElement>('#files-panel')!;
-const contentSearch = document.createElement('section');
+const contentSearch = document.createElement('details');
 contentSearch.id = 'content-search';
 filesPanel.querySelector('form')!.after(contentSearch);
 initContentSearch(contentSearch, navigate);
