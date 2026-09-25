@@ -16,12 +16,55 @@ const entry = (name: string, type: 'directory' | 'file' = 'file', parent = ''): 
 beforeEach(() => {
   vi.resetModules();
   localStorage.clear();
+  sessionStorage.clear();
   document.body.innerHTML = '<div id="app"></div>';
   history.replaceState(null, '', '/');
 });
 afterEach(() => { window.dispatchEvent(new Event('pagehide')); vi.unstubAllGlobals(); });
 
 describe('lazy browsing and refresh', () => {
+  it('renders pasted Markdown, keeps the editor during refresh, and restores it after navigation', async () => {
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url === '/api/tree') return reply({ ...page([entry('README.md')]), readme: 'README.md' });
+      if (url === '/api/render') return reply({ html: `<h1>${JSON.parse(options?.body as string).markdown.slice(2)}</h1>` });
+      return reply({ path: 'README.md', type: 'markdown', html: '<h1>File</h1>' });
+    });
+    vi.stubGlobal('fetch', fetch);
+    await import('../src/main'); await flush(); await flush();
+    expect(document.querySelector('#content h1')?.textContent).toBe('File');
+    document.querySelector<HTMLButtonElement>('#paste-toggle')!.click(); await flush();
+    const input = document.querySelector<HTMLTextAreaElement>('#paste-input')!;
+    input.value = '# First'; input.dispatchEvent(new Event('input'));
+    document.querySelector<HTMLButtonElement>('.paste-actions button')!.click(); await flush();
+    expect(document.querySelector('.paste-preview h1')?.textContent).toBe('First');
+    expect(sessionStorage.getItem('markport-pasted-markdown')).toBe('# First');
+    document.querySelector<HTMLButtonElement>('#paste-toggle')!.click();
+    expect(document.querySelector('#paste-input')).toBe(input);
+    document.dispatchEvent(new Event('visibilitychange')); await flush();
+    expect(document.querySelector('#paste-input')).toBe(input);
+    input.value = '# Second'; input.dispatchEvent(new Event('input'));
+    expect(document.querySelector('.paste-preview h1')).toBeNull();
+    document.querySelector<HTMLButtonElement>('#files-tab')!.click(); await flush();
+    expect(document.querySelector('#content h1')?.textContent).toBe('File');
+    document.querySelector<HTMLButtonElement>('#paste-toggle')!.click(); await flush();
+    expect(document.querySelector<HTMLTextAreaElement>('#paste-input')?.value).toBe('# Second');
+    expect(document.querySelector('.paste-preview h1')?.textContent).toBe('Second');
+    document.querySelector<HTMLButtonElement>('.paste-actions button:nth-child(2)')!.click();
+    expect(sessionStorage.getItem('markport-pasted-markdown')).toBeNull();
+    expect(document.querySelector('.paste-preview h1')).toBeNull();
+  });
+
+  it('reports a paste render error without clearing the text', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree' ? reply(page([])) : reply({ error: 'render_failed', message: 'Cannot render Markdown' }, 500)));
+    await import('../src/main'); await flush();
+    document.querySelector<HTMLButtonElement>('#paste-toggle')!.click(); await flush();
+    const input = document.querySelector<HTMLTextAreaElement>('#paste-input')!;
+    input.value = '# Keep me'; input.dispatchEvent(new Event('input'));
+    document.querySelector<HTMLButtonElement>('.paste-actions button')!.click(); await flush();
+    expect(input.value).toBe('# Keep me');
+    expect(document.querySelector('.paste-notice')?.textContent).toBe('Cannot render Markdown');
+  });
+
   it('lists Git changes and renders a safe, refreshing diff', async () => {
     history.replaceState(null, '', '/?view=changes');
     let patch = 'diff --git a/new.md b/new.md\n--- /dev/null\n+++ b/new.md\n@@ -0,0 +1,1 @@\n+<script>alert(1)</script>\n';

@@ -18,7 +18,7 @@ type ApiError = { error?: string; message?: string };
 class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
-app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-horizontal" src="${logoLight}" alt=""><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><button id="theme-toggle" type="button"></button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs"><button id="files-tab" type="button">Files</button><button id="changes-tab" type="button">Changes</button></div><div id="files-panel"><form role="search" onsubmit="return false"><label for="search">Search files</label><input id="search" type="search" placeholder="Path or file name /"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" aria-label="Changed files" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
+app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-horizontal" src="${logoLight}" alt=""><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs"><button id="files-tab" type="button">Files</button><button id="changes-tab" type="button">Changes</button></div><div id="files-panel"><form role="search" onsubmit="return false"><label for="search">Search files</label><input id="search" type="search" placeholder="Path or file name /"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" aria-label="Changed files" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
 if (!icon.isConnected) document.head.append(icon);
@@ -43,6 +43,7 @@ const count = document.querySelector<HTMLElement>('#result-count')!;
 const connection = document.querySelector<HTMLElement>('#connection')!;
 const banner = document.querySelector<HTMLElement>('#connection-banner')!;
 const reload = document.querySelector<HTMLButtonElement>('#reload')!;
+const pasteToggle = document.querySelector<HTMLButtonElement>('#paste-toggle')!;
 const main = document.querySelector<HTMLElement>('#main')!;
 const progress = document.querySelector<HTMLElement>('#progress')!;
 const outline = document.querySelector<HTMLElement>('#outline')!;
@@ -55,8 +56,8 @@ const view = new TreeView(tree, search, count, selected,
   onSearchChange);
 let revision = 0; let pending = false; let pendingForeground = false; let activeForeground = false; let running = false;
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = new URL(location.href).searchParams.get('source') === '1';
-let displayedMode: 'file' | 'diff' | 'changes' = 'file'; let lastFilePath = '';
-let sidebarPanel: 'file' | 'changes' = selectedMode() === 'file' ? 'file' : 'changes';
+let displayedMode: 'file' | 'diff' | 'changes' | 'paste' = 'file'; let lastFilePath = '';
+let sidebarPanel: 'file' | 'changes' = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file';
 let currentChanges: ChangesReply | undefined;
 let displayedChanges = '';
 const review = new ReviewState();
@@ -67,6 +68,11 @@ let displayedTag = '';
 let displayedTagCheckedAt = 0;
 const pageTags = new Map<string, { value: string; checkedAt: number }>();
 let rootName = ''; let outlineObserver: IntersectionObserver | undefined;
+const pasteStorageKey = 'markport-pasted-markdown';
+const maxPasteBytes = 1 << 20;
+let pastedMarkdown = '';
+try { pastedMarkdown = sessionStorage.getItem(pasteStorageKey) ?? ''; } catch { /* Storage may be unavailable. */ }
+let pasteVersion = 0;
 let loadingTimer: ReturnType<typeof setTimeout> | undefined;
 let updatedTimer: ReturnType<typeof setTimeout> | undefined;
 let searchIndexTimer: ReturnType<typeof setTimeout> | undefined;
@@ -79,9 +85,9 @@ if (savedWidth >= 200 && savedWidth <= 480) document.documentElement.style.setPr
 
 function selected(): string { return new URL(location.href).searchParams.get('path') ?? ''; }
 function fileURL(path: string): string { return `/?path=${encodeURIComponent(path)}`; }
-function selectedMode(): 'file' | 'diff' | 'changes' {
+function selectedMode(): 'file' | 'diff' | 'changes' | 'paste' {
   const view = new URL(location.href).searchParams.get('view');
-  return view === 'changes' ? 'changes' : view === 'diff' && selected() ? 'diff' : 'file';
+  return view === 'paste' ? 'paste' : view === 'changes' ? 'changes' : view === 'diff' && selected() ? 'diff' : 'file';
 }
 function showSidebar(mode: 'file' | 'changes'): void {
   const git = mode === 'changes';
@@ -89,7 +95,7 @@ function showSidebar(mode: 'file' | 'changes'): void {
   filesTab.setAttribute('aria-pressed', String(!git)); changesTab.setAttribute('aria-pressed', String(git));
 }
 function saveScroll(): void { history.replaceState({ scroll: main.scrollTop }, '', location.href); }
-function navigate(url: string): void { saveScroll(); history.pushState({ scroll: 0 }, '', url); sidebarPanel = selectedMode() === 'file' ? 'file' : 'changes'; sourceMode = new URL(url, location.href).searchParams.get('source') === '1'; sidebar.classList.remove('open'); requestRefresh(); }
+function navigate(url: string): void { if (new URL(url, location.href).href === location.href) return; saveScroll(); pasteVersion++; history.pushState({ scroll: 0 }, '', url); sidebarPanel = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(url, location.href).searchParams.get('source') === '1'; sidebar.classList.remove('open'); requestRefresh(); }
 function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
   if (connection.dataset.state === state && connection.title === message) return;
   connection.querySelector<HTMLElement>('.connection-label')!.textContent = message; connection.dataset.state = state; connection.title = message;
@@ -344,6 +350,60 @@ function showEmpty(): void {
   const detail = document.createElement('p'); detail.textContent = detailText;
   box.append(heading, detail); content.append(box); outline.hidden = true;
 }
+function showPaste(): void {
+  content.dataset.kind = 'paste';
+  title.textContent = 'Pasted Markdown';
+  document.title = 'Pasted Markdown — markport';
+  outline.hidden = true;
+  const editor = document.createElement('div'); editor.className = 'paste-editor';
+  const label = document.createElement('label'); label.htmlFor = 'paste-input'; label.textContent = 'Markdown text';
+  const input = document.createElement('textarea'); input.id = 'paste-input'; input.placeholder = 'Paste Markdown here'; input.value = pastedMarkdown;
+  const actions = document.createElement('div'); actions.className = 'paste-actions';
+  const renderButton = document.createElement('button'); renderButton.type = 'button'; renderButton.textContent = 'Render';
+  const clearButton = document.createElement('button'); clearButton.type = 'button'; clearButton.textContent = 'Clear';
+  const notice = document.createElement('p'); notice.className = 'paste-notice'; notice.setAttribute('role', 'status');
+  const preview = document.createElement('div'); preview.className = 'paste-preview';
+  actions.append(renderButton, clearButton); editor.append(label, input, actions, notice);
+  content.replaceChildren(editor, preview);
+  const message = (text: string, error = false): void => { notice.textContent = text; notice.classList.toggle('error', error); };
+  const clearPreview = (): void => { preview.replaceChildren(); updateOutline(); };
+  const renderPaste = async (): Promise<void> => {
+    const markdown = input.value;
+    const current = ++pasteVersion;
+    clearPreview();
+    if (!markdown.trim()) { message('Paste Markdown text to render.', true); return; }
+    if (new TextEncoder().encode(markdown).length > maxPasteBytes) { message('Markdown exceeds the 1 MiB limit.', true); return; }
+    renderButton.disabled = true; message('Rendering…');
+    try {
+      const response = await fetch('/api/render', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ markdown }) });
+      const body = await response.json() as { html?: string } & ApiError;
+      if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
+      if (typeof body.html !== 'string') throw new RequestError('invalid_response', 'Invalid render response');
+      if (current !== pasteVersion || selectedMode() !== 'paste') return;
+      preview.innerHTML = body.html; decorateContent(); updateOutline();
+      message('');
+      void drawMermaid(content, () => current === pasteVersion && selectedMode() === 'paste');
+    } catch (error) {
+      if (current === pasteVersion && selectedMode() === 'paste') message(error instanceof Error ? error.message : 'Cannot render Markdown.', true);
+    } finally { if (current === pasteVersion) renderButton.disabled = false; }
+  };
+  input.addEventListener('input', () => {
+    pasteVersion++; pastedMarkdown = input.value; renderButton.disabled = false; clearPreview(); message('');
+    try {
+      if (new TextEncoder().encode(pastedMarkdown).length > maxPasteBytes) {
+        sessionStorage.removeItem(pasteStorageKey); message('Markdown exceeds the 1 MiB limit.', true);
+      } else if (pastedMarkdown) sessionStorage.setItem(pasteStorageKey, pastedMarkdown);
+      else sessionStorage.removeItem(pasteStorageKey);
+    } catch { message('This tab could not save the text for reloading.', true); }
+  });
+  renderButton.addEventListener('click', () => { void renderPaste(); });
+  clearButton.addEventListener('click', () => {
+    pasteVersion++; pastedMarkdown = ''; input.value = ''; renderButton.disabled = false; clearPreview(); message('');
+    try { sessionStorage.removeItem(pasteStorageKey); } catch { message('This tab could not clear saved text.', true); }
+    input.focus();
+  });
+  if (pastedMarkdown) void renderPaste();
+}
 function showError(error: unknown, path: string): void {
   const code = error instanceof RequestError ? error.code : 'network';
   const errorKey = JSON.stringify([path, code, error instanceof Error ? error.message : '']);
@@ -435,6 +495,7 @@ function requestRefresh(foreground = true): void {
 }
 function manualRefresh(): void {
   displayedTag = ''; pageTags.clear(); previewReload++; requestRefresh();
+  if (selectedMode() === 'paste' && pastedMarkdown) document.querySelector<HTMLButtonElement>('.paste-actions button')?.click();
   if (search.value.trim()) void loadSearchIndex();
 }
 
@@ -468,8 +529,8 @@ async function refreshLoop(): Promise<void> {
       showSidebar(sidebarPanel);
       if (path !== displayedPath || mode !== displayedMode) displayedTag = '';
       if (foreground) { activeForeground = true; beginLoading(); }
-      const treePromise = refreshDirectories(mode === 'changes' ? '' : path, current);
-      const gitPromise = mode !== 'file' ? getGit<ChangesReply>('/api/git/changes') : Promise.resolve(undefined);
+      const treePromise = refreshDirectories(mode === 'changes' || mode === 'paste' ? '' : path, current);
+      const gitPromise = mode === 'changes' || mode === 'diff' ? getGit<ChangesReply>('/api/git/changes') : Promise.resolve(undefined);
       const filePromise = mode === 'diff' ? getGit<DiffReply>(`/api/git/diff?path=${encodeURIComponent(path)}`).then((value) => ({ value }), (error: unknown) => ({ error }))
         : mode === 'file' && path ? getFile(path, source, current).then((value) => ({ value }), (error: unknown) => ({ error })) : Promise.resolve(null);
       try {
@@ -486,6 +547,10 @@ async function refreshLoop(): Promise<void> {
           updateChangeViews();
         }
         if (mode === 'changes') {
+          status('Checking every few seconds', 'ok'); continue;
+        }
+        if (mode === 'paste') {
+          if (pathChanged || content.dataset.kind !== 'paste') showPaste();
           status('Checking every few seconds', 'ok'); continue;
         }
         if (!path) { if (pathChanged) showTitle(''); showEmpty(); status('Checking every few seconds', 'ok'); continue; }
@@ -554,6 +619,7 @@ changesTree.addEventListener('click', (event) => {
 });
 filesTab.addEventListener('click', () => navigate(lastFilePath ? fileURL(lastFilePath) : '/'));
 changesTab.addEventListener('click', () => navigate('/?view=changes'));
+pasteToggle.addEventListener('click', () => navigate('/?view=paste'));
 content.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;
   const action = target.closest<HTMLButtonElement>('[data-diagram-action]');
@@ -576,7 +642,7 @@ content.addEventListener('click', (event) => {
   event.preventDefault(); navigate(link.href);
 });
 document.querySelector('#overlay-close')!.addEventListener('click', () => { document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; });
-window.addEventListener('popstate', () => { sidebarPanel = selectedMode() === 'file' ? 'file' : 'changes'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); });
+window.addEventListener('popstate', () => { pasteVersion++; sidebarPanel = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); });
 window.addEventListener('keydown', (event) => {
   if ((event.key === '/' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k')) && !(event.target instanceof HTMLInputElement)) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') { event.preventDefault(); sidebarToggle.click(); }
@@ -589,7 +655,7 @@ const resize = document.querySelector<HTMLElement>('#sidebar-resize')!;
 resize.addEventListener('pointerdown', (event) => { resize.setPointerCapture(event.pointerId); });
 resize.addEventListener('pointermove', (event) => { if (!resize.hasPointerCapture(event.pointerId)) return; const width = Math.max(200, Math.min(480, event.clientX)); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
 resize.addEventListener('keydown', (event) => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; const width = Math.max(200, Math.min(480, Number(localStorage.getItem('markport-sidebar-width') ?? 280) + (event.key === 'ArrowRight' ? 10 : -10))); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
-initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => { updateBrand(); if (content.querySelector('[data-mermaid]')) { displayedHTML = ''; requestRefresh(); } });
+initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => { updateBrand(); if (content.querySelector('[data-mermaid]')) { if (selectedMode() === 'paste') document.querySelector<HTMLButtonElement>('.paste-actions button')?.click(); else { displayedHTML = ''; requestRefresh(); } } });
 updateBrand();
 status('Checking every few seconds', 'ok');
 requestRefresh();

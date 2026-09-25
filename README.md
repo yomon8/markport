@@ -40,6 +40,8 @@ With no arguments, Markport serves the current directory on port 3000. Open the 
 
 Markport excludes `.git`, `node_modules`, and `.venv` from browsing. Other dotfiles remain visible. It does not read symbolic links, Windows junctions, or special files such as FIFOs. Text files are limited to 10 MiB, and image files to 32 MiB. Binary or unreadable files show an error for that file only. Folders load when opened, 200 entries at a time; filename search covers all browsable files and shows the top 100 matches. The browser checks the open folders and selected file about every three seconds, and refreshes the filename list every ten seconds while searching. Closed folders refresh when opened. Use the refresh button to fetch the latest state immediately.
 
+To preview text from the clipboard, click **Paste Markdown**, paste into the text area, and click **Render**. The preview supports the usual Markdown features. Relative links and images are shown as text because pasted content has no base directory. The text stays in the current browser tab through reloads until you click **Clear** or close the tab. It is sent to the Markport server for rendering but is not saved to a file. Pasted Markdown is limited to 1 MiB.
+
 ## Development
 
 ### Architecture
