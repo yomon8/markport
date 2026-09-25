@@ -176,6 +176,81 @@ func TestGitChangesAndDiff(t *testing.T) {
 	}
 }
 
+func TestGitRevisionTracksFileBaseline(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("Git is unavailable")
+	}
+	dir := t.TempDir()
+	gitCommand(t, dir, "init", "-q")
+	gitCommand(t, dir, "config", "user.email", "test@example.com")
+	gitCommand(t, dir, "config", "user.name", "Test")
+	for name, value := range map[string]string{"file.md": "A\n", "deleted.md": "old\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitCommand(t, dir, "add", ".")
+	gitCommand(t, dir, "commit", "-qm", "A")
+	for name, value := range map[string]string{"file.md": "B\n", "deleted.md": "new baseline\n", "unrelated.md": "one\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(value), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitCommand(t, dir, "add", ".")
+	gitCommand(t, dir, "commit", "-qm", "B")
+	if err := os.WriteFile(filepath.Join(dir, "file.md"), []byte("C\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "deleted.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new.md"), []byte("new\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	app := gitServer(t, dir)
+	get := func() map[string]string {
+		t.Helper()
+		result := request(app, "localhost:3000", "/api/git/changes")
+		var listing gitdiff.Listing
+		if result.Code != 200 || json.Unmarshal(result.Body.Bytes(), &listing) != nil {
+			t.Fatalf("changes: %d %s", result.Code, result.Body.String())
+		}
+		revisions := make(map[string]string)
+		for _, change := range listing.Changes {
+			revisions[change.Path] = change.Revision
+		}
+		return revisions
+	}
+	first := get()
+	for _, name := range []string{"file.md", "deleted.md", "new.md"} {
+		if first[name] == "" {
+			t.Fatalf("missing %s", name)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "unrelated.md"), []byte("two\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	gitCommand(t, dir, "add", "unrelated.md")
+	gitCommand(t, dir, "commit", "-qm", "unrelated")
+	second := get()
+	for _, name := range []string{"file.md", "deleted.md", "new.md"} {
+		if second[name] != first[name] {
+			t.Errorf("unrelated commit changed %s revision", name)
+		}
+	}
+	gitCommand(t, dir, "reset", "--soft", "HEAD~2")
+	third := get()
+	if third["file.md"] == second["file.md"] {
+		t.Error("changed baseline kept review revision")
+	}
+	if third["deleted.md"] == second["deleted.md"] {
+		t.Error("changed deleted baseline kept review revision")
+	}
+	if third["new.md"] != second["new.md"] {
+		t.Error("unchanged added file changed revision")
+	}
+}
+
 func TestGitUnavailable(t *testing.T) {
 	app := gitServer(t, t.TempDir())
 	result := request(app, "localhost:3000", "/api/git/changes")
