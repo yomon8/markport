@@ -91,10 +91,44 @@ func TestGitChangesAndDiff(t *testing.T) {
 	if !listing.Available || len(listing.Changes) != len(want) {
 		t.Fatalf("changes: %+v", listing)
 	}
+	if listing.RootID == "" {
+		t.Fatal("changes missing root identity")
+	}
+	revisions := make(map[string]string)
 	for _, change := range listing.Changes {
 		if want[change.Path] != change.Status {
 			t.Errorf("change: %+v", change)
 		}
+		if change.Revision == "" {
+			t.Errorf("change missing revision: %+v", change)
+		}
+		revisions[change.Path] = change.Revision
+	}
+	unchanged := request(app, "localhost:3000", "/api/git/changes")
+	var unchangedListing gitdiff.Listing
+	if unchanged.Code != 200 || json.Unmarshal(unchanged.Body.Bytes(), &unchangedListing) != nil {
+		t.Fatalf("unchanged changes: %d %s", unchanged.Code, unchanged.Body.String())
+	}
+	for _, change := range unchangedListing.Changes {
+		if change.Revision != revisions[change.Path] {
+			t.Errorf("revision changed without content change: %s", change.Path)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "unstaged.md"), []byte("another edit\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	updated := request(app, "localhost:3000", "/api/git/changes")
+	var updatedListing gitdiff.Listing
+	if updated.Code != 200 || json.Unmarshal(updated.Body.Bytes(), &updatedListing) != nil {
+		t.Fatalf("updated changes: %d %s", updated.Code, updated.Body.String())
+	}
+	for _, change := range updatedListing.Changes {
+		if (change.Revision != revisions[change.Path]) != (change.Path == "unstaged.md") {
+			t.Errorf("unexpected revision change: %s", change.Path)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "unstaged.md"), []byte("new unstaged\n"), 0644); err != nil {
+		t.Fatal(err)
 	}
 	for path, needle := range map[string]string{"staged.md": "+new staged", "unstaged.md": "+new unstaged", "deleted.md": "-old", "new.md": "+<script>alert(1)</script>"} {
 		result := request(app, "localhost:3000", "/api/git/diff?path="+path)
@@ -133,6 +167,9 @@ func TestGitChangesAndDiff(t *testing.T) {
 	var childListing gitdiff.Listing
 	if result.Code != 200 || json.Unmarshal(result.Body.Bytes(), &childListing) != nil || len(childListing.Changes) != 1 || childListing.Changes[0].Path != "nested.md" {
 		t.Fatalf("subdirectory changes: %d %s", result.Code, result.Body.String())
+	}
+	if childListing.RootID == listing.RootID {
+		t.Fatal("subdirectory shared review identity with repository root")
 	}
 	if result := request(child, "localhost:3000", "/api/git/diff?path=nested.md"); result.Code != 200 || !strings.Contains(result.Body.String(), "new nested") {
 		t.Fatalf("subdirectory diff: %d %s", result.Code, result.Body.String())

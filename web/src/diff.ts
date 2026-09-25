@@ -1,28 +1,43 @@
-export type Change = { path: string; status: 'added' | 'modified' | 'deleted' };
-export type ChangesReply = { available: boolean; reason?: 'git_unavailable' | 'not_repository'; changes: Change[] };
+export type Change = { path: string; status: 'added' | 'modified' | 'deleted'; revision: string };
+export type ChangesReply = { available: boolean; reason?: 'git_unavailable' | 'not_repository'; rootId?: string; changes: Change[] };
 export type DiffReply = { path: string; kind: 'text' | 'binary'; patch: string };
 
 const statusLabels: Record<Change['status'], string> = { added: 'Added', modified: 'Modified', deleted: 'Deleted' };
 export const diffURL = (path: string): string => `/?path=${encodeURIComponent(path)}&view=diff`;
 
-export function renderChanges(target: HTMLElement, reply: ChangesReply, compact = false): void {
+export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed: (change: Change) => boolean, toggle: (change: Change) => void, onlyUnreviewed: boolean, setFilter: (value: boolean) => void, compact = false): void {
   target.replaceChildren();
   if (!reply.available) {
     const message = document.createElement('p'); message.className = 'hint';
     message.textContent = reply.reason === 'git_unavailable' ? 'Git was not found. Git is required to show diffs.' : 'This directory is not a Git repository.';
     target.append(message); return;
   }
+  const checked = reply.changes.filter(reviewed).length;
+  const controls = document.createElement('div'); controls.className = 'change-controls';
+  const count = document.createElement('span'); count.className = 'review-count'; count.textContent = `${checked} of ${reply.changes.length} reviewed`;
+  const filter = document.createElement('label'); filter.className = 'review-filter';
+  const input = document.createElement('input'); input.type = 'checkbox'; input.checked = onlyUnreviewed;
+  input.addEventListener('change', () => setFilter(input.checked));
+  filter.append(input, document.createTextNode(' Unreviewed only')); controls.append(count, filter); target.append(controls);
   if (!reply.changes.length) {
     const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'No changes.'; target.append(message); return;
   }
   const list = document.createElement('ul'); list.className = compact ? 'change-list compact' : 'change-list';
-  for (const change of reply.changes) {
+  for (const change of reply.changes.filter((item) => !onlyUnreviewed || !reviewed(item))) {
     const item = document.createElement('li');
     const link = document.createElement('a'); link.href = diffURL(change.path); link.title = change.path;
     const badge = document.createElement('span'); badge.className = `change-status ${change.status}`; badge.textContent = statusLabels[change.status];
     const label = document.createElement('span'); label.className = 'change-path'; label.textContent = change.path;
-    link.append(badge, label); item.append(link); list.append(item);
+    link.append(badge, label);
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'review-toggle';
+    const isReviewed = reviewed(change);
+    button.textContent = isReviewed ? 'Reviewed' : 'Mark reviewed';
+    button.setAttribute('aria-pressed', String(isReviewed));
+    button.setAttribute('aria-label', `${isReviewed ? 'Mark unreviewed' : 'Mark reviewed'}: ${change.path}`);
+    button.addEventListener('click', () => toggle(change));
+    item.append(link, button); list.append(item);
   }
+  if (!list.childElementCount) { const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'All changes reviewed.'; target.append(message); }
   target.append(list);
 }
 
