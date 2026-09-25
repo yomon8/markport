@@ -70,6 +70,50 @@ test('shows English controls with a Japanese browser locale', async ({ browser }
   }
 });
 
+test('searches text within a folder and opens the matching source line', async ({ page }) => {
+  await mkdir(join(directory, 'content-scope'), { recursive: true });
+  await writeFile(join(directory, 'content-scope', 'guide.md'), '# Guide\n\nBefore the answer\nThe auth needle is here\nAfter the answer\n');
+  await writeFile(join(directory, 'content-scope', 'code.py'), 'print("before")\nprint("auth needle")\nprint("after")\n');
+  await writeFile(join(directory, 'outside.md'), 'auth needle outside');
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await page.locator('#content-query').fill('auth needle');
+  await page.locator('#content-folder').fill('content-scope');
+  await page.locator('#content-search').getByRole('button', { name: 'Search' }).click();
+  await expect(page.locator('.content-search-status')).toContainText('2 matches');
+  await expect(page.locator('.content-search-results a')).toHaveCount(2);
+  await expect(page.locator('.content-search-results')).not.toContainText('outside.md');
+  await expect(page.locator('.content-search-results a', { hasText: 'code.py' })).toContainText('print("before")');
+  await page.locator('.content-search-results a', { hasText: 'code.py' }).click();
+  await expect(page).toHaveURL(/path=content-scope%2Fcode\.py#L2$/);
+  await expect(page.locator('#L2')).toBeVisible();
+  await page.locator('.content-search-results a', { hasText: 'guide.md' }).click();
+  await expect(page).toHaveURL(/path=content-scope%2Fguide\.md&source=1#L4$/);
+  await expect(page.locator('#file-title').getByRole('button', { name: 'Rendered view' })).toBeVisible();
+  await expect(page.locator('#L4')).toBeVisible();
+  await page.locator('#content-folder').fill('missing-folder');
+  await page.locator('#content-search').getByRole('button', { name: 'Search' }).click();
+  await expect(page.locator('.content-search-status')).toHaveText('Folder not found.');
+});
+
+test('shows partial content results and cancels an active search', async ({ page }) => {
+  await writeFile(join(directory, 'content-limit.md'), 'needle\n'.repeat(101));
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await page.locator('#content-query').fill('needle');
+  await page.locator('#content-search').getByRole('button', { name: 'Search' }).click();
+  await expect(page.locator('.content-search-status')).toContainText('Partial results: match limit reached.');
+  await expect(page.locator('.content-search-results a')).toHaveCount(100);
+  await page.route('**/api/content-search?**', async (route) => {
+    await new Promise((done) => setTimeout(done, 1000));
+    await route.abort();
+  });
+  await page.locator('#content-search').getByRole('button', { name: 'Search' }).click();
+  await expect(page.locator('.content-search-status')).toHaveText('Searching…');
+  await page.locator('#content-search').getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.locator('.content-search-status')).toHaveText('Search canceled.');
+  await page.waitForTimeout(1100);
+  await expect(page.locator('.content-search-status')).toHaveText('Search canceled.');
+});
+
 test('keeps an unchanged page still during automatic refresh', async ({ page }) => {
   await page.goto(`http://127.0.0.1:${port}/?path=sample.py`);
   await expect(page.locator('article .lntd:last-child pre')).toContainText('first');

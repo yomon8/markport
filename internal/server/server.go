@@ -106,6 +106,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.tree(w, r)
 	case "/api/search-index":
 		s.searchIndex(w, r)
+	case "/api/content-search":
+		s.contentSearch(w, r)
 	case "/api/file":
 		s.file(w, r)
 	case "/api/asset":
@@ -256,6 +258,27 @@ func (s *Server) searchIndex(w http.ResponseWriter, r *http.Request) {
 	jsonReply(w, http.StatusOK, struct {
 		Paths []string `json:"paths"`
 	}{Paths: paths})
+}
+
+func (s *Server) contentSearch(w http.ResponseWriter, r *http.Request) {
+	queries := r.URL.Query()["q"]
+	folders := r.URL.Query()["folder"]
+	if len(queries) != 1 || len(folders) > 1 {
+		apiError(w, files.ErrPath)
+		return
+	}
+	folder := ""
+	if len(folders) == 1 {
+		folder = folders[0]
+	}
+	result, err := s.Files.SearchContent(r.Context(), folder, queries[0])
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			apiError(w, err)
+		}
+		return
+	}
+	jsonReply(w, http.StatusOK, result)
 }
 
 func (s *Server) tree(w http.ResponseWriter, r *http.Request) {
