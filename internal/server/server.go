@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
@@ -19,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/markport/markport/internal/files"
 	"github.com/markport/markport/internal/gitdiff"
@@ -43,14 +45,19 @@ func imageContentType(name string) (string, bool) {
 }
 
 type Server struct {
-	Files      *files.Store
-	Host       string
-	Port       int
-	mu         sync.Mutex
-	subs       map[chan string]struct{}
-	closed     bool
-	watchError bool
-	static     http.Handler
+	Files         *files.Store
+	Host          string
+	Port          int
+	mu            sync.Mutex
+	subs          map[chan string]struct{}
+	closed        bool
+	watchError    bool
+	static        http.Handler
+	searchMu      sync.Mutex
+	searchPaths   []string
+	searchExpires time.Time
+	searchFlight  chan struct{}
+	searchErr     error
 }
 
 func New(store *files.Store, host string, port int) (*Server, error) {
@@ -72,6 +79,11 @@ func (s *Server) Publish(event string) {
 	}
 	if event == "watch-ok" {
 		s.watchError = false
+	}
+	if event == "refresh" {
+		s.searchMu.Lock()
+		s.searchExpires = time.Time{}
+		s.searchMu.Unlock()
 	}
 	for ch := range s.subs {
 		select {
@@ -312,14 +324,66 @@ func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
 	gitReply(w, r, diff)
 }
 func (s *Server) searchIndex(w http.ResponseWriter, r *http.Request) {
-	paths, err := s.Files.FilePaths(r.Context())
+	force := r.URL.Query().Get("refresh") == "1" || r.Header.Get("Cache-Control") == "no-cache"
+	paths, err := s.cachedSearchPaths(r.Context(), force)
 	if err != nil {
 		apiError(w, err)
+		return
+	}
+	hash := sha256.New()
+	for _, name := range paths {
+		_, _ = io.WriteString(hash, name+"\x00")
+	}
+	tag := `"` + hex.EncodeToString(hash.Sum(nil)) + `"`
+	w.Header().Set("ETag", tag)
+	if r.Header.Get("If-None-Match") == tag {
+		w.WriteHeader(http.StatusNotModified)
 		return
 	}
 	jsonReply(w, http.StatusOK, struct {
 		Paths []string `json:"paths"`
 	}{Paths: paths})
+}
+
+// A short cache bounds full-tree walks during search; a forced refresh bypasses
+// it. Concurrent requests share the same walk, including forced requests.
+func (s *Server) cachedSearchPaths(ctx context.Context, force bool) ([]string, error) {
+	for {
+		s.searchMu.Lock()
+		if !force && s.searchPaths != nil && time.Now().Before(s.searchExpires) {
+			paths := s.searchPaths
+			s.searchMu.Unlock()
+			return paths, nil
+		}
+		if flight := s.searchFlight; flight != nil {
+			s.searchMu.Unlock()
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-flight:
+			}
+			s.searchMu.Lock()
+			paths, err := s.searchPaths, s.searchErr
+			s.searchMu.Unlock()
+			return paths, err
+		}
+		flight := make(chan struct{})
+		s.searchFlight = flight
+		s.searchMu.Unlock()
+		walkCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		paths, err := s.Files.FilePaths(walkCtx)
+		cancel()
+		s.searchMu.Lock()
+		if err == nil {
+			s.searchPaths = paths
+			s.searchExpires = time.Now().Add(5 * time.Second)
+		}
+		s.searchErr = err
+		s.searchFlight = nil
+		close(flight)
+		s.searchMu.Unlock()
+		return paths, err
+	}
 }
 
 func (s *Server) contentSearch(w http.ResponseWriter, r *http.Request) {

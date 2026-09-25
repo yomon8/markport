@@ -23,6 +23,52 @@ beforeEach(() => {
 afterEach(() => { window.dispatchEvent(new Event('pagehide')); vi.unstubAllGlobals(); });
 
 describe('lazy browsing and refresh', () => {
+  it('revalidates the right pane without replacing its DOM on 304', async () => {
+    history.replaceState(null, '', '/?path=a.md&right=b.md');
+    let rightVersion = 1;
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url === '/api/tree') return reply(page([entry('a.md'), entry('b.md')]));
+      if (url === '/api/file?path=b.md') {
+        if ((options?.headers as Record<string, string> | undefined)?.['If-None-Match'] === `right-${rightVersion}`) return reply(null, 304, `right-${rightVersion}`);
+        return reply({ path: 'b.md', type: 'markdown', html: `<h1>Right ${rightVersion}</h1>` }, 200, `right-${rightVersion}`);
+      }
+      return reply({ path: 'a.md', type: 'markdown', html: '<h1>Left</h1>' });
+    });
+    vi.stubGlobal('fetch', fetch);
+    await import('../src/main'); await flush();
+    const first = document.querySelector('#right-content h1');
+    document.dispatchEvent(new Event('visibilitychange')); await flush();
+    expect(document.querySelector('#right-content h1')).toBe(first);
+    expect(fetch.mock.calls.some(([url, options]) => url === '/api/file?path=b.md' && (options?.headers as Record<string, string> | undefined)?.['If-None-Match'] === 'right-1')).toBe(true);
+    rightVersion = 2;
+    document.dispatchEvent(new Event('visibilitychange')); await flush();
+    expect(document.querySelector('#right-content h1')?.textContent).toBe('Right 2');
+  });
+
+  it('keeps search results and focus during background revalidation', async () => {
+    let resolveRefresh: ((value: Response) => void) | undefined;
+    let requests = 0;
+    const fetch = vi.fn(async (url: string) => {
+      if (url.startsWith('/api/search-index')) {
+        requests++;
+        if (requests === 2) return new Promise<Response>((resolve) => { resolveRefresh = resolve; });
+        return reply({ paths: ['old.md'] }, 200, 'index-1');
+      }
+      return reply(page([]));
+    });
+    vi.stubGlobal('fetch', fetch);
+    await import('../src/main'); await flush();
+    const search = document.querySelector<HTMLInputElement>('#search')!;
+    search.value = 'md'; search.dispatchEvent(new Event('input')); await flush();
+    expect(document.querySelector('#tree a')?.textContent).toBe('old.md');
+    search.focus();
+    document.querySelector<HTMLButtonElement>('#reload')!.click(); await flush();
+    expect(document.querySelector('#tree a')?.textContent).toBe('old.md');
+    expect(document.activeElement).toBe(search);
+    resolveRefresh?.(reply({ paths: ['new.md'] }, 200, 'index-2')); await flush();
+    expect(document.querySelector('#tree a')?.textContent).toBe('new.md');
+    expect(document.activeElement).toBe(search);
+  });
   it('switches pasted Markdown between text and rendered views without losing the draft', async () => {
     const fetch = vi.fn(async (url: string, options?: RequestInit) => {
       if (url === '/api/tree') return reply({ ...page([entry('README.md')]), readme: 'README.md' });

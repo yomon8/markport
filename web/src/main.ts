@@ -52,6 +52,7 @@ const rightContent = document.querySelector<HTMLElement>('#right-content')!;
 const rightPath = document.querySelector<HTMLElement>('#right-path')!;
 const rightSource = document.querySelector<HTMLButtonElement>('#right-source')!;
 let rightShownPath = ''; let rightShownKey = ''; let rightSourceMode = false; let rightRequest = 0;
+let rightTag = ''; let rightTagCheckedAt = 0;
 const progress = document.querySelector<HTMLElement>('#progress')!;
 const outline = document.querySelector<HTMLElement>('#outline')!;
 const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
@@ -88,6 +89,7 @@ let searchIndexRequest: AbortController | undefined;
 let searchIndexVersion = 0;
 let searchIndexState: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
 let searchIndexCheckedAt = 0;
+let searchIndexTag = '';
 const savedWidth = Number(localStorage.getItem('markport-sidebar-width'));
 if (savedWidth >= 200 && savedWidth <= 480) document.documentElement.style.setProperty('--sidebar-width', `${savedWidth}px`);
 
@@ -118,6 +120,7 @@ function openRight(path: string): void {
 function closeRight(): void {
   const url = new URL(location.href); url.searchParams.delete('right');
   history.pushState(history.state, '', url); rightRequest++; rightPane.hidden = true; layout.classList.remove('split'); rightShownPath = ''; rightShownKey = '';
+  rightTag = '';
 }
 function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
   if (connection.dataset.state === state && connection.title === message) return;
@@ -144,27 +147,32 @@ function scheduleSearchIndexRefresh(): void {
     void loadSearchIndex();
   }, 10000);
 }
-async function loadSearchIndex(): Promise<void> {
+async function loadSearchIndex(force = false): Promise<void> {
   clearTimeout(searchIndexTimer);
   searchIndexRequest?.abort();
   const request = new AbortController();
   searchIndexRequest = request;
   const current = ++searchIndexVersion;
-  searchIndexState = 'loading';
-  view.setSearchIndex([], 'loading');
+  const hadResults = searchIndexState === 'ready';
+  if (!hadResults) { searchIndexState = 'loading'; view.setSearchIndex([], 'loading'); }
   try {
-    const response = await fetch('/api/search-index', { cache: 'no-store', signal: request.signal });
+    const headers: Record<string, string> = {};
+    if (searchIndexTag) headers['If-None-Match'] = searchIndexTag;
+    if (force) headers['Cache-Control'] = 'no-cache';
+    const response = await fetch('/api/search-index', { cache: 'no-store', signal: request.signal, headers });
+    if (current !== searchIndexVersion || !search.value.trim()) return;
+    searchIndexCheckedAt = Date.now();
+    if (response.status === 304) return;
     const body = await response.json() as { paths?: string[] } & ApiError;
     if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
     if (!Array.isArray(body.paths)) throw new RequestError('invalid_response', 'Invalid file list');
     if (current !== searchIndexVersion || !search.value.trim()) return;
-    searchIndexCheckedAt = Date.now();
+    searchIndexTag = response.headers.get('ETag') ?? '';
     searchIndexState = 'ready';
     view.setSearchIndex(body.paths, 'ready');
   } catch {
     if (current !== searchIndexVersion || !search.value.trim()) return;
-    searchIndexState = 'error';
-    view.setSearchIndex([], 'error');
+    if (!hadResults) { searchIndexState = 'error'; view.setSearchIndex([], 'error'); }
   } finally {
     if (current === searchIndexVersion) {
       searchIndexRequest = undefined;
@@ -178,8 +186,9 @@ function onSearchChange(query: string): void {
     searchIndexRequest?.abort(); searchIndexRequest = undefined;
     clearTimeout(searchIndexTimer);
     searchIndexState = 'idle';
+    searchIndexTag = '';
     view.setSearchIndex([], 'idle');
-  } else if (searchIndexState === 'idle' || searchIndexState === 'error') void loadSearchIndex();
+  } else if (searchIndexState === 'idle' || searchIndexState === 'error') void loadSearchIndex(true);
 }
 async function getPage(path: string, offset: number, focus: string, conditional: boolean, expectedRevision?: number): Promise<Page | null> {
   const tag = pageTags.get(path);
@@ -536,9 +545,9 @@ function requestRefresh(foreground = true): void {
   revision++; pending = true; pendingForeground ||= foreground; if (!running) void refreshLoop();
 }
 function manualRefresh(): void {
-  displayedTag = ''; pageTags.clear(); previewReload++; requestRefresh();
+  displayedTag = ''; rightTag = ''; pageTags.clear(); previewReload++; requestRefresh();
   if (selectedMode() === 'paste') refreshPastedPreview?.();
-  if (search.value.trim()) void loadSearchIndex();
+  if (search.value.trim()) void loadSearchIndex(true);
 }
 
 function attachPreviewNavigation(frame: HTMLIFrameElement, path: string, pane: 'left' | 'right' = 'left'): void {
@@ -569,10 +578,16 @@ async function refreshRight(): Promise<void> {
   const path = rightSelected(); const request = ++rightRequest;
   rightPane.hidden = !path; layout.classList.toggle('split', Boolean(path));
   if (!path) { rightShownPath = ''; rightShownKey = ''; return; }
-  if (path !== rightShownPath) { rightPane.scrollTop = 0; rightShownKey = ''; rightSourceMode = false; }
+  if (path !== rightShownPath) { rightPane.scrollTop = 0; rightShownKey = ''; rightTag = ''; rightSourceMode = false; }
   rightContent.setAttribute('aria-busy', 'true'); rightPath.textContent = path;
   try {
-    const response = await fetch(`/api/file?path=${encodeURIComponent(path)}${rightSourceMode ? '&source=1' : ''}`, { cache: 'no-store' });
+    const headers: Record<string, string> = {};
+    if (rightShownPath === path && rightTag && Date.now() - rightTagCheckedAt < 60000) headers['If-None-Match'] = rightTag;
+    const response = await fetch(`/api/file?path=${encodeURIComponent(path)}${rightSourceMode ? '&source=1' : ''}`, { cache: 'no-store', headers });
+    if (request !== rightRequest || path !== rightSelected()) return;
+    rightTag = response.headers.get('ETag') ?? '';
+    rightTagCheckedAt = Date.now();
+    if (response.status === 304) return;
     const file = await response.json() as FileReply & ApiError;
     if (!response.ok) throw new RequestError(file.error ?? 'network', file.message ?? `HTTP ${response.status}`);
     if (request !== rightRequest || path !== rightSelected()) return;

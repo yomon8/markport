@@ -255,6 +255,52 @@ func TestSearchIndex(t *testing.T) {
 	if strings.Join(body.Paths, ",") != "code.py,docs/deep/page.md,readme.md" {
 		t.Fatalf("paths: %v", body.Paths)
 	}
+	tag := response.Header().Get("ETag")
+	if tag == "" {
+		t.Fatal("search index missing ETag")
+	}
+	conditional := httptest.NewRequest(http.MethodGet, "/api/search-index", nil)
+	conditional.Host = "localhost:3000"
+	conditional.Header.Set("If-None-Match", tag)
+	revalidated := httptest.NewRecorder()
+	app.ServeHTTP(revalidated, conditional)
+	if revalidated.Code != http.StatusNotModified || revalidated.Body.Len() != 0 {
+		t.Fatalf("conditional search: %d %s", revalidated.Code, revalidated.Body.String())
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new.md"), []byte("new"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cached := request(app, "localhost:3000", "/api/search-index")
+	if strings.Contains(cached.Body.String(), "new.md") {
+		t.Fatal("index cache was not reused")
+	}
+	forcedRequest := httptest.NewRequest(http.MethodGet, "/api/search-index", nil)
+	forcedRequest.Host = "localhost:3000"
+	forcedRequest.Header.Set("Cache-Control", "no-cache")
+	forcedResponse := httptest.NewRecorder()
+	app.ServeHTTP(forcedResponse, forcedRequest)
+	if forcedResponse.Code != http.StatusOK || !strings.Contains(forcedResponse.Body.String(), "new.md") {
+		t.Fatalf("no-cache search: %d %s", forcedResponse.Code, forcedResponse.Body.String())
+	}
+	forced := request(app, "localhost:3000", "/api/search-index?refresh=1")
+	if forced.Code != http.StatusOK || !strings.Contains(forced.Body.String(), "new.md") || forced.Header().Get("ETag") == tag {
+		t.Fatalf("forced search: %d %s", forced.Code, forced.Body.String())
+	}
+	if err := os.Remove(filepath.Join(dir, "new.md")); err != nil {
+		t.Fatal(err)
+	}
+	removed := request(app, "localhost:3000", "/api/search-index?refresh=1")
+	if strings.Contains(removed.Body.String(), "new.md") {
+		t.Fatal("deleted file remained in refreshed index")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "moved.md"), []byte("moved"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	app.Publish("refresh")
+	updated := request(app, "localhost:3000", "/api/search-index")
+	if updated.Code != http.StatusOK || !strings.Contains(updated.Body.String(), "moved.md") {
+		t.Fatalf("watch invalidation: %d %s", updated.Code, updated.Body.String())
+	}
 }
 func TestImageFilePreview(t *testing.T) {
 	app, dir := newTestServer(t)
