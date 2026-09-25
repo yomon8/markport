@@ -45,6 +45,29 @@ func request(app *Server, host, url string) *httptest.ResponseRecorder {
 	app.ServeHTTP(w, req)
 	return w
 }
+
+func TestContentSearchAPI(t *testing.T) {
+	app, dir := newTestServer(t)
+	if err := os.Mkdir(filepath.Join(dir, "docs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "docs", "guide.md"), []byte("above\nSearch target\nbelow\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	r := request(app, "localhost:3000", "/api/content-search?q=target&folder=docs")
+	var result files.ContentSearch
+	if r.Code != 200 || json.Unmarshal(r.Body.Bytes(), &result) != nil || len(result.Matches) != 1 || result.Matches[0].Line != 2 || result.Matches[0].Before != "above" || result.Matches[0].After != "below" {
+		t.Fatalf("search: %d %s", r.Code, r.Body.String())
+	}
+	for _, url := range []string{"/api/content-search?folder=docs", "/api/content-search?q=", "/api/content-search?q=x&folder=..", "/api/content-search?q=x&folder=docs&folder=other"} {
+		if got := request(app, "localhost:3000", url).Code; got != 400 {
+			t.Errorf("%s: %d", url, got)
+		}
+	}
+	if got := request(app, "localhost:3000", "/api/content-search?q=x&folder=missing").Code; got != 404 {
+		t.Errorf("missing folder: %d", got)
+	}
+}
 func TestHostAndAPI(t *testing.T) {
 	app, _ := newTestServer(t)
 	for _, host := range []string{"127.0.0.1:3000", "LOCALHOST:3000"} {

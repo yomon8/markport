@@ -4,6 +4,7 @@ import { TreeView, type Page } from './tree';
 import { effectiveTheme, initTheme } from './theme';
 import { renderChanges, renderDiff, diffURL, type Change, type ChangesReply, type DiffReply } from './diff';
 import { ReviewState } from './review';
+import { initContentSearch } from './contentSearch';
 import logoLight from '../../logo/markport-logo-horizontal-light.svg';
 import logoDark from '../../logo/markport-logo-horizontal-dark.svg';
 import symbolLight from '../../logo/markport-symbol-light.svg';
@@ -29,6 +30,10 @@ function updateBrand(): void {
 const tree = document.querySelector<HTMLElement>('#tree')!;
 const changesTree = document.querySelector<HTMLElement>('#changes-tree')!;
 const filesPanel = document.querySelector<HTMLElement>('#files-panel')!;
+const contentSearch = document.createElement('section');
+contentSearch.id = 'content-search';
+filesPanel.querySelector('form')!.after(contentSearch);
+initContentSearch(contentSearch, navigate);
 const filesTab = document.querySelector<HTMLButtonElement>('#files-tab')!;
 const changesTab = document.querySelector<HTMLButtonElement>('#changes-tab')!;
 const content = document.querySelector<HTMLElement>('#content')!;
@@ -49,7 +54,7 @@ const view = new TreeView(tree, search, count, selected,
   (path, offset) => { const current = revision; void loadPage(path, offset, '', false, current).catch(() => status('Refresh failed. Please try again.', 'error')); },
   onSearchChange);
 let revision = 0; let pending = false; let pendingForeground = false; let activeForeground = false; let running = false;
-let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = false;
+let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = new URL(location.href).searchParams.get('source') === '1';
 let displayedMode: 'file' | 'diff' | 'changes' = 'file'; let lastFilePath = '';
 let sidebarPanel: 'file' | 'changes' = selectedMode() === 'file' ? 'file' : 'changes';
 let currentChanges: ChangesReply | undefined;
@@ -84,7 +89,7 @@ function showSidebar(mode: 'file' | 'changes'): void {
   filesTab.setAttribute('aria-pressed', String(!git)); changesTab.setAttribute('aria-pressed', String(git));
 }
 function saveScroll(): void { history.replaceState({ scroll: main.scrollTop }, '', location.href); }
-function navigate(url: string): void { saveScroll(); history.pushState({ scroll: 0 }, '', url); sidebarPanel = selectedMode() === 'file' ? 'file' : 'changes'; sourceMode = false; sidebar.classList.remove('open'); requestRefresh(); }
+function navigate(url: string): void { saveScroll(); history.pushState({ scroll: 0 }, '', url); sidebarPanel = selectedMode() === 'file' ? 'file' : 'changes'; sourceMode = new URL(url, location.href).searchParams.get('source') === '1'; sidebar.classList.remove('open'); requestRefresh(); }
 function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
   if (connection.dataset.state === state && connection.title === message) return;
   connection.querySelector<HTMLElement>('.connection-label')!.textContent = message; connection.dataset.state = state; connection.title = message;
@@ -571,7 +576,7 @@ content.addEventListener('click', (event) => {
   event.preventDefault(); navigate(link.href);
 });
 document.querySelector('#overlay-close')!.addEventListener('click', () => { document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; });
-window.addEventListener('popstate', () => { sidebarPanel = selectedMode() === 'file' ? 'file' : 'changes'; requestRefresh(); });
+window.addEventListener('popstate', () => { sidebarPanel = selectedMode() === 'file' ? 'file' : 'changes'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); });
 window.addEventListener('keydown', (event) => {
   if ((event.key === '/' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k')) && !(event.target instanceof HTMLInputElement)) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') { event.preventDefault(); sidebarToggle.click(); }
