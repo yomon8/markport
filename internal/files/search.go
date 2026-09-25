@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -116,6 +117,7 @@ func (s *Store) SearchContent(ctx context.Context, dir, query string) (ContentSe
 		if truncated {
 			entries = entries[:remainingEntries]
 		}
+		sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 		entriesSeen += len(entries)
 		for _, entry := range entries {
 			if err := ctx.Err(); err != nil {
