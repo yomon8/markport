@@ -27,4 +27,4 @@ Place Go tests beside implementation files as `*_test.go`, with `TestXxx` functi
 
 ## Commit & Pull Request Guidelines
 
-The brief Git history establishes no formal commit convention. Use concise, descriptive imperative subjects. PRs should explain the problem, behavior changes, and validation performed; link relevant issues and include screenshots for visible UI changes. Run `make test` and `make lint`, plus `make test-e2e` for browser behavior changes.
+Use Conventional Commits for every commit message: `type(scope): description`, with the scope optional. Use a concise, imperative description and a standard type such as `feat`, `fix`, `docs`, `refactor`, `test`, or `chore`. Mark breaking changes with `!` and include a `BREAKING CHANGE:` footer. PRs should explain the problem, behavior changes, and validation performed; link relevant issues and include screenshots for visible UI changes. Run `make test` and `make lint`, plus `make test-e2e` for browser behavior changes.
