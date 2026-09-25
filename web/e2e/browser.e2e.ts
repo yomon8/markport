@@ -326,6 +326,31 @@ test('opens and refreshes two independently scrolling files', async ({ page }) =
   await expect(page.locator('#content h1')).toHaveText('Left updated');
 });
 
+test('scrolls long code and table lines inside narrow panes', async ({ page }) => {
+  const longLine = `value = '${'x'.repeat(200)}END'`;
+  await writeFile(join(directory, 'long-lines.md'), `# Long lines\n\n\`\`\`python\n${longLine}\n\`\`\`\n\n| Column |\n|---|\n| ${longLine} |\n`);
+  await page.setViewportSize({ width: 375, height: 800 });
+  await page.goto(`http://127.0.0.1:${port}/?path=long-lines.md`);
+  await expect(page.locator('#content .code-frame>.chroma')).toContainText('END');
+  const scrollToEnd = async (selector: string): Promise<void> => {
+    const dimensions = await page.locator(selector).evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+      return { width: element.clientWidth, content: element.scrollWidth, offset: element.scrollLeft };
+    });
+    expect(dimensions.content).toBeGreaterThan(dimensions.width);
+    expect(dimensions.offset).toBeGreaterThan(0);
+  };
+  await scrollToEnd('#content .code-frame>.chroma');
+  await scrollToEnd('#content .table-wrap');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.getByRole('button', { name: 'Open long-lines.md on right' }).click();
+  await expect(page.locator('#right-content .code-frame>.chroma')).toContainText('END');
+  await scrollToEnd('#right-content .code-frame>.chroma');
+  await scrollToEnd('#right-content .table-wrap');
+});
+
 test('keeps the HTML preview sandbox in the right pane and works on a narrow screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 800 });
   await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
@@ -696,14 +721,35 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   git('add', '.');
   git('commit', '-qm', 'initial');
   await writeFile(join(directory, 'sample.py'), 'print("changed")\n');
-  await writeFile(join(directory, 'new-diff.md'), '<script>alert(1)</script>\n');
+  await writeFile(join(directory, 'new-diff.md'), `<script>alert(1)</script>${'x'.repeat(200)}END\n`);
   await page.goto(`http://127.0.0.1:${port}/?view=changes`);
   await expect(page.locator('#content .change-path', { hasText: 'sample.py' })).toBeVisible();
   await expect(page.locator('#content .change-path', { hasText: 'new-diff.md' })).toBeVisible();
+  await page.setViewportSize({ width: 375, height: 800 });
+  await page.getByRole('button', { name: 'Open file list' }).click();
+  await page.getByRole('tab', { name: 'Changes' }).click();
+  const reviewButton = page.locator('#changes-tree .review-toggle').first();
+  await expect(reviewButton).toHaveAttribute('aria-label', /Mark reviewed:/);
+  const row = page.locator('#changes-tree .change-list li').first();
+  const positions = await row.evaluate((item) => {
+    const link = item.querySelector('a')!.getBoundingClientRect();
+    const button = item.querySelector('button')!.getBoundingClientRect();
+    return { linkTop: link.top, buttonTop: button.top, linkWidth: link.width };
+  });
+  expect(positions.buttonTop).toBe(positions.linkTop);
+  expect(positions.linkWidth).toBeGreaterThan(100);
+  await page.getByRole('button', { name: 'Open file list' }).click();
   const count = page.locator('#content .review-count');
   await expect(count).toContainText('0 of');
   await page.locator('#content a[href*="new-diff.md"]').click();
   await expect(page.locator('.diff-added .diff-code')).toContainText('<script>alert(1)</script>');
+  const diffScroll = await page.locator('.diff-frame').evaluate((frame) => {
+    frame.scrollLeft = frame.scrollWidth;
+    return { width: frame.clientWidth, content: frame.scrollWidth, offset: frame.scrollLeft };
+  });
+  expect(diffScroll.content).toBeGreaterThan(diffScroll.width);
+  expect(diffScroll.offset).toBeGreaterThan(0);
+  await page.setViewportSize({ width: 1280, height: 800 });
   expect(await page.locator('#content script').count()).toBe(0);
   await page.locator('#file-title .review-toggle').click();
   await expect(page.locator('#file-title .review-toggle')).toHaveAttribute('aria-pressed', 'true');

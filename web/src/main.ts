@@ -2,7 +2,7 @@ import './style.css';
 import { drawMermaid } from './mermaid';
 import { TreeView, type Page } from './tree';
 import { effectiveTheme, initTheme } from './theme';
-import { renderChanges, renderDiff, diffURL, type Change, type ChangesReply, type DiffReply } from './diff';
+import { renderChanges, renderDiff, diffURL, reviewButton, type Change, type ChangesReply, type DiffReply } from './diff';
 import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
 import { copyText } from './clipboard';
@@ -342,11 +342,7 @@ function showTitle(path: string, kind = '', missing = false): void {
     const change = currentChanges?.changes.find((item) => item.path === path);
     if (change) {
       const reviewed = review.has(change.path, change.revision);
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'review-toggle';
-      button.textContent = reviewed ? 'Reviewed' : 'Mark reviewed';
-      button.setAttribute('aria-pressed', String(reviewed));
-      button.setAttribute('aria-label', `${reviewed ? 'Mark unreviewed' : 'Mark reviewed'}: ${path}`);
-      button.addEventListener('click', () => toggleReview(change)); actions.append(button);
+      actions.append(reviewButton(change, reviewed, () => toggleReview(change)));
     }
     const deleted = currentChanges?.changes.find((change) => change.path === path)?.status === 'deleted';
     segment([{ label: 'File', selected: false, disabled: deleted, select: () => navigate(fileURL(path)) }, { label: 'Diff', selected: true, select: () => {} }]);
@@ -522,8 +518,9 @@ function decorateContent(target = content, path = displayedPath): void {
     });
     toolbar.append(label, button); element.before(frame); frame.append(toolbar, element);
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
-      const scroller = element.querySelector<HTMLElement>('.lntd:last-child pre') ?? element.querySelector<HTMLElement>('pre') ?? element;
-      frame.classList.toggle('overflows', scroller.scrollWidth > scroller.clientWidth + 1);
+      const scroller = element.classList.contains('chroma') ? element : element.querySelector<HTMLElement>('pre') ?? element;
+      const updateOverflow = (): void => { frame.classList.toggle('overflows', scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 1); };
+      scroller.addEventListener('scroll', updateOverflow); updateOverflow();
     });
   }
   for (const block of target.querySelectorAll<HTMLElement>('.chroma')) {

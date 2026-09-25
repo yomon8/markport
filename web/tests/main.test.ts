@@ -169,9 +169,17 @@ describe('lazy browsing and refresh', () => {
     vi.stubGlobal('fetch', fetch);
     await import('../src/main'); await flush();
     expect(document.querySelector('#content .review-count')?.textContent).toBe('0 of 2 reviewed');
+    const unreviewed = document.querySelector<HTMLButtonElement>('#content .review-toggle')!;
+    expect(unreviewed.getAttribute('aria-label')).toBe('Mark reviewed: a.md');
+    expect(unreviewed.getAttribute('aria-pressed')).toBe('false');
+    expect(unreviewed.querySelectorAll('svg path')).toHaveLength(0);
     document.querySelector<HTMLButtonElement>('#content .review-toggle')!.click();
     expect(document.querySelector('#content .review-count')?.textContent).toBe('1 of 2 reviewed');
     expect(document.querySelector('#changes-tree .review-count')?.textContent).toBe('1 of 2 reviewed');
+    const reviewed = document.querySelector<HTMLButtonElement>('#content .review-toggle')!;
+    expect(reviewed.getAttribute('aria-label')).toBe('Mark unreviewed: a.md');
+    expect(reviewed.getAttribute('aria-pressed')).toBe('true');
+    expect(reviewed.querySelectorAll('svg path')).toHaveLength(1);
     document.querySelector<HTMLInputElement>('#content .review-filter input')!.click();
     expect([...document.querySelectorAll('#content .change-path')].map((item) => item.textContent)).toEqual(['b.md']);
     revision = 'v2';

@@ -5,6 +5,25 @@ export type DiffReply = { path: string; kind: 'text' | 'binary'; patch: string }
 const statusLabels: Record<Change['status'], string> = { added: 'Added', modified: 'Modified', deleted: 'Deleted' };
 export const diffURL = (path: string): string => `/?path=${encodeURIComponent(path)}&view=diff`;
 
+export function reviewButton(change: Change, isReviewed: boolean, toggle: () => void): HTMLButtonElement {
+  const button = document.createElement('button'); button.type = 'button'; button.className = 'review-toggle';
+  button.setAttribute('aria-pressed', String(isReviewed));
+  button.setAttribute('aria-label', `${isReviewed ? 'Mark unreviewed' : 'Mark reviewed'}: ${change.path}`);
+  button.title = isReviewed ? 'Mark unreviewed' : 'Mark reviewed';
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  icon.setAttribute('viewBox', '0 0 20 20'); icon.setAttribute('aria-hidden', 'true');
+  const box = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  box.setAttribute('x', '2'); box.setAttribute('y', '2'); box.setAttribute('width', '16'); box.setAttribute('height', '16'); box.setAttribute('rx', '3');
+  icon.append(box);
+  if (isReviewed) {
+    const check = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    check.setAttribute('d', 'M5 10l3 3 7-7'); icon.append(check);
+  }
+  button.append(icon);
+  button.addEventListener('click', toggle);
+  return button;
+}
+
 export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed: (change: Change) => boolean, toggle: (change: Change) => void, onlyUnreviewed: boolean, setFilter: (value: boolean) => void, compact = false): void {
   target.replaceChildren();
   if (!reply.available) {
@@ -29,12 +48,7 @@ export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed
     const badge = document.createElement('span'); badge.className = `change-status ${change.status}`; badge.textContent = statusLabels[change.status];
     const label = document.createElement('span'); label.className = 'change-path'; label.textContent = change.path;
     link.append(badge, label);
-    const button = document.createElement('button'); button.type = 'button'; button.className = 'review-toggle';
-    const isReviewed = reviewed(change);
-    button.textContent = isReviewed ? 'Reviewed' : 'Mark reviewed';
-    button.setAttribute('aria-pressed', String(isReviewed));
-    button.setAttribute('aria-label', `${isReviewed ? 'Mark unreviewed' : 'Mark reviewed'}: ${change.path}`);
-    button.addEventListener('click', () => toggle(change));
+    const button = reviewButton(change, reviewed(change), () => toggle(change));
     item.append(link, button); list.append(item);
   }
   if (!list.childElementCount) { const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'All changes reviewed.'; target.append(message); }
