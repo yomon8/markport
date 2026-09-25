@@ -65,7 +65,7 @@ test('shows English controls with a Japanese browser locale', async ({ browser }
     await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
     await expect(page.locator('html')).toHaveAttribute('lang', 'en');
     await expect(page.getByRole('button', { name: 'Refresh' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Files' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Files' })).toBeVisible();
     await expect(page.locator('#file-title').getByRole('button', { name: 'Source' })).toBeVisible();
   } finally {
     await context.close();
@@ -144,6 +144,38 @@ test('title controls show active views and keep auxiliary actions reachable on m
   await expect(page.locator('#right-pane')).toBeVisible();
 });
 
+test('sidebar tabs and resize handle work with keyboard, pointer, and mobile drawer', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  const files = page.getByRole('tab', { name: 'Files' });
+  const changes = page.getByRole('tab', { name: 'Changes' });
+  await expect(files).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tabpanel', { name: 'Files' })).toBeVisible();
+  await files.focus(); await page.keyboard.press('ArrowRight');
+  await expect(changes).toBeFocused();
+  await expect(changes).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tabpanel', { name: 'Changes' })).toBeVisible();
+  await page.keyboard.press('Home');
+  await expect(files).toBeFocused();
+  await expect(files).toHaveAttribute('aria-selected', 'true');
+  const resize = page.locator('#sidebar-resize');
+  const box = (await resize.boundingBox())!;
+  expect(box.width).toBe(8);
+  expect(await resize.evaluate((element) => getComputedStyle(element, '::before').width)).toBe('1px');
+  await resize.focus(); await page.keyboard.press('ArrowRight');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('markport-sidebar-width'))).toBe('290');
+  const movedBox = (await resize.boundingBox())!;
+  await page.mouse.move(movedBox.x + 2, movedBox.y + 50);
+  await page.mouse.down(); await page.mouse.move(340, movedBox.y + 50); await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => Number(localStorage.getItem('markport-sidebar-width')))).toBeGreaterThan(320);
+  await page.setViewportSize({ width: 390, height: 720 });
+  await page.getByRole('button', { name: 'Open file list' }).click();
+  await expect(files).toBeVisible();
+  await changes.click();
+  await expect(changes).toHaveAttribute('aria-selected', 'true');
+  await expect(changes).toBeVisible();
+  await expect(resize).toBeHidden();
+});
+
 test('keeps sidebar controls visible while file and change lists scroll', async ({ page }) => {
   for (const width of [1024, 390]) {
     await page.setViewportSize({ width, height: 500 });
@@ -164,7 +196,7 @@ test('keeps sidebar controls visible while file and change lists scroll', async 
     expect((await search.boundingBox())!.y).toBe(searchTop);
     await expect(page.getByRole('searchbox', { name: 'Search files' })).toBeInViewport();
 
-    await page.getByRole('button', { name: 'Changes' }).click();
+    await page.getByRole('tab', { name: 'Changes' }).click();
     await expect(page.locator('#changes-tree .hint')).toContainText('not a Git repository');
     if (width < 700) await page.getByRole('button', { name: 'Open file list' }).click();
     await page.locator('#changes-tree').evaluate((tree) => {
@@ -173,7 +205,7 @@ test('keeps sidebar controls visible while file and change lists scroll', async 
     });
     await expect.poll(() => page.locator('#changes-tree').evaluate((tree) => tree.scrollTop)).toBeGreaterThan(0);
     expect((await tabs.boundingBox())!.y).toBe(tabsTop);
-    await expect(page.getByRole('button', { name: 'Files' })).toBeInViewport();
+    await expect(page.getByRole('tab', { name: 'Files' })).toBeInViewport();
   }
 });
 
@@ -682,7 +714,7 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   await writeFile(join(directory, 'new-diff.md'), '<script>alert(2)</script>\n');
   await expect(page.locator('#file-title .review-toggle')).toHaveAttribute('aria-pressed', 'false', { timeout: 15000 });
   await expect(page.locator('.diff-added .diff-code')).toContainText('alert(2)');
-  await page.getByRole('button', { name: 'Changes' }).click();
+  await page.getByRole('tab', { name: 'Changes' }).click();
   await expect(page.locator('#content .review-count')).toContainText('0 of');
   await page.locator('#content .review-filter input').check();
   await expect(page.locator('#content .change-path', { hasText: 'new-diff.md' })).toBeVisible();

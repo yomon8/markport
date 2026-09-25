@@ -17,7 +17,7 @@ type ApiError = { error?: string; message?: string };
 class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
-app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs"><button id="files-tab" type="button">Files</button><button id="changes-tab" type="button">Changes</button></div><div id="files-panel"><form role="search" onsubmit="return false"><label for="search">Search files</label><input id="search" type="search" placeholder="Path or file name /"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" aria-label="Changed files" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><strong id="right-path"></strong><div class="right-actions"><button id="right-source" type="button" hidden>Source</button><button id="right-close" type="button" aria-label="Close split view">Close split</button></div></div><article id="right-content" aria-busy="false"></article></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
+app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><label for="search">Search files</label><input id="search" type="search" placeholder="Path or file name /"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><strong id="right-path"></strong><div class="right-actions"><button id="right-source" type="button" hidden>Source</button><button id="right-close" type="button" aria-label="Close split view">Close split</button></div></div><article id="right-content" aria-busy="false"></article></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
 if (!icon.isConnected) document.head.append(icon);
@@ -66,6 +66,7 @@ let revision = 0; let pending = false; let pendingForeground = false; let active
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = new URL(location.href).searchParams.get('source') === '1';
 let displayedMode: 'file' | 'diff' | 'changes' | 'paste' = 'file'; let lastFilePath = '';
 let sidebarPanel: 'file' | 'changes' = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file';
+let keepTabFocus = false;
 let currentChanges: ChangesReply | undefined;
 let displayedChanges = '';
 const review = new ReviewState();
@@ -102,7 +103,8 @@ function selectedMode(): 'file' | 'diff' | 'changes' | 'paste' {
 function showSidebar(mode: 'file' | 'changes'): void {
   const git = mode === 'changes';
   filesPanel.hidden = git; changesTree.hidden = !git;
-  filesTab.setAttribute('aria-pressed', String(!git)); changesTab.setAttribute('aria-pressed', String(git));
+  filesTab.setAttribute('aria-selected', String(!git)); changesTab.setAttribute('aria-selected', String(git));
+  filesTab.tabIndex = git ? -1 : 0; changesTab.tabIndex = git ? 0 : -1;
 }
 function saveScroll(): void { history.replaceState({ scroll: main.scrollTop }, '', location.href); }
 function navigate(url: string): void {
@@ -649,7 +651,7 @@ async function refreshLoop(): Promise<void> {
   try {
     while (pending) {
       pending = false; const foreground = pendingForeground; pendingForeground = false;
-      const current = revision; const path = selected(); const source = sourceMode; const mode = selectedMode();
+      const current = revision; const path = selected(); const source = sourceMode; const mode = selectedMode(); const preserveTabFocus = keepTabFocus; keepTabFocus = false;
       void refreshRight();
       showSidebar(sidebarPanel);
       if (path !== displayedPath || mode !== displayedMode) displayedTag = '';
@@ -720,7 +722,7 @@ async function refreshLoop(): Promise<void> {
             void drawMermaid(content, () => path === selected() && source === sourceMode);
           }
           if (pathChanged) view.reveal(path);
-          if (pathChanged) title.focus({ preventScroll: true });
+          if (pathChanged && !preserveTabFocus) title.focus({ preventScroll: true });
         }
         status('Checking every few seconds', 'ok');
       } catch (error) {
@@ -744,8 +746,22 @@ changesTree.addEventListener('click', (event) => {
   if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
   event.preventDefault(); navigate(link.href);
 });
-filesTab.addEventListener('click', () => navigate(lastFilePath ? fileURL(lastFilePath) : '/'));
-changesTab.addEventListener('click', () => navigate('/?view=changes'));
+function selectSidebarTab(mode: 'file' | 'changes'): void {
+  const target = mode === 'file' ? lastFilePath ? fileURL(lastFilePath) : '/' : '/?view=changes';
+  keepTabFocus = new URL(target, location.href).href !== location.href;
+  sidebarPanel = mode; showSidebar(mode);
+  navigate(target);
+  if (window.innerWidth <= 700) sidebar.classList.add('open');
+  (mode === 'file' ? filesTab : changesTab).focus();
+}
+filesTab.addEventListener('click', () => selectSidebarTab('file'));
+changesTab.addEventListener('click', () => selectSidebarTab('changes'));
+document.querySelector<HTMLElement>('.sidebar-tabs')!.addEventListener('keydown', (event) => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  event.preventDefault();
+  const mode = event.key === 'Home' ? 'file' : event.key === 'End' ? 'changes' : document.activeElement === filesTab ? 'changes' : 'file';
+  selectSidebarTab(mode);
+});
 pasteToggle.addEventListener('click', () => navigate('/?view=paste'));
 function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
   const target = event.target as HTMLElement;
@@ -787,8 +803,10 @@ reload.addEventListener('click', manualRefresh);
 drawerToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
 sidebarToggle.addEventListener('click', () => { const collapsed = sidebar.classList.toggle('collapsed'); sidebarToggle.setAttribute('aria-expanded', String(!collapsed)); sidebarToggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar'); });
 const resize = document.querySelector<HTMLElement>('#sidebar-resize')!;
-resize.addEventListener('pointerdown', (event) => { resize.setPointerCapture(event.pointerId); });
+resize.addEventListener('pointerdown', (event) => { resize.setPointerCapture(event.pointerId); resize.classList.add('dragging'); });
 resize.addEventListener('pointermove', (event) => { if (!resize.hasPointerCapture(event.pointerId)) return; const width = Math.max(200, Math.min(480, event.clientX)); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
+resize.addEventListener('pointerup', () => resize.classList.remove('dragging'));
+resize.addEventListener('pointercancel', () => resize.classList.remove('dragging'));
 resize.addEventListener('keydown', (event) => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; const width = Math.max(200, Math.min(480, Number(localStorage.getItem('markport-sidebar-width') ?? 280) + (event.key === 'ArrowRight' ? 10 : -10))); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
 initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => { updateBrand(); if (content.querySelector('[data-mermaid]')) { if (selectedMode() === 'paste') refreshPastedPreview?.(); else { displayedHTML = ''; requestRefresh(); } } if (rightContent.querySelector('[data-mermaid]')) { rightShownKey = ''; void refreshRight(); } });
 updateBrand();
