@@ -890,7 +890,7 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   await expect(page.locator('.diff-added .diff-code')).toContainText('alert(2)');
   await page.getByRole('tab', { name: 'Changes' }).click();
   await expect(page.locator('#content .review-count')).toContainText('0 of');
-  await page.locator('#content .review-filter input').check();
+  await page.locator('#content').getByLabel('Unreviewed only').check();
   await expect(page.locator('#content .change-path', { hasText: 'new-diff.md' })).toBeVisible();
   await page.locator('#changes-tree a[href*="sample.py"]').click();
   await expect(page.locator('.diff-added .diff-code')).toContainText('changed');
@@ -907,4 +907,40 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.locator('#files-panel')).toBeVisible();
   await expect(page.locator('.diff-added .diff-code')).toContainText('color: red');
+});
+
+test('reviews changed files in order with counts and directory groups', async ({ page }) => {
+  const changes = [
+    { path: 'a.md', status: 'modified', revision: 'a1', added: 1, deleted: 2 },
+    { path: 'b.md', status: 'added', revision: 'b1', added: 3, deleted: 0 },
+    { path: 'docs/c.md', status: 'deleted', revision: 'c1', added: 0, deleted: 4 },
+  ];
+  await page.route('**/api/git/changes', (route) => route.fulfill({ json: { available: true, rootId: 'review-navigation-test', changes } }));
+  await page.route('**/api/git/diff?**', (route) => {
+    const path = new URL(route.request().url()).searchParams.get('path')!;
+    return route.fulfill({ json: { path, kind: 'text', patch: `diff --git a/${path} b/${path}\n@@ -1 +1 @@\n-old\n+new\n` } });
+  });
+  await page.goto(`http://127.0.0.1:${port}/?view=changes`);
+  await expect(page.locator('#content .change-lines').first()).toContainText('+1 −2');
+  await page.locator('#content').getByLabel('Group by directory').check();
+  await expect(page.locator('#content .change-directory')).toHaveText(['Root', 'docs']);
+  await page.locator('#content a[href*="b.md"]').click();
+  await expect(page.locator('#file-title .diff-navigation')).toBeVisible();
+  await page.keyboard.press('n');
+  expect(new URL(page.url()).searchParams.get('path')).toBe('docs/c.md');
+  await expect(page.getByRole('button', { name: 'Next (n)' })).toBeDisabled();
+  await page.keyboard.press('p');
+  expect(new URL(page.url()).searchParams.get('path')).toBe('b.md');
+  await page.keyboard.press('r');
+  expect(new URL(page.url()).searchParams.get('path')).toBe('docs/c.md');
+  await expect(page.locator('#changes-tree .review-count')).toContainText('1 of 3 reviewed');
+  await page.locator('#changes-tree').getByLabel('Unreviewed only').check();
+  await page.keyboard.press('p');
+  expect(new URL(page.url()).searchParams.get('path')).toBe('a.md');
+  await page.locator('#changes-tree .review-filter input').first().focus();
+  await page.keyboard.press('n');
+  expect(new URL(page.url()).searchParams.get('path')).toBe('a.md');
+  await page.locator('#changes-tree .review-filter input').first().blur();
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', isComposing: true, bubbles: true })));
+  expect(new URL(page.url()).searchParams.get('path')).toBe('a.md');
 });

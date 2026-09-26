@@ -79,6 +79,7 @@ let displayedChanges = '';
 const review = new ReviewState();
 let reviewVersion = 0;
 let onlyUnreviewed = false;
+let groupChanges = false;
 let previewReload = 0;
 let previewInstance = '';
 const interactivePaths = new Set<string>();
@@ -409,6 +410,19 @@ function showTitle(path: string, kind = '', missing = false): void {
     if (change) {
       const reviewed = review.has(change.path, change.revision);
       actions.append(reviewButton(change, reviewed, () => toggleReview(change)));
+      const previous = diffNeighbor(path, -1, onlyUnreviewed);
+      const next = diffNeighbor(path, 1, onlyUnreviewed);
+      const navigation = document.createElement('div'); navigation.className = 'diff-navigation';
+      const addNavigation = (label: string, target: Change | undefined): void => {
+        const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+        button.disabled = !target; button.title = target ? `${label}: ${target.path}` : `No ${label.toLowerCase()} file`;
+        button.addEventListener('click', () => { if (target) navigate(diffURL(target.path)); }); navigation.append(button);
+      };
+      addNavigation('Previous (p)', previous);
+      addNavigation('Next (n)', next);
+      const reviewNext = document.createElement('button'); reviewNext.type = 'button'; reviewNext.textContent = 'Review and next (r)';
+      reviewNext.addEventListener('click', markReviewedAndNext); navigation.append(reviewNext);
+      actions.append(navigation);
     }
     const deleted = currentChanges?.changes.find((change) => change.path === path)?.status === 'deleted';
     segment([{ label: 'File', selected: false, disabled: deleted, select: () => navigate(fileURL(path)) }, { label: 'Diff', selected: true, select: () => {} }]);
@@ -455,17 +469,38 @@ function toggleReview(change: Change): void {
   updateChangeViews();
   if (selectedMode() === 'diff' && selected() === change.path) showTitle(change.path, 'diff');
 }
+function diffNeighbor(path: string, direction: -1 | 1, unreviewedOnly: boolean): Change | undefined {
+  const changes = currentChanges?.changes ?? [];
+  const index = changes.findIndex((change) => change.path === path);
+  if (index < 0) return undefined;
+  for (let next = index + direction; next >= 0 && next < changes.length; next += direction) {
+    const change = changes[next];
+    if (!unreviewedOnly || !review.has(change.path, change.revision)) return change;
+  }
+  return undefined;
+}
+function markReviewedAndNext(): void {
+  if (selectedMode() !== 'diff') return;
+  const path = selected(); const change = currentChanges?.changes.find((item) => item.path === path);
+  if (!change) return;
+  review.set(change.path, change.revision, true); reviewVersion++;
+  const next = diffNeighbor(path, 1, true);
+  updateChangeViews();
+  if (next) navigate(diffURL(next.path)); else showTitle(path, 'diff');
+}
 function setReviewFilter(value: boolean): void {
   onlyUnreviewed = value;
   reviewVersion++;
   updateChangeViews();
+  if (selectedMode() === 'diff') showTitle(selected(), 'diff');
 }
+function setGroupChanges(value: boolean): void { groupChanges = value; reviewVersion++; updateChangeViews(); }
 function updateChangeViews(): void {
   if (!currentChanges) return;
   const key = `${JSON.stringify(currentChanges)}:${reviewVersion}`;
   const isReviewed = (change: Change): boolean => review.has(change.path, change.revision);
   if (displayedChanges !== key) {
-    renderChanges(changesTree, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter, true);
+    renderChanges(changesTree, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter, groupChanges, setGroupChanges, true);
     displayedChanges = key;
   }
   const path = selected();
@@ -478,7 +513,7 @@ function updateChangeViews(): void {
   }
   if (selectedMode() === 'changes' && displayedHTML !== key) {
     content.dataset.kind = 'changes';
-    renderChanges(content, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter);
+    renderChanges(content, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter, groupChanges, setGroupChanges);
     displayedHTML = key;
     outline.hidden = true; showTitle('');
   }
@@ -917,6 +952,14 @@ window.addEventListener('keydown', (event) => {
   const target = event.target;
   const editing = target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, [contenteditable]') !== null);
   if (editing) return;
+  if (selectedMode() === 'diff' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (event.key === 'n' || event.key === 'p') {
+      const next = diffNeighbor(selected(), event.key === 'n' ? 1 : -1, onlyUnreviewed);
+      if (next) { event.preventDefault(); navigate(diffURL(next.path)); }
+      return;
+    }
+    if (event.key === 'r') { event.preventDefault(); markReviewedAndNext(); return; }
+  }
   if ((event.key === '/' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k'))) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') { event.preventDefault(); sidebarToggle.click(); }
   if (event.key === 'Escape') { sidebar.classList.remove('open'); outline.classList.remove('open'); document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; }

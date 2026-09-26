@@ -56,3 +56,8 @@ article[data-kind=changes],article[data-kind=diff]{max-width:none}.diff-frame{ma
 .search-results .node-file-name{font-size:13px;font-weight:650;color:var(--text);overflow-wrap:anywhere}
 .search-results .node-parent-path{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left;color:var(--text-muted);font-size:11px}
 @media(hover:hover){nav .open-right{opacity:0}nav li:hover>.open-right,nav li:focus-within>.open-right,nav li:has(>a[aria-current])>.open-right{opacity:1}}
+
+.diff-navigation{display:flex;gap:4px;flex-wrap:wrap}.diff-navigation button{font-size:12px}.diff-navigation button:disabled{cursor:default}
+.change-directory{font-size:12px;color:var(--text-muted);margin:14px 0 5px;overflow-wrap:anywhere}
+.change-lines{flex:none;margin-left:auto;font:11px var(--mono);color:var(--text-muted);white-space:nowrap}
+.change-list.compact .change-lines{font-size:10px}
