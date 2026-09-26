@@ -122,6 +122,7 @@ test('theme colors follow the selected theme and HTML keeps document colors', as
   });
   const light = await colors();
   await page.getByRole('button', { name: 'Theme: Light' }).click();
+  await page.getByRole('menuitemradio', { name: 'Dark' }).click();
   const dark = await colors();
   expect(dark.every((value, index) => value !== light[index])).toBe(true);
   for (const name of ['first.html', 'transparent.html', 'colored.html']) {
@@ -133,6 +134,36 @@ test('theme colors follow the selected theme and HTML keeps document colors', as
     else expect(background).toBe('rgba(0, 0, 0, 0)');
     await expect(page.locator('.html-preview')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   }
+});
+
+test('header controls stay aligned and theme choices work by keyboard on mobile', async ({ page }, testInfo) => {
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const theme of ['light', 'dark']) {
+      await page.addInitScript((value) => localStorage.setItem('markport-theme', value), theme);
+      await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+      const buttons = width <= 700 ? ['#drawer-toggle', '#header-more', '#reload'] : ['#sidebar-toggle', '#theme-toggle', '#paste-toggle', '#reload'];
+      const positions = await page.locator(buttons.join(',')).evaluateAll((elements) => elements.map((element) => {
+        const box = element.getBoundingClientRect(); return { top: box.top, height: box.height, right: box.right };
+      }));
+      expect(new Set(positions.map((position) => position.height)).size, JSON.stringify({ width, theme, positions })).toBe(1);
+      expect(new Set(positions.map((position) => position.top)).size).toBe(1);
+      expect(Math.max(...positions.map((position) => position.right))).toBeLessThanOrEqual(width);
+      await expect(page.locator('#connection')).toHaveAttribute('role', 'status');
+      await page.screenshot({ path: testInfo.outputPath(`header-${width}-${theme}.png`) });
+    }
+  }
+  await page.getByRole('button', { name: 'More header actions' }).click();
+  await page.getByRole('button', { name: 'Theme: Dark' }).click();
+  await expect(page.getByRole('menuitemradio', { name: 'Dark' })).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Home');
+  await expect(page.getByRole('menuitemradio', { name: 'Auto' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menuitemradio', { name: 'Light' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.getByRole('button', { name: 'Paste Markdown' }).click();
+  await expect(page.locator('#paste-input')).toBeVisible();
 });
 
 test('title controls show active views and keep auxiliary actions reachable on mobile', async ({ page }) => {
@@ -683,7 +714,9 @@ test('desktop and mobile views in both themes', async ({ page }, testInfo) => {
   expect(faviconSvg).toContain('--icon-accent: #0969DA');
   await page.evaluate(() => { localStorage.setItem('markport-theme', 'light'); });
   await page.reload();
+  if (!(await page.locator('#theme-toggle').isVisible())) await page.getByRole('button', { name: 'More header actions' }).click();
   await page.getByRole('button', { name: 'Theme: Light' }).click();
+  await page.getByRole('menuitemradio', { name: 'Dark' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   const switchedSvg = await page.locator('.brand-symbol').evaluate(async (image: HTMLImageElement) => (await fetch(image.src)).text());
   expect(switchedSvg).toContain('#75B7FF');
