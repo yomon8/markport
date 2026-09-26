@@ -250,10 +250,14 @@ test('searches text within a folder and opens the matching source line', async (
   await page.locator('.content-search-results a', { hasText: 'code.py' }).click();
   await expect(page).toHaveURL(/path=content-scope%2Fcode\.py#L2$/);
   await expect(page.locator('#L2')).toBeVisible();
+  await expect(page.locator('#content .line.selected-code-line')).toHaveCount(1);
+  const titleBox = (await page.locator('#file-title').boundingBox())!;
+  expect((await page.locator('#L2').boundingBox())!.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
   await page.locator('.content-search-results a', { hasText: 'guide.md' }).click();
   await expect(page).toHaveURL(/path=content-scope%2Fguide\.md&source=1#L4$/);
   await expect(page.locator('#file-title').getByRole('button', { name: 'Rendered view' })).toBeVisible();
   await expect(page.locator('#L4')).toBeVisible();
+  await expect(page.locator('#content .line.selected-code-line')).toHaveCount(1);
   await page.locator('#content-folder').fill('missing-folder');
   await contentSearch.getByRole('button', { name: 'Search' }).click();
   await expect(page.locator('.content-search-status')).toHaveText('Folder not found.');
@@ -707,8 +711,38 @@ test('opens README, switches source, searches by keyboard, and follows code line
   await expect(page).toHaveURL(/path=sample.py/);
   await expect(page.locator('#L1')).toHaveCount(1);
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.locator('.code-toolbar button').click();
+  await page.locator('.code-toolbar').getByRole('button', { name: 'Copy', exact: true }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^print\(/);
+});
+
+test('highlights linked code lines and keeps wrapped line numbers aligned', async ({ page }) => {
+  const file = join(directory, 'long-wrap.ts');
+  await writeFile(file, `const first = 1;\nconst long = '${'x'.repeat(300)}';\nconst third = 3;\nconst fourth = 4;\nconst fifth = 5;\n`);
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto(`http://127.0.0.1:${port}/?path=long-wrap.ts#L2`);
+  await expect(page.locator('#content .lnt.selected-code-line')).toHaveCount(1);
+  await expect(page.locator('#content .line.selected-code-line')).toHaveCount(1);
+  await page.locator('#content .lnlinks[href="#L5"]').click({ modifiers: ['Shift'] });
+  await expect(page).toHaveURL(/#L2-L5$/);
+  await expect(page.locator('#content .line.selected-code-line')).toHaveCount(4);
+  await expect(page.locator('#content .copy-line-link')).toBeVisible();
+  await page.getByRole('button', { name: 'Wrap lines' }).click();
+  await expect(page.getByRole('button', { name: 'Wrap lines' })).toHaveAttribute('aria-pressed', 'true');
+  const alignment = await page.locator('#content .lntd:last-child .line').evaluateAll((lines) => {
+    const second = lines[1].getBoundingClientRect(); const third = lines[2].getBoundingClientRect();
+    const number = lines[1].querySelector('.wrapped-line-number')!.getBoundingClientRect();
+    return { lineTop: second.top, numberTop: number.top, lineHeight: second.height, nextTop: third.top, overflow: document.querySelector('#content .code-frame')!.scrollWidth > document.querySelector('#content .code-frame')!.clientWidth };
+  });
+  expect(alignment.numberTop).toBe(alignment.lineTop);
+  expect(alignment.lineHeight).toBeGreaterThan(30);
+  expect(alignment.nextTop).toBeGreaterThanOrEqual(alignment.lineTop + alignment.lineHeight);
+  expect(alignment.overflow).toBe(false);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Wrap lines' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#content .line.selected-code-line')).toHaveCount(4);
+  await writeFile(file, `const first = 1;\nconst long = '${'y'.repeat(300)}';\nconst third = 3;\nconst fourth = 4;\nconst fifth = 5;\n`);
+  await expect(page.locator('#content .lntd:last-child .line').nth(1)).toContainText('yyyy', { timeout: 15000 });
+  await expect(page.locator('#content .line.selected-code-line')).toHaveCount(4);
 });
 
 test('copies Markdown blocks, code files, and paths without the Clipboard API', async ({ page, context }) => {
@@ -726,21 +760,22 @@ test('copies Markdown blocks, code files, and paths without the Clipboard API', 
   });
 
   await page.goto(`http://127.0.0.1:${port}/?path=copy.md`);
-  await expect(page.locator('.code-toolbar button')).toHaveCount(2);
+  const copyButtons = page.locator('.code-toolbar').getByRole('button', { name: 'Copy', exact: true });
+  await expect(copyButtons).toHaveCount(2);
   await hideClipboard();
-  await page.locator('.code-toolbar button').first().click();
-  await expect(page.locator('.code-toolbar button').first()).toHaveText('Copied');
+  await copyButtons.first().click();
+  await expect(page.locator('.code-toolbar').first().getByRole('button', { name: 'Copied' })).toBeVisible();
   expect(await readClipboard()).toBe('print("markdown")\n');
 
   await hideClipboard();
-  await page.locator('.code-toolbar button').last().click();
-  await expect(page.locator('.code-toolbar button').last()).toHaveText('Copied');
+  await copyButtons.last().click();
+  await expect(page.locator('.code-toolbar').last().getByRole('button', { name: 'Copied' })).toBeVisible();
   expect(await readClipboard()).toBe('plain <text>\n');
 
   await page.goto(`http://127.0.0.1:${port}/?path=copy.py`);
   await hideClipboard();
-  await page.locator('.code-toolbar button').click();
-  await expect(page.locator('.code-toolbar button')).toHaveText('Copied');
+  await page.locator('.code-toolbar').getByRole('button', { name: 'Copy', exact: true }).click();
+  await expect(page.locator('.code-toolbar').getByRole('button', { name: 'Copied' })).toBeVisible();
   expect(await readClipboard()).toBe('print("code file")\n');
 
   await hideClipboard();
@@ -750,8 +785,8 @@ test('copies Markdown blocks, code files, and paths without the Clipboard API', 
 
   await hideClipboard();
   await page.evaluate(() => { document.execCommand = () => false; });
-  await page.locator('.code-toolbar button').click();
-  await expect(page.locator('.code-toolbar button')).toHaveText('Copy failed');
+  await page.locator('.code-toolbar').getByRole('button', { name: 'Copy', exact: true }).click();
+  await expect(page.locator('.code-toolbar').getByRole('button', { name: 'Copy failed' })).toBeVisible();
   expect(pageErrors).toEqual([]);
 });
 

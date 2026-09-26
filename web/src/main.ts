@@ -60,6 +60,9 @@ const rightContents = document.querySelector<HTMLButtonElement>('#right-contents
 let rightShownPath = ''; let rightShownKey = ''; let rightSourceMode = false; let rightRequest = 0;
 let pendingRightScroll: number | undefined;
 let rightTag = ''; let rightTagCheckedAt = 0;
+let wrapCodeLines = false;
+try { wrapCodeLines = localStorage.getItem('markport-wrap-code') === 'true'; } catch { /* Storage may be unavailable. */ }
+let lineRangeAnchor = 0;
 const progress = document.querySelector<HTMLElement>('#progress')!;
 const outline = document.querySelector<HTMLElement>('#outline')!;
 const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
@@ -151,7 +154,7 @@ function navigate(url: string): void {
   const right = new URL(location.href).searchParams.get('right');
   if (right && target.searchParams.has('path') && !target.searchParams.has('view')) target.searchParams.set('right', right);
   if (target.href === location.href) return;
-  saveScroll(); pasteVersion++; history.pushState({ scroll: 0 }, '', target); sidebarPanel = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = target.searchParams.get('source') === '1'; sidebar.classList.remove('open'); requestRefresh();
+  saveScroll(); pasteVersion++; lineRangeAnchor = 0; history.pushState({ scroll: 0 }, '', target); sidebarPanel = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = target.searchParams.get('source') === '1'; sidebar.classList.remove('open'); requestRefresh();
 }
 function rightSelected(): string { return selectedMode() === 'file' ? new URL(location.href).searchParams.get('right') ?? '' : ''; }
 function openRight(path: string): void {
@@ -616,16 +619,66 @@ function showError(error: unknown, path: string): void {
   box.append(icon, h, p, button); content.append(box); outline.hidden = true; showTitle(path, '', code === 'not_found');
 }
 function decorateContent(target = content, path = displayedPath): void {
+  function setWrap(frame: HTMLElement, enabled: boolean): void {
+    frame.classList.toggle('wrapped', enabled);
+    const numbers = [...frame.querySelectorAll<HTMLElement>('.lntd:first-child .lnt')];
+    const lines = [...frame.querySelectorAll<HTMLElement>('.lntd:last-child .line')];
+    lines.forEach((line, index) => {
+      const existing = line.querySelector('.wrapped-line-number');
+      const code = line.querySelector<HTMLElement>('.cl');
+      if (enabled) {
+        if (!existing && numbers[index]) {
+          const anchor = document.createElement('a'); anchor.className = 'wrapped-line-number';
+          anchor.href = `#L${index + 1}`; anchor.textContent = String(index + 1);
+          anchor.setAttribute('aria-label', `Line ${index + 1}`); line.prepend(anchor);
+        }
+        const tail = line.lastChild;
+        if (tail?.nodeType === Node.TEXT_NODE && tail.textContent?.endsWith('\n')) {
+          tail.textContent = tail.textContent.slice(0, -1); line.dataset.wrapNewline = 'true';
+        }
+        const codeTail = code?.lastChild;
+        if (codeTail?.nodeType === Node.TEXT_NODE && codeTail.textContent?.endsWith('\n')) {
+          codeTail.textContent = codeTail.textContent.slice(0, -1); code!.dataset.wrapNewline = 'true';
+        }
+      } else {
+        existing?.remove();
+        if (line.dataset.wrapNewline === 'true') { line.append(document.createTextNode('\n')); delete line.dataset.wrapNewline; }
+        if (code?.dataset.wrapNewline === 'true') { code.append(document.createTextNode('\n')); delete code.dataset.wrapNewline; }
+      }
+    });
+  }
   function wrapCode(element: HTMLElement): void {
     const frame = document.createElement('div'); frame.className = 'code-frame';
     const toolbar = document.createElement('div'); toolbar.className = 'code-toolbar';
     const label = document.createElement('span'); label.textContent = element.closest<HTMLElement>('[data-language]')?.dataset.language || (target.dataset.kind === 'code' ? path.split('.').at(-1) : 'text') || 'text';
     const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Copy';
     button.addEventListener('click', () => {
-      const code = element.querySelector<HTMLElement>('.lntd:last-child pre') ?? element;
-      copyWithFeedback(button, code.textContent ?? '', 'Copy');
+      const lines = [...element.querySelectorAll<HTMLElement>('.lntd:last-child .line')];
+      if (lines.length) {
+        const text = lines.map((line) => (line.querySelector<HTMLElement>('.cl')?.textContent ?? '').replace(/\n$/, '')).join('\n');
+        const last = lines.at(-1)!;
+        const trailing = last.dataset.wrapNewline === 'true' || last.querySelector<HTMLElement>('.cl')?.dataset.wrapNewline === 'true' || last.textContent?.endsWith('\n');
+        copyWithFeedback(button, text + (trailing ? '\n' : ''), 'Copy');
+      } else copyWithFeedback(button, element.textContent ?? '', 'Copy');
     });
-    toolbar.append(label, button); element.before(frame); frame.append(toolbar, element);
+    const wrap = document.createElement('button'); wrap.type = 'button'; wrap.textContent = 'Wrap lines'; wrap.setAttribute('aria-pressed', String(wrapCodeLines));
+    wrap.addEventListener('click', () => {
+      wrapCodeLines = !wrapCodeLines;
+      try { localStorage.setItem('markport-wrap-code', String(wrapCodeLines)); } catch { /* Storage may be unavailable. */ }
+      for (const codeFrame of document.querySelectorAll<HTMLElement>('.code-frame')) {
+        setWrap(codeFrame, wrapCodeLines);
+        codeFrame.querySelector<HTMLButtonElement>('.code-wrap-toggle')?.setAttribute('aria-pressed', String(wrapCodeLines));
+      }
+      highlightCodeLines(false);
+    });
+    wrap.className = 'code-wrap-toggle';
+    const controls = document.createElement('div'); controls.className = 'code-toolbar-actions'; controls.append(wrap, button);
+    if (element.querySelector('.lntable')) {
+      const copyLink = document.createElement('button'); copyLink.type = 'button'; copyLink.className = 'copy-line-link'; copyLink.textContent = 'Copy line link'; copyLink.hidden = true;
+      copyLink.addEventListener('click', () => copyWithFeedback(copyLink, location.href, 'Copy line link'));
+      controls.prepend(copyLink);
+    }
+    toolbar.append(label, controls); element.before(frame); frame.append(toolbar, element); setWrap(frame, wrapCodeLines);
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
       const scroller = element.classList.contains('chroma') ? element : element.querySelector<HTMLElement>('pre') ?? element;
       const updateOverflow = (): void => { frame.classList.toggle('overflows', scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 1); };
@@ -649,6 +702,24 @@ function decorateContent(target = content, path = displayedPath): void {
     const wrap = document.createElement('div'); wrap.className = 'table-wrap'; table.before(wrap); wrap.append(table);
   }
   updateTableHeaders();
+}
+function highlightCodeLines(scroll: boolean): boolean {
+  const match = /^#L(\d+)(?:-L(\d+))?$/.exec(location.hash);
+  for (const marked of content.querySelectorAll<HTMLElement>('.selected-code-line')) marked.classList.remove('selected-code-line');
+  for (const button of content.querySelectorAll<HTMLButtonElement>('.copy-line-link')) button.hidden = !match;
+  if (!match) return false;
+  const start = Number(match[1]); const end = match[2] ? Number(match[2]) : start;
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start || end - start > 500) return false;
+  if (!lineRangeAnchor) lineRangeAnchor = start;
+  const numbers = [...content.querySelectorAll<HTMLElement>('.lntd:first-child .lnt')];
+  const lines = [...content.querySelectorAll<HTMLElement>('.lntd:last-child .line')];
+  for (let line = start; line <= end; line++) {
+    numbers[line - 1]?.classList.add('selected-code-line');
+    lines[line - 1]?.classList.add('selected-code-line');
+  }
+  const target = wrapCodeLines ? lines[start - 1] : numbers[start - 1];
+  if (scroll && target) target.scrollIntoView({ block: 'center' });
+  return Boolean(target);
 }
 function updateTableHeaders(): void {
   const top = main.getBoundingClientRect().top + title.getBoundingClientRect().height;
@@ -865,7 +936,9 @@ async function refreshLoop(): Promise<void> {
             displayedHTML = displayKey; displayedSource = source;
             updateOutline(); showTitle(path, file.type);
             if (!pathChanged && oldScroll > 0) main.scrollTop = oldScroll;
-            if (location.hash && file.type !== 'html') { try { document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ } }
+            if (location.hash && file.type !== 'html' && !highlightCodeLines(pathChanged)) {
+              try { if (pathChanged) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ }
+            }
             if (!pathChanged && current > 1) {
               title.classList.add('updated'); const note = document.createElement('span'); note.className = 'update-note'; note.textContent = 'Updated'; title.querySelector('.title-actions')?.prepend(note);
               clearTimeout(updatedTimer); updatedTimer = setTimeout(() => { title.classList.remove('updated'); note.remove(); }, 3500);
@@ -916,6 +989,19 @@ document.querySelector<HTMLElement>('.sidebar-tabs')!.addEventListener('keydown'
 pasteToggle.addEventListener('click', () => navigate('/?view=paste'));
 function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
   const target = event.target as HTMLElement;
+  const lineLink = pane === 'left' ? target.closest<HTMLAnchorElement>('.lnlinks, .wrapped-line-number') : null;
+  if (lineLink) {
+    const number = Number(lineLink.hash.slice(2));
+    if (Number.isSafeInteger(number) && number > 0) {
+      event.preventDefault();
+      const start = event.shiftKey && lineRangeAnchor ? Math.min(number, lineRangeAnchor) : number;
+      const end = event.shiftKey && lineRangeAnchor ? Math.max(number, lineRangeAnchor) : number;
+      if (!event.shiftKey) lineRangeAnchor = number;
+      const url = new URL(location.href); url.hash = end > start ? `L${start}-L${end}` : `L${start}`;
+      history.replaceState(history.state, '', url); highlightCodeLines(true);
+    }
+    return;
+  }
   const action = target.closest<HTMLButtonElement>('[data-diagram-action]');
   if (action) {
     const diagram = action.closest<HTMLElement>('[data-mermaid]')!;
@@ -947,6 +1033,7 @@ document.querySelector('#right-only')!.addEventListener('click', showRightOnly);
 rightInteractive.addEventListener('click', () => { const path = rightSelected(); if (path) setInteractive(path, !interactivePaths.has(path)); });
 document.querySelector('#overlay-close')!.addEventListener('click', () => { document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; });
 window.addEventListener('popstate', () => { pasteVersion++; sidebarPanel = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); });
+window.addEventListener('hashchange', () => { highlightCodeLines(true); });
 window.addEventListener('keydown', (event) => {
   if (event.isComposing || event.keyCode === 229) return;
   const target = event.target;
