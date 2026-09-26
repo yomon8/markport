@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -48,6 +49,7 @@ type Server struct {
 	Files         *files.Store
 	Host          string
 	Port          int
+	instance      string
 	mu            sync.Mutex
 	subs          map[chan string]struct{}
 	closed        bool
@@ -65,7 +67,11 @@ func New(store *files.Store, host string, port int) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Server{Files: store, Host: host, Port: port, subs: make(map[chan string]struct{}), static: http.FileServer(http.FS(dist))}, nil
+	instance := make([]byte, 16)
+	if _, err := rand.Read(instance); err != nil {
+		return nil, err
+	}
+	return &Server{Files: store, Host: host, Port: port, instance: hex.EncodeToString(instance), subs: make(map[chan string]struct{}), static: http.FileServer(http.FS(dist))}, nil
 }
 
 func (s *Server) Publish(event string) {
@@ -113,6 +119,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid Host", http.StatusBadRequest)
 		return
 	}
+	w.Header().Set("X-Markport-Instance", s.instance)
 	if r.URL.Path == "/api/render" {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")
@@ -147,7 +154,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/":
 		s.static.ServeHTTP(w, r)
 	default:
-		if strings.HasPrefix(r.URL.Path, "/api/preview/") {
+		if strings.HasPrefix(r.URL.Path, "/api/preview/") || strings.HasPrefix(r.URL.Path, "/api/interactive/") {
 			s.preview(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/assets/") {
 			s.static.ServeHTTP(w, r)
@@ -596,7 +603,16 @@ func (s *Server) serveImage(w http.ResponseWriter, name, typeName string) {
 }
 
 func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
+	interactive := strings.HasPrefix(r.URL.Path, "/api/interactive/")
 	name := strings.TrimPrefix(r.URL.Path, "/api/preview/")
+	if interactive {
+		var token string
+		token, name, _ = strings.Cut(strings.TrimPrefix(r.URL.Path, "/api/interactive/"), "/")
+		if token != s.instance {
+			http.NotFound(w, r)
+			return
+		}
+	}
 	if _, err := files.Parts(name); err != nil {
 		apiError(w, err)
 		return
@@ -608,7 +624,7 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ext := strings.ToLower(path.Ext(name))
-	if ext != ".html" && ext != ".htm" && ext != ".css" {
+	if ext != ".html" && ext != ".htm" && ext != ".css" && (!interactive || ext != ".js" && ext != ".mjs") {
 		jsonReply(w, http.StatusUnsupportedMediaType, map[string]string{"error": "unsupported_asset"})
 		return
 	}
@@ -619,12 +635,41 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 	}
 	if ext == ".css" {
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	} else if ext == ".js" || ext == ".mjs" {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 	} else {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Content-Security-Policy", "sandbox allow-same-origin; script-src 'none'; object-src 'none'; form-action 'none'")
+		if interactive {
+			w.Header().Set("Content-Security-Policy", "sandbox allow-scripts allow-modals; script-src 'unsafe-inline' http://"+r.Host+"/api/interactive/"+s.instance+"/; connect-src 'none'; worker-src 'none'; object-src 'none'; form-action 'none'; base-uri 'none'; frame-src 'none'")
+			content = previewWithNavigationBridge(content)
+		} else {
+			w.Header().Set("Content-Security-Policy", "sandbox allow-same-origin; script-src 'none'; object-src 'none'; form-action 'none'")
+		}
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.WriteString(w, content)
+}
+
+const previewNavigationBridge = `<script>(function(){window.addEventListener('click',function(event){
+if(event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
+var target=event.target;if(!(target instanceof Element))return;
+var link=target.closest('a[href]');if(!link)return;
+var url=new URL(link.href);if(url.hash&&url.href.split('#')[0]===location.href.split('#')[0])return;
+if(url.protocol==='http:'||url.protocol==='https:'){
+event.preventDefault();parent.postMessage({markportPreviewLink:url.href},'*');
+}
+});})();</script>`
+
+func previewWithNavigationBridge(content string) string {
+	lower := strings.ToLower(content)
+	if at := strings.LastIndex(lower, "</body>"); at >= 0 {
+		return content[:at] + previewNavigationBridge + content[at:]
+	}
+	if at := strings.LastIndex(lower, "</html>"); at >= 0 {
+		return content[:at] + previewNavigationBridge + content[at:]
+	}
+	return content + previewNavigationBridge
 }
 
 func validSVG(data []byte) bool {

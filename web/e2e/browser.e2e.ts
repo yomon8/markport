@@ -50,6 +50,20 @@ test.beforeAll(async () => {
   await writeFile(join(directory, 'docs', 'second.htm'), '<!doctype html><html><body><h1>Second HTML</h1></body></html>');
   await writeFile(join(directory, 'docs', 'transparent.html'), '<!doctype html><html><body style="background:transparent"><h1>Transparent HTML</h1></body></html>');
   await writeFile(join(directory, 'docs', 'colored.html'), '<!doctype html><html><body style="background:#ff8080"><h1>Colored HTML</h1></body></html>');
+  await writeFile(join(directory, 'docs', 'interactive.js'), 'document.body.dataset.localScript = "ready";');
+  await writeFile(join(directory, 'docs', 'interactive.mjs'), 'document.body.dataset.moduleScript = "ready";');
+  await writeFile(join(directory, 'docs', 'interactive.html'), `<!doctype html><html><head></head><body>
+    <nav><button type="button" data-mode="all" aria-pressed="true">All</button><button type="button" data-mode="public" aria-pressed="false">Public</button><button type="button" data-mode="internal" aria-pressed="false">Internal</button><button type="button" id="print">Print</button></nav>
+    <div data-flow="public internal"></div><div data-flow="internal"></div><a href="second.htm">Next HTML</a>
+    <script src="interactive.js"></script><script type="module" src="interactive.mjs"></script><script src="https://cdn.example.test/external.js"></script><script>
+      document.body.dataset.parentAccess = String((function(){try{return !!parent.document.body}catch{return false}})());
+      fetch('/api/tree').then(() => document.body.dataset.networkAccess = 'allowed', () => document.body.dataset.networkAccess = 'blocked');
+      for (const button of document.querySelectorAll('[data-mode]')) button.addEventListener('click', () => {
+        for (const item of document.querySelectorAll('[data-mode]')) item.setAttribute('aria-pressed', String(item === button));
+        for (const path of document.querySelectorAll('[data-flow]')) path.classList.toggle('dim', button.dataset.mode !== 'all' && !path.dataset.flow.split(' ').includes(button.dataset.mode));
+      });
+      document.querySelector('#print').addEventListener('click', () => window.print());
+    </script></body></html>`);
   await startServer();
 });
 
@@ -447,6 +461,49 @@ test('previews HTML with CSS and images, blocks scripts, and follows local links
   await expect(page.frameLocator('.html-preview').locator('h1')).toHaveText('Updated HTML', { timeout: 15000 });
 });
 
+test('enables interactive HTML per file and keeps it isolated', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=docs%2Finteractive.html`);
+  const frame = page.frameLocator('#content .html-preview');
+  const toggle = page.locator('#file-title .interactive-toggle');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(frame.locator('body')).not.toHaveAttribute('data-local-script', 'ready');
+  await toggle.click();
+  await expect(toggle).toHaveText('Disable JavaScript');
+  await expect(page.locator('#content .html-preview')).toHaveAttribute('sandbox', 'allow-scripts allow-modals');
+  await expect(frame.locator('body')).toHaveAttribute('data-local-script', 'ready');
+  await expect(frame.locator('body')).toHaveAttribute('data-module-script', 'ready');
+  await expect(frame.locator('body')).toHaveAttribute('data-parent-access', 'false');
+  await expect(frame.locator('body')).toHaveAttribute('data-network-access', 'blocked');
+  await expect(frame.locator('body')).not.toHaveAttribute('data-external-script', 'ready');
+  expect(await page.locator('#content .html-preview').evaluate((element: HTMLIFrameElement) => element.contentDocument)).toBeNull();
+  await frame.getByRole('button', { name: 'Public' }).click();
+  await expect(frame.getByRole('button', { name: 'Public' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(frame.locator('[data-flow="internal"]')).toHaveClass('dim');
+  await frame.locator('body').evaluate((body) => { body.ownerDocument.defaultView!.addEventListener('beforeprint', () => { body.dataset.printCalled = 'true'; }); });
+  await frame.getByRole('button', { name: 'Print' }).click();
+  await expect(frame.locator('body')).toHaveAttribute('data-print-called', 'true');
+  await page.reload();
+  await expect(frame.locator('body')).toHaveAttribute('data-local-script', 'ready');
+  await frame.getByRole('link', { name: 'Next HTML' }).click();
+  await expect(page).toHaveURL(/path=docs%2Fsecond\.htm/);
+  await expect(page.locator('#file-title .interactive-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await page.goto(`http://127.0.0.1:${port}/?path=docs%2Finteractive.html`);
+  await expect(frame.locator('body')).toHaveAttribute('data-local-script', 'ready');
+  await page.locator('#file-title .interactive-toggle').click();
+  await expect(frame.locator('body')).not.toHaveAttribute('data-local-script', 'ready');
+});
+
+test('enables interactive HTML in the right pane', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md&right=docs%2Finteractive.html`);
+  const frame = page.frameLocator('#right-content .html-preview');
+  await expect(frame.locator('body')).not.toHaveAttribute('data-local-script', 'ready');
+  await page.locator('#right-interactive').click();
+  await expect(frame.locator('body')).toHaveAttribute('data-local-script', 'ready');
+  await frame.getByRole('link', { name: 'Next HTML' }).click();
+  await expect(page.locator('#right-path')).toHaveText('docs/second.htm');
+  await expect(page.locator('#right-interactive')).toHaveAttribute('aria-pressed', 'false');
+});
+
 test('renders GFM, Mermaid and code, then tracks files', async ({ page }) => {
   const externalRequests: string[] = [];
   page.on('request', (request) => { const url = new URL(request.url()); if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin !== `http://127.0.0.1:${port}`) externalRequests.push(request.url()); });
@@ -525,6 +582,9 @@ test('tracks imported descendants and an in-root directory move', async ({ page 
 
 test('recovers changes after the server restarts', async ({ page }) => {
   await writeFile(join(directory, 'to-delete.md'), '# Delete me\n');
+  await page.goto(`http://127.0.0.1:${port}/?path=docs%2Finteractive.html`);
+  await page.locator('#file-title .interactive-toggle').click();
+  await expect(page.frameLocator('#content .html-preview').locator('body')).toHaveAttribute('data-local-script', 'ready');
   await page.goto(`http://127.0.0.1:${port}/?path=sample.py`);
   await expect(page.locator('article .lntd:last-child pre')).toContainText('first');
   await expect(page.getByRole('link', { name: 'to-delete.md' })).toBeVisible();
@@ -537,6 +597,9 @@ test('recovers changes after the server restarts', async ({ page }) => {
   await expect(page.locator('article .lntd:last-child pre')).toContainText('offline update', { timeout: 15000 });
   await expect(page.getByRole('link', { name: 'offline.md' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'to-delete.md' })).toHaveCount(0);
+  await page.goto(`http://127.0.0.1:${port}/?path=docs%2Finteractive.html`);
+  await expect(page.locator('#file-title .interactive-toggle')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.frameLocator('#content .html-preview').locator('body')).not.toHaveAttribute('data-local-script', 'ready');
 });
 
 test('keeps browsing after a Mermaid parse error', async ({ page }) => {

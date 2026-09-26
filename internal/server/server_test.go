@@ -76,6 +76,9 @@ func TestHostAndAPI(t *testing.T) {
 			if r.Code != 200 {
 				t.Errorf("%s %s: %d", host, url, r.Code)
 			}
+			if len(r.Header().Get("X-Markport-Instance")) != 32 {
+				t.Errorf("missing instance ID: %s %s", host, url)
+			}
 		}
 	}
 	for _, host := range []string{"", "evil.test:3000", "x.localhost:3000", "localhost:3001", "localhost", "localhost:", "localhost:abc", "127.0.0.1:3000@evil.test", "[::1]:3000"} {
@@ -413,7 +416,24 @@ func TestHTMLPreview(t *testing.T) {
 	if err := json.Unmarshal(source.Body.Bytes(), &file); err != nil || file["type"] != "html" || !strings.Contains(file["html"], "Preview") {
 		t.Fatalf("source: %d %+v %v", source.Code, file, err)
 	}
-	for _, path := range []string{"/api/preview/docs/app.js", "/api/preview/../readme.md", "/api/preview/docs/../../readme.md"} {
+	if got := request(app, "localhost:3000", "/api/preview/docs/app.js").Code; got != http.StatusUnsupportedMediaType {
+		t.Fatalf("ordinary preview served JavaScript: %d", got)
+	}
+	if csp := request(app, "localhost:3000", file["previewUrl"]+"&interactive=1").Header().Get("Content-Security-Policy"); !strings.Contains(csp, "script-src 'none'") {
+		t.Fatalf("query enabled scripts in ordinary preview: %q", csp)
+	}
+	js := request(app, "localhost:3000", "/api/interactive/"+app.instance+"/docs/app.js")
+	if js.Code != 200 || js.Header().Get("Content-Type") != "text/javascript; charset=utf-8" || js.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("JavaScript: %d %v", js.Code, js.Header())
+	}
+	if got := request(app, "localhost:3000", "/api/interactive/wrong/docs/app.js").Code; got != http.StatusNotFound {
+		t.Fatalf("untrusted interactive URL served JavaScript: %d", got)
+	}
+	interactive := request(app, "localhost:3000", strings.Replace(file["previewUrl"], "/api/preview/", "/api/interactive/"+app.instance+"/", 1))
+	if csp := interactive.Header().Get("Content-Security-Policy"); interactive.Code != 200 || !strings.Contains(csp, "sandbox allow-scripts allow-modals") || strings.Contains(csp, "allow-same-origin") || !strings.Contains(interactive.Body.String(), "markportPreviewLink") {
+		t.Fatalf("interactive preview: %d %v", interactive.Code, interactive.Header())
+	}
+	for _, path := range []string{"/api/preview/../readme.md", "/api/preview/docs/../../readme.md"} {
 		if got := request(app, "localhost:3000", path).Code; got < 400 {
 			t.Errorf("accepted %s: %d", path, got)
 		}

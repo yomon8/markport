@@ -17,7 +17,7 @@ type ApiError = { error?: string; message?: string };
 class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
-app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><label for="search">Search files</label><input id="search" type="search" placeholder="Path or file name /"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><strong id="right-path"></strong><div class="right-actions"><button id="right-source" type="button" hidden>Source</button><button id="right-close" type="button" aria-label="Close split view">Close split</button></div></div><article id="right-content" aria-busy="false"></article></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
+app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><label for="search">Search files</label><input id="search" type="search" placeholder="Path or file name /"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><strong id="right-path"></strong><div class="right-actions"><button id="right-interactive" type="button" hidden>Enable JavaScript</button><button id="right-source" type="button" hidden>Source</button><button id="right-close" type="button" aria-label="Close split view">Close split</button></div></div><article id="right-content" aria-busy="false"></article></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
 if (!icon.isConnected) document.head.append(icon);
@@ -50,6 +50,7 @@ const layout = document.querySelector<HTMLElement>('.layout')!;
 const rightPane = document.querySelector<HTMLElement>('#right-pane')!;
 const rightContent = document.querySelector<HTMLElement>('#right-content')!;
 const rightPath = document.querySelector<HTMLElement>('#right-path')!;
+const rightInteractive = document.querySelector<HTMLButtonElement>('#right-interactive')!;
 const rightSource = document.querySelector<HTMLButtonElement>('#right-source')!;
 let rightShownPath = ''; let rightShownKey = ''; let rightSourceMode = false; let rightRequest = 0;
 let rightTag = ''; let rightTagCheckedAt = 0;
@@ -73,6 +74,8 @@ const review = new ReviewState();
 let reviewVersion = 0;
 let onlyUnreviewed = false;
 let previewReload = 0;
+let previewInstance = '';
+const interactivePaths = new Set<string>();
 let displayedTag = '';
 let displayedTagCheckedAt = 0;
 const pageTags = new Map<string, { value: string; checkedAt: number }>();
@@ -96,6 +99,35 @@ if (savedWidth >= 200 && savedWidth <= 480) document.documentElement.style.setPr
 
 function selected(): string { return new URL(location.href).searchParams.get('path') ?? ''; }
 function fileURL(path: string): string { return `/?path=${encodeURIComponent(path)}`; }
+function previewStorageKey(): string { return `markport-interactive-preview:${previewInstance}`; }
+function syncPreviewInstance(instance: string): void {
+  if (!instance || instance === previewInstance) return;
+  previewInstance = instance; interactivePaths.clear();
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(previewStorageKey()) ?? '[]') as unknown;
+    if (Array.isArray(saved)) for (const path of saved) if (typeof path === 'string') interactivePaths.add(path);
+  } catch { /* Storage may be unavailable. */ }
+  displayedHTML = ''; displayedTag = ''; rightShownKey = ''; rightTag = '';
+  if (rightSelected()) void refreshRight();
+}
+function setInteractive(path: string, enabled: boolean): void {
+  if (enabled) interactivePaths.add(path); else interactivePaths.delete(path);
+  try { if (previewInstance) sessionStorage.setItem(previewStorageKey(), JSON.stringify([...interactivePaths])); } catch { /* Storage may be unavailable. */ }
+  displayedHTML = ''; displayedTag = ''; rightShownKey = ''; rightTag = '';
+  requestRefresh();
+}
+function isInteractive(path: string): boolean { return Boolean(previewInstance) && interactivePaths.has(path); }
+function previewURL(url: string, path: string): string {
+  const preview = isInteractive(path) ? url.replace('/api/preview/', `/api/interactive/${previewInstance}/`) : url;
+  return `${preview}&reload=${previewReload}`;
+}
+function createPreviewFrame(url: string, path: string, pane: 'left' | 'right'): HTMLIFrameElement {
+  const frame = document.createElement('iframe'); frame.className = 'html-preview'; frame.title = `Preview of ${path}`;
+  frame.setAttribute('sandbox', isInteractive(path) ? 'allow-scripts allow-modals' : 'allow-same-origin');
+  frame.referrerPolicy = 'no-referrer'; attachPreviewNavigation(frame, path, pane);
+  frame.src = previewURL(url, path);
+  return frame;
+}
 function selectedMode(): 'file' | 'diff' | 'changes' | 'paste' {
   const view = new URL(location.href).searchParams.get('view');
   return view === 'paste' ? 'paste' : view === 'changes' ? 'changes' : view === 'diff' && selected() ? 'diff' : 'file';
@@ -199,6 +231,10 @@ async function getPage(path: string, offset: number, focus: string, conditional:
   let response: Response;
   try { response = await fetch(pageURL(path, offset, focus), { cache: 'no-store', headers }); }
   catch { throw new RequestError('network', 'Cannot connect'); }
+  if (path === '') {
+    const instance = response.headers?.get('X-Markport-Instance') ?? '';
+    if (/^[a-f0-9]{32}$/.test(instance)) syncPreviewInstance(instance);
+  }
   if (response.status === 304) return null;
   const body = await response.json() as Page & ApiError;
   if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
@@ -352,6 +388,14 @@ function showTitle(path: string, kind = '', missing = false): void {
   if (kind === 'markdown' || kind === 'html') {
     const rendered = kind === 'html' ? 'Preview' : 'Rendered view';
     segment([{ label: rendered, selected: !sourceMode, select: () => { if (sourceMode) { sourceMode = false; requestRefresh(); } } }, { label: 'Source', selected: sourceMode, select: () => { if (!sourceMode) { sourceMode = true; requestRefresh(); } } }]);
+  }
+  if (kind === 'html') {
+    const interactive = document.createElement('button'); interactive.type = 'button'; interactive.className = 'interactive-toggle';
+    const enabled = interactivePaths.has(path);
+    interactive.textContent = enabled ? 'Disable JavaScript' : 'Enable JavaScript';
+    interactive.setAttribute('aria-pressed', String(enabled));
+    interactive.title = 'Allow scripts in this HTML preview until this tab is closed';
+    interactive.addEventListener('click', () => setInteractive(path, !enabled)); actions.append(interactive);
   }
   const auxiliary = document.createElement('div'); auxiliary.className = 'title-auxiliary';
   const menuButton = document.createElement('button'); menuButton.type = 'button'; menuButton.className = 'title-more'; menuButton.textContent = '⋯'; menuButton.title = 'More actions'; menuButton.setAttribute('aria-label', 'More actions'); menuButton.setAttribute('aria-expanded', 'false'); menuButton.setAttribute('aria-haspopup', 'menu');
@@ -578,6 +622,7 @@ function manualRefresh(): void {
 }
 
 function attachPreviewNavigation(frame: HTMLIFrameElement, path: string, pane: 'left' | 'right' = 'left'): void {
+  if (isInteractive(path)) return;
   frame.addEventListener('load', () => {
     if (!frame.isConnected || (pane === 'left' ? selected() : rightSelected()) !== path) return;
     let document: Document | null;
@@ -601,6 +646,24 @@ function attachPreviewNavigation(frame: HTMLIFrameElement, path: string, pane: '
     });
   });
 }
+window.addEventListener('message', (event: MessageEvent) => {
+  if (event.origin !== 'null' || !event.data || typeof event.data.markportPreviewLink !== 'string') return;
+  const leftFrame = content.querySelector<HTMLIFrameElement>('.html-preview');
+  const rightFrame = rightContent.querySelector<HTMLIFrameElement>('.html-preview');
+  const pane = event.source === leftFrame?.contentWindow ? 'left' : event.source === rightFrame?.contentWindow ? 'right' : null;
+  if (!pane || !isInteractive(pane === 'left' ? selected() : rightSelected())) return;
+  let url: URL;
+  try { url = new URL(event.data.markportPreviewLink); } catch { return; }
+  const interactivePrefix = `/api/interactive/${previewInstance}/`;
+  if (url.origin === location.origin && url.pathname.startsWith(interactivePrefix)) {
+    let next: string;
+    try { next = decodeURIComponent(url.pathname.slice(interactivePrefix.length)); } catch { return; }
+    if (!next || next.split('/').some((part) => !part || part === '.' || part === '..')) return;
+    if (pane === 'right') openRight(next); else navigate(fileURL(next) + url.hash);
+  } else if (url.protocol === 'http:' || url.protocol === 'https:') {
+    window.open(url.href, '_blank', 'noopener,noreferrer');
+  }
+});
 async function refreshRight(): Promise<void> {
   const path = rightSelected(); const request = ++rightRequest;
   rightPane.hidden = !path; layout.classList.toggle('split', Boolean(path));
@@ -618,14 +681,12 @@ async function refreshRight(): Promise<void> {
     const file = await response.json() as FileReply & ApiError;
     if (!response.ok) throw new RequestError(file.error ?? 'network', file.message ?? `HTTP ${response.status}`);
     if (request !== rightRequest || path !== rightSelected()) return;
-    const key = `${rightSourceMode}\n${'assetUrl' in file ? file.assetUrl : 'previewUrl' in file ? `${file.previewUrl}&reload=${previewReload}` : file.html}`;
+    const key = `${rightSourceMode}\n${'assetUrl' in file ? file.assetUrl : 'previewUrl' in file ? previewURL(file.previewUrl, path) : file.html}`;
     if (rightShownPath !== path || rightShownKey !== key) {
       const scroll = rightShownPath === path ? rightPane.scrollTop : 0;
       rightContent.dataset.kind = file.type === 'image' ? 'image' : rightSourceMode ? 'code' : file.type;
       if ('previewUrl' in file) {
-        const frame = document.createElement('iframe'); frame.className = 'html-preview'; frame.title = `Preview of ${path}`;
-        frame.setAttribute('sandbox', 'allow-same-origin'); frame.referrerPolicy = 'no-referrer';
-        attachPreviewNavigation(frame, path, 'right'); frame.src = `${file.previewUrl}&reload=${previewReload}`; rightContent.replaceChildren(frame);
+        rightContent.replaceChildren(createPreviewFrame(file.previewUrl, path, 'right'));
       } else if (file.type === 'image') {
         const img = document.createElement('img'); img.className = 'image-preview'; img.alt = path.split('/').at(-1) ?? path;
         img.src = file.assetUrl; img.addEventListener('error', () => { if (img.isConnected) rightContent.textContent = 'Cannot display image.'; }); rightContent.replaceChildren(img);
@@ -635,11 +696,15 @@ async function refreshRight(): Promise<void> {
     }
     rightSource.hidden = file.type !== 'html' && file.type !== 'markdown';
     rightSource.textContent = rightSourceMode ? file.type === 'html' ? 'Preview' : 'Rendered view' : 'Source';
+    rightInteractive.hidden = file.type !== 'html';
+    rightInteractive.textContent = interactivePaths.has(path) ? 'Disable JavaScript' : 'Enable JavaScript';
+    rightInteractive.setAttribute('aria-pressed', String(interactivePaths.has(path)));
     rightShownPath = path;
   } catch (error) {
     if (request !== rightRequest || path !== rightSelected()) return;
     rightContent.replaceChildren(); const message = document.createElement('div'); message.className = 'file-error'; message.setAttribute('role', 'alert');
     message.textContent = error instanceof RequestError && error.code === 'not_found' ? 'File not found.' : 'Cannot display file. Please try again.'; rightContent.append(message);
+    rightInteractive.hidden = true;
     rightShownPath = path; rightShownKey = '';
   } finally { if (request === rightRequest) rightContent.setAttribute('aria-busy', 'false'); }
 }
@@ -694,15 +759,13 @@ async function refreshLoop(): Promise<void> {
         if (fileReply && 'value' in fileReply) {
           const file = fileReply.value as FileReply | null;
           if (!file) { status('Checking every few seconds', 'ok'); continue; }
-          const displayKey = 'assetUrl' in file ? file.assetUrl : 'previewUrl' in file ? `${file.previewUrl}&reload=${previewReload}` : file.html;
+          const displayKey = 'assetUrl' in file ? file.assetUrl : 'previewUrl' in file ? previewURL(file.previewUrl, path) : file.html;
           const changed = displayedHTML !== displayKey || displayedSource !== source;
           if (changed) {
             const oldScroll = main.scrollTop;
             content.dataset.kind = file.type === 'image' ? 'image' : source ? 'code' : file.type;
             if ('previewUrl' in file) {
-              const frame = document.createElement('iframe'); frame.className = 'html-preview'; frame.title = `Preview of ${path}`;
-              frame.setAttribute('sandbox', 'allow-same-origin'); frame.referrerPolicy = 'no-referrer';
-              attachPreviewNavigation(frame, path); frame.src = displayKey; content.replaceChildren(frame);
+              content.replaceChildren(createPreviewFrame(file.previewUrl, path, 'left'));
             } else if (file.type === 'image') {
               const img = document.createElement('img'); img.className = 'image-preview'; img.alt = path.split('/').at(-1) ?? path;
               img.addEventListener('error', () => { if (img.isConnected && selected() === path) { displayedHTML = ''; showError(new RequestError('invalid_asset', 'image load failed'), path); } });
@@ -785,6 +848,7 @@ content.addEventListener('click', (event) => onContentClick(event, 'left'));
 rightContent.addEventListener('click', (event) => onContentClick(event, 'right'));
 document.querySelector('#right-close')!.addEventListener('click', closeRight);
 rightSource.addEventListener('click', () => { rightSourceMode = !rightSourceMode; rightShownKey = ''; void refreshRight(); });
+rightInteractive.addEventListener('click', () => { const path = rightSelected(); if (path) setInteractive(path, !interactivePaths.has(path)); });
 document.querySelector('#overlay-close')!.addEventListener('click', () => { document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; });
 window.addEventListener('popstate', () => { pasteVersion++; sidebarPanel = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); });
 window.addEventListener('keydown', (event) => {

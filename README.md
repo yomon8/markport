@@ -21,7 +21,7 @@ Markport opens a folder in your browser so you can read and review Markdown, HTM
 
 [See the Git review screen](docs/screenshots/reviewed-changes.png) · [See the pasted Markdown preview](docs/screenshots/pasted-markdown.png)
 
-HTML previews can load relative CSS and images from the selected directory, plus external CSS and images. JavaScript does not run in previews.
+HTML previews can load relative CSS and images from the selected directory, plus external CSS and images. JavaScript is off by default. For an HTML file you trust, click **Enable JavaScript** to run inline and local scripts, including interactive controls and printing. The choice applies to that file in the current browser tab until you disable it, close the tab, or restart Markport. Scripts run in an isolated preview; external scripts, fetch and WebSocket calls, forms, and access to the Markport UI remain blocked.
 
 ## Get started
 

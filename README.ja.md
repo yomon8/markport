@@ -19,7 +19,7 @@ Markport は、指定したフォルダの Markdown・HTML・コード・画像�
 
 [Git の変更確認画面](docs/screenshots/reviewed-changes.png) · [貼り付けた Markdown のプレビュー](docs/screenshots/pasted-markdown.png)
 
-HTML プレビューでは、指定したフォルダ内の相対パスの CSS・画像と外部 URL の CSS・画像を読み込みます。JavaScript は実行しません。
+HTML プレビューでは、指定したフォルダ内の相対パスの CSS・画像と外部 URL の CSS・画像を読み込みます。JavaScript は初期状態では実行しません。信頼する HTML で **Enable JavaScript** を押すと、インラインとローカルのスクリプトによる操作や印刷を利用できます。設定はそのファイルについて現在のタブ内で保持され、**Disable JavaScript** を押すかタブを閉じるか Markport を再起動すると解除されます。スクリプトは隔離されたプレビュー内で動き、外部スクリプト、fetch・WebSocket、フォーム送信、Markport 画面へのアクセスは許可しません。
 
 ## まず使う
 
