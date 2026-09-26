@@ -94,3 +94,16 @@ header button{height:34px;min-height:34px;font-size:13px;line-height:1.2;padding
   #connection:not([data-state=ok]) .connection-label{position:static;width:auto;height:auto;padding:0;margin:0;overflow:visible;clip:auto;white-space:nowrap}
   #reload{min-width:32px}
 }
+
+@media(max-width:700px){
+  :root{--titlebar-h:48px}
+  #file-title,.layout.split #file-title{height:48px;min-height:48px;display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;justify-content:space-between;gap:8px;padding:4px 0}
+  #file-title .breadcrumbs,.layout.split #file-title .breadcrumbs{display:block;flex:1;min-width:0;width:auto;overflow:hidden;white-space:nowrap;text-overflow:clip}
+  #file-title .breadcrumbs .crumb,#file-title .breadcrumbs .crumb-separator{display:none}
+  #file-title .breadcrumbs strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
+  #file-title .title-actions,.layout.split #file-title .title-actions{display:block;flex:none;max-width:none;overflow:visible}
+  #file-title .title-actions>.view-segment,#file-title .title-actions>.review-toggle,#file-title .title-actions>.kind-badge,#file-title .title-actions>.interactive-toggle,#file-title .title-actions>.title-auxiliary,#file-title .title-actions>.diff-navigation{display:none}
+  #file-title .title-more{display:inline-block;height:32px;min-width:34px}
+  #file-title .title-menu:not([hidden]){top:calc(100% + 4px);max-height:calc(100vh - 120px);overflow:auto}
+  .layout.split #outline.open{top:105px}
+}

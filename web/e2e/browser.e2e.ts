@@ -178,15 +178,50 @@ test('title controls show active views and keep auxiliary actions reachable on m
   await page.setViewportSize({ width: 390, height: 720 });
   const more = title.getByRole('button', { name: 'More actions' });
   await more.focus(); await page.keyboard.press('Enter');
-  await expect(title.getByRole('menuitem', { name: 'Open on right' })).toBeFocused();
+  await expect(title.getByRole('menuitemradio', { name: 'File' })).toBeFocused();
   await page.keyboard.press('ArrowDown');
-  await expect(title.getByRole('menuitem', { name: 'Copy path' })).toBeFocused();
+  await expect(title.getByRole('menuitemradio', { name: 'Diff' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(more).toBeFocused();
   await expect(more).toHaveAttribute('aria-expanded', 'false');
   await more.click();
   await title.getByRole('menuitem', { name: 'Open on right' }).click();
   await expect(page.locator('#right-pane')).toBeVisible();
+});
+
+test('mobile title stays one row and keeps reading actions close', async ({ page }, testInfo) => {
+  await writeFile(join(directory, 'mobile-title.md'), `# Mobile title\n\n## First\n\n${'Reading line\n\n'.repeat(60)}## Second\n\n## Third\n\n## Fourth\n`);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(`http://127.0.0.1:${port}/?path=mobile-title.md`);
+  await expect(page.locator('#content h1')).toHaveText('Mobile title');
+  expect((await page.locator('#file-title').boundingBox())!.height).toBeLessThanOrEqual(48);
+  await page.screenshot({ path: testInfo.outputPath('mobile-title-390.png') });
+  const more = page.locator('#file-title').getByRole('button', { name: 'More actions' });
+  await more.click();
+  await page.getByRole('menuitemradio', { name: 'Source' }).click();
+  await expect(page.locator('#content')).toHaveAttribute('data-kind', 'code');
+  await more.click();
+  await page.getByRole('menuitemradio', { name: 'Rendered view' }).click();
+  await expect(page.locator('#content h1')).toHaveText('Mobile title');
+  await more.click();
+  await page.getByRole('menuitem', { name: 'Contents' }).click();
+  await expect(page.locator('#outline')).toBeVisible();
+  await page.locator('#outline a', { hasText: 'Fourth' }).click();
+  const heading = (await page.locator('#content h2', { hasText: 'Fourth' }).boundingBox())!;
+  const title = (await page.locator('#file-title').boundingBox())!;
+  expect(heading.y).toBeGreaterThanOrEqual(title.y + title.height);
+  await more.click();
+  await page.getByRole('menuitem', { name: 'Copy path' }).click();
+  await expect(page.locator('#file-title')).toContainText('mobile-title.md');
+  await page.route('**/api/git/changes', (route) => route.fulfill({ json: { available: true, rootId: 'mobile-title-review', changes: [{ path: 'mobile-title.md', status: 'modified', revision: 'one', added: 1, deleted: 1 }] } }));
+  await page.route('**/api/git/diff?**', (route) => route.fulfill({ json: { path: 'mobile-title.md', kind: 'text', patch: '@@ -1 +1 @@\n-old\n+new\n' } }));
+  await page.goto(`http://127.0.0.1:${port}/?path=mobile-title.md&view=diff`);
+  await more.click();
+  await expect(page.getByRole('menuitem', { name: 'Review and next (r)' })).toBeVisible();
+  await page.getByRole('menuitemradio', { name: 'Mark reviewed: mobile-title.md' }).click();
+  await more.click();
+  await expect(page.getByRole('menuitemradio', { name: 'Mark unreviewed: mobile-title.md' })).toBeVisible();
 });
 
 test('sidebar tabs and resize handle work with keyboard, pointer, and mobile drawer', async ({ page }) => {
@@ -496,7 +531,8 @@ test('directory breadcrumbs reveal the folder in the sidebar', async ({ page }) 
   expect(page.url()).toBe(url);
 
   await page.setViewportSize({ width: 390, height: 800 });
-  await page.locator('.crumb', { hasText: 'docs' }).click();
+  await page.locator('#file-title').getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: 'Show parent folder' }).click();
   await expect(page.locator('#sidebar')).toHaveClass(/open/);
   await expect(page.locator('details[data-path="docs"] > summary')).toBeFocused();
   expect(page.url()).toBe(url);
@@ -527,9 +563,9 @@ test('previews HTML with CSS and images, blocks scripts, and follows local links
   await expect(frame.locator('h1')).toHaveCSS('background-color', 'rgb(40, 50, 60)');
   for (const image of await frame.locator('img').all()) await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
   expect(await frame.locator('body').evaluate((body) => (body.ownerDocument.defaultView as Window & { previewScriptRan?: boolean }).previewScriptRan)).toBeUndefined();
-  await page.locator('.title-actions button', { hasText: 'Source' }).click();
+  await page.locator('#file-title .view-segment').getByRole('button', { name: 'Source' }).click();
   await expect(page.locator('article .lntd:last-child pre')).toContainText('HTML preview');
-  await page.locator('.title-actions button', { hasText: 'Preview' }).click();
+  await page.locator('#file-title .view-segment').getByRole('button', { name: 'Preview' }).click();
   await frame.locator('a', { hasText: 'Next HTML' }).click();
   await expect(page).toHaveURL(/path=docs%2Fsecond\.htm/);
   await expect(page.frameLocator('.html-preview').locator('h1')).toHaveText('Second HTML');

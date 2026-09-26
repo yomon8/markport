@@ -382,7 +382,7 @@ function showTitle(path: string, kind = '', missing = false): void {
   const crumbs = document.createElement('div'); crumbs.className = 'breadcrumbs';
   const parts = path.split('/');
   parts.forEach((part, index) => {
-    if (index) crumbs.append(document.createTextNode(' / '));
+    if (index) { const separator = document.createElement('span'); separator.className = 'crumb-separator'; separator.textContent = ' / '; crumbs.append(separator); }
     if (index < parts.length - 1) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'crumb'; button.textContent = part;
       button.addEventListener('click', () => {
@@ -465,6 +465,23 @@ function showTitle(path: string, kind = '', missing = false): void {
   addAux('Open on right', '◫', () => openRight(path), selectedMode() === 'file');
   addAux('Copy path', '⧉', (button) => copyWithFeedback(button, path, button.classList.contains('title-icon') ? '⧉' : 'Copy path'));
   addAux('Contents', '☷', () => outline.classList.toggle('open'), !outline.hidden);
+  const mobileChoices = [...actions.querySelectorAll<HTMLButtonElement>('.view-segment button, .review-toggle, .diff-navigation button, .interactive-toggle')].map((control) => {
+    const item = document.createElement('button'); item.type = 'button';
+    item.textContent = control.getAttribute('aria-label') ?? control.textContent;
+    item.disabled = control.disabled;
+    if (control.hasAttribute('aria-pressed')) {
+      item.setAttribute('role', 'menuitemradio'); item.setAttribute('aria-checked', control.getAttribute('aria-pressed')!);
+    } else item.setAttribute('role', 'menuitem');
+    item.addEventListener('click', () => { closeMenu(); control.click(); });
+    return item;
+  });
+  menu.prepend(...mobileChoices);
+  const parentCrumb = [...crumbs.querySelectorAll<HTMLButtonElement>('.crumb')].at(-1);
+  if (parentCrumb) {
+    const parentAction = document.createElement('button'); parentAction.type = 'button'; parentAction.textContent = 'Show parent folder'; parentAction.setAttribute('role', 'menuitem');
+    parentAction.addEventListener('click', () => { closeMenu(); parentCrumb.click(); });
+    menu.append(parentAction);
+  }
   actions.append(auxiliary, menuButton, menu);
   title.append(actions); document.title = `${parts.at(-1)} — markport`;
 }
