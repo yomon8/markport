@@ -50,3 +50,9 @@ article[data-kind=changes],article[data-kind=diff]{max-width:none}.diff-frame{ma
 .layout.split #right-outline .outline-h3,.layout.split #right-outline .outline-h4,.layout.split #right-outline .outline-h5,.layout.split #right-outline .outline-h6{padding-left:20px}
 .layout.split #right-content{margin-top:24px}
 @media(max-width:700px){.layout.split #outline.open{right:10px}.layout.split #right-title .right-actions{overflow:visible}.layout.split #right-outline.open{right:10px}}
+
+.search-results a{align-items:flex-start;min-height:48px}
+.search-results .node-label{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;overflow:visible;white-space:normal}
+.search-results .node-file-name{font-size:13px;font-weight:650;color:var(--text);overflow-wrap:anywhere}
+.search-results .node-parent-path{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left;color:var(--text-muted);font-size:11px}
+@media(hover:hover){nav .open-right{opacity:0}nav li:hover>.open-right,nav li:focus-within>.open-right,nav li:has(>a[aria-current])>.open-right{opacity:1}}

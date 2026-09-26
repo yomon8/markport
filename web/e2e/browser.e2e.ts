@@ -785,6 +785,30 @@ test('searches a closed folder and refreshes search results after file changes',
   await expect(page.getByRole('link', { name: 'search-refresh/hidden-target-new.md' })).toBeVisible();
 });
 
+test('filename search keeps names readable in a narrow sidebar', async ({ page }) => {
+  await mkdir(join(directory, 'search-names', 'one'), { recursive: true });
+  await mkdir(join(directory, 'search-names', 'two'), { recursive: true });
+  const name = 'distinctive-long-filename.md';
+  await writeFile(join(directory, 'search-names', 'one', name), '# One');
+  await writeFile(join(directory, 'search-names', 'two', name), '# Two');
+  await page.goto(`http://127.0.0.1:${port}/`);
+  await page.evaluate(() => { localStorage.setItem('markport-sidebar-width', '200'); document.documentElement.style.setProperty('--sidebar-width', '200px'); });
+  await page.locator('#search').fill(name);
+  await expect(page.locator('#tree .search-results a')).toHaveCount(2);
+  const rows = page.locator('#tree .search-results li');
+  await expect(rows.nth(0).locator('.node-file-name')).toHaveText(name);
+  await expect(rows.nth(1).locator('.node-file-name')).toHaveText(name);
+  expect(await rows.nth(0).locator('.node-file-name').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await rows.nth(0).locator('.node-parent-path').textContent()).not.toBe(await rows.nth(1).locator('.node-parent-path').textContent());
+  await page.locator('#search').press('ArrowDown');
+  await expect(rows.nth(0).locator('a')).toBeFocused();
+  await rows.nth(0).locator('.open-right').focus();
+  await expect(rows.nth(0).locator('.open-right')).toBeFocused();
+  await page.locator('#search').focus();
+  await page.locator('#search').press('Escape');
+  await expect(page.locator('#tree .search-results')).toHaveCount(0);
+});
+
 test('shows an outline and keeps a long table header visible', async ({ page }) => {
   const rows = Array.from({ length: 50 }, (_, index) => `| ${index} | value ${index} |`).join('\n');
   await writeFile(join(directory, 'long.md'), `# First\n\n## Second\n\n### Third\n\n| Number | Value |\n|---:|:---|\n${rows}\n`);
