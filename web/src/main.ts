@@ -7,6 +7,8 @@ import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
 import { copyText } from './clipboard';
 import { createDiagramOverlay } from './diagramOverlay';
+import { createShortcutHelp } from './shortcutHelp';
+import { editingShortcutTarget, matchesShortcut, shortcutText } from './shortcuts';
 import symbolLight from '../../logo/markport-symbol-light.svg';
 import symbolDark from '../../logo/markport-symbol-dark.svg';
 import favicon from '../../logo/markport-favicon.svg';
@@ -46,6 +48,10 @@ const count = document.querySelector<HTMLElement>('#result-count')!;
 const connection = document.querySelector<HTMLElement>('#connection')!;
 const banner = document.querySelector<HTMLElement>('#connection-banner')!;
 const reload = document.querySelector<HTMLButtonElement>('#reload')!;
+const helpToggle = document.createElement('button'); helpToggle.id = 'help-toggle'; helpToggle.type = 'button'; helpToggle.textContent = '?';
+helpToggle.setAttribute('aria-label', `Keyboard shortcuts (${shortcutText('help')})`); helpToggle.title = `Keyboard shortcuts (${shortcutText('help')})`;
+reload.before(helpToggle);
+const shortcutHelp = createShortcutHelp(helpToggle);
 const pasteToggle = document.querySelector<HTMLButtonElement>('#paste-toggle')!;
 const headerMore = document.querySelector<HTMLButtonElement>('#header-more')!;
 const headerExtras = document.querySelector<HTMLElement>('#header-extras')!;
@@ -71,7 +77,9 @@ const progress = document.querySelector<HTMLElement>('#progress')!;
 const outline = document.querySelector<HTMLElement>('#outline')!;
 const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
 const drawerToggle = document.querySelector<HTMLButtonElement>('#drawer-toggle')!;
+drawerToggle.title = `Open file list (${shortcutText('sidebar')})`;
 const sidebarToggle = document.querySelector<HTMLButtonElement>('#sidebar-toggle')!;
+sidebarToggle.title = `Collapse sidebar (${shortcutText('sidebar')})`;
 const view = new TreeView(tree, search, count, selected,
   (path) => { const current = revision; void loadPage(path, 0, '', false, current).then(() => loadOpenDirectories(current)).catch(() => status('Refresh failed. Please try again.', 'error')); },
   (path, offset) => { const current = revision; void loadPage(path, offset, '', false, current).catch(() => status('Refresh failed. Please try again.', 'error')); },
@@ -425,9 +433,9 @@ function showTitle(path: string, kind = '', missing = false): void {
         button.disabled = !target; button.title = target ? `${label}: ${target.path}` : `No ${label.toLowerCase()} file`;
         button.addEventListener('click', () => { if (target) navigate(diffURL(target.path)); }); navigation.append(button);
       };
-      addNavigation('Previous (p)', previous);
-      addNavigation('Next (n)', next);
-      const reviewNext = document.createElement('button'); reviewNext.type = 'button'; reviewNext.textContent = 'Review and next (r)';
+      addNavigation(`Previous (${shortcutText('previousChange')})`, previous);
+      addNavigation(`Next (${shortcutText('nextChange')})`, next);
+      const reviewNext = document.createElement('button'); reviewNext.type = 'button'; reviewNext.textContent = `Review and next (${shortcutText('reviewNext')})`;
       reviewNext.addEventListener('click', markReviewedAndNext); navigation.append(reviewNext);
       actions.append(navigation);
     }
@@ -1002,9 +1010,9 @@ function selectSidebarTab(mode: 'file' | 'changes'): void {
 filesTab.addEventListener('click', () => selectSidebarTab('file'));
 changesTab.addEventListener('click', () => selectSidebarTab('changes'));
 document.querySelector<HTMLElement>('.sidebar-tabs')!.addEventListener('keydown', (event) => {
-  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  if (!matchesShortcut(event, 'tabSwitch') && !matchesShortcut(event, 'tabFirst') && !matchesShortcut(event, 'tabLast')) return;
   event.preventDefault();
-  const mode = event.key === 'Home' ? 'file' : event.key === 'End' ? 'changes' : document.activeElement === filesTab ? 'changes' : 'file';
+  const mode = matchesShortcut(event, 'tabFirst') ? 'file' : matchesShortcut(event, 'tabLast') ? 'changes' : document.activeElement === filesTab ? 'changes' : 'file';
   selectSidebarTab(mode);
 });
 pasteToggle.addEventListener('click', () => { headerExtras.classList.remove('open'); headerMore.setAttribute('aria-expanded', 'false'); navigate('/?view=paste'); });
@@ -1064,24 +1072,23 @@ window.addEventListener('popstate', () => { pasteVersion++; sidebarPanel = selec
 window.addEventListener('hashchange', () => { highlightCodeLines(true); });
 window.addEventListener('keydown', (event) => {
   if (event.isComposing || event.keyCode === 229) return;
-  const target = event.target;
-  const editing = target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, [contenteditable]') !== null);
-  if (editing) return;
+  if (editingShortcutTarget(event.target)) return;
   if (selectedMode() === 'diff' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-    if (event.key === 'n' || event.key === 'p') {
-      const next = diffNeighbor(selected(), event.key === 'n' ? 1 : -1, onlyUnreviewed);
+    if (matchesShortcut(event, 'nextChange') || matchesShortcut(event, 'previousChange')) {
+      const next = diffNeighbor(selected(), matchesShortcut(event, 'nextChange') ? 1 : -1, onlyUnreviewed);
       if (next) { event.preventDefault(); navigate(diffURL(next.path)); }
       return;
     }
-    if (event.key === 'r') { event.preventDefault(); markReviewedAndNext(); return; }
+    if (matchesShortcut(event, 'reviewNext')) { event.preventDefault(); markReviewedAndNext(); return; }
   }
-  if ((event.key === '/' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k'))) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') { event.preventDefault(); sidebarToggle.click(); }
-  if (event.key === 'Escape') { sidebar.classList.remove('open'); outline.classList.remove('open'); diagramOverlay.close(); }
+  if (matchesShortcut(event, 'search')) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
+  if (matchesShortcut(event, 'sidebar')) { event.preventDefault(); if (window.innerWidth <= 700) drawerToggle.click(); else sidebarToggle.click(); }
+  if (matchesShortcut(event, 'help')) { event.preventDefault(); shortcutHelp.open(); }
+  if (matchesShortcut(event, 'close')) { sidebar.classList.remove('open'); outline.classList.remove('open'); diagramOverlay.close(); shortcutHelp.close(); }
 });
 reload.addEventListener('click', manualRefresh);
-drawerToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
-sidebarToggle.addEventListener('click', () => { const collapsed = sidebar.classList.toggle('collapsed'); sidebarToggle.setAttribute('aria-expanded', String(!collapsed)); sidebarToggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar'); });
+drawerToggle.addEventListener('click', () => { const open = sidebar.classList.toggle('open'); drawerToggle.title = `${open ? 'Close' : 'Open'} file list (${shortcutText('sidebar')})`; drawerToggle.setAttribute('aria-label', `${open ? 'Close' : 'Open'} file list`); });
+sidebarToggle.addEventListener('click', () => { const collapsed = sidebar.classList.toggle('collapsed'); sidebarToggle.setAttribute('aria-expanded', String(!collapsed)); sidebarToggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar'); sidebarToggle.title = `${collapsed ? 'Expand' : 'Collapse'} sidebar (${shortcutText('sidebar')})`; });
 const resize = document.querySelector<HTMLElement>('#sidebar-resize')!;
 resize.addEventListener('pointerdown', (event) => { resize.setPointerCapture(event.pointerId); resize.classList.add('dragging'); });
 resize.addEventListener('pointermove', (event) => { if (!resize.hasPointerCapture(event.pointerId)) return; const width = Math.max(200, Math.min(480, event.clientX)); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });

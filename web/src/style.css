@@ -118,3 +118,14 @@ header button{height:34px;min-height:34px;font-size:13px;line-height:1.2;padding
 #overlay-viewport:active{cursor:grabbing}
 #overlay-content{position:absolute;left:50%;top:50%;display:block;overflow:visible;transform-origin:center center;will-change:transform}
 #overlay-content svg{display:block;width:100%;height:100%;max-width:none}
+
+#help-toggle{min-width:34px;font-weight:700}
+#shortcuts-dialog[open]{width:min(520px,calc(100vw - 28px));max-height:calc(100vh - 28px);padding:22px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);box-shadow:0 15px 55px #0005;overflow:auto}
+#shortcuts-dialog::backdrop{background:#0008}
+#shortcuts-dialog h2{display:inline-block;margin:0 16px 12px 0;font-size:20px}
+#shortcuts-dialog>button{float:right}
+#shortcuts-dialog h3{margin:18px 0 8px;font-size:13px;color:var(--text-muted)}
+#shortcuts-dialog dl{display:grid;grid-template-columns:minmax(110px,auto) 1fr;gap:8px 16px;margin:0}
+#shortcuts-dialog dt,#shortcuts-dialog dd{margin:0;font-size:13px}
+#shortcuts-dialog kbd{display:inline-block;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--code-bg);font:12px var(--mono)}
+@media(max-width:700px){#shortcuts-dialog[open]{padding:16px}#shortcuts-dialog dl{grid-template-columns:110px 1fr}}

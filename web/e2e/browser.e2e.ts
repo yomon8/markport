@@ -113,6 +113,31 @@ test('keeps global shortcuts out of Markdown and editable text', async ({ page }
   await expect(page.getByRole('searchbox', { name: 'Search files' })).toBeFocused();
 });
 
+test('shortcut help opens by keyboard and mouse without interrupting editing', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' }));
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await expect(page.locator('#sidebar-toggle')).toHaveAttribute('title', /⌘B/);
+  await page.keyboard.press('?');
+  const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('⌘K');
+  await expect(dialog).toContainText('Next changed file');
+  await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('#help-toggle')).toBeFocused();
+  await page.locator('#help-toggle').click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
+  await page.locator('#search').fill('?');
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('#search')).toHaveValue('?');
+  await page.locator('#search').blur();
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: '?', isComposing: true, bubbles: true })));
+  await expect(dialog).toBeHidden();
+});
+
 test('theme colors follow the selected theme and HTML keeps document colors', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('markport-theme', 'light'));
   await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
@@ -278,7 +303,7 @@ test('keeps sidebar controls visible while file and change lists scroll', async 
 
     await page.getByRole('tab', { name: 'Changes' }).click();
     await expect(page.locator('#changes-tree .hint')).toContainText('not a Git repository');
-    if (width < 700) await page.getByRole('button', { name: 'Open file list' }).click();
+    if (width < 700) await page.getByRole('button', { name: 'Close file list' }).click();
     await page.locator('#changes-tree').evaluate((tree) => {
       for (let i = 0; i < 80; i++) tree.appendChild(document.createElement('p')).textContent = `Change ${i}`;
       tree.scrollTop = tree.scrollHeight;
@@ -1033,7 +1058,7 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   });
   expect(positions.buttonTop).toBe(positions.linkTop);
   expect(positions.linkWidth).toBeGreaterThan(100);
-  await page.getByRole('button', { name: 'Open file list' }).click();
+  await page.getByRole('button', { name: 'Close file list' }).click();
   const count = page.locator('#content .review-count');
   await expect(count).toContainText('0 of');
   await page.locator('#content a[href*="new-diff.md"]').click();

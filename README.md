@@ -33,6 +33,23 @@ markport ./notes
 
 Open the `http://127.0.0.1:3000/` URL printed at startup. Omit the directory to browse the current directory. Press `Ctrl+C` to stop Markport.
 
+### Keyboard shortcuts
+
+Press `?` or the help button in the header to see these shortcuts in Markport. On macOS, use `⌘` instead of `Ctrl`.
+
+| Keys | Action |
+| --- | --- |
+| `/` or `Ctrl+K` | Focus file search |
+| `Ctrl+B` | Toggle the file list |
+| `?` | Open the shortcut list |
+| `Esc` | Close a dialog or menu |
+| `n` / `p` | Next / previous changed file in Diff view |
+| `r` | Mark the current change reviewed and open the next unreviewed file |
+| `↑` / `↓`, `Home` / `End`, `Enter` | Move through and open files in the tree |
+| `←` / `→`, `Home` / `End` | Switch or select sidebar tabs |
+
+Global shortcuts do not interrupt text entry or IME composition.
+
 ### Install and run
 
 On Linux, install the latest release for your CPU with the installer:

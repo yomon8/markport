@@ -1,3 +1,4 @@
+import { matchesShortcut } from './shortcuts';
 export type Node = { name: string; path: string; type: 'directory' | 'file' };
 export type Page = { entries: Node[]; offset: number; nextOffset: number | null; revision: string; root: string; readme?: string };
 type Directory = { pages: Map<number, Node[]>; next: Map<number, number | null>; revision: string };
@@ -144,21 +145,21 @@ export class TreeView {
     search.addEventListener('input', () => { this.render(); this.onSearch(search.value.trim()); });
     search.addEventListener('keydown', (event) => {
       const links = [...tree.querySelectorAll<HTMLAnchorElement>('a')];
-      if (event.key === 'Escape') { search.value = ''; this.render(); this.onSearch(''); return; }
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (matchesShortcut(event, 'treeClear')) { search.value = ''; this.render(); this.onSearch(''); return; }
+      if (matchesShortcut(event, 'treeNext') || matchesShortcut(event, 'treePrevious')) {
         event.preventDefault(); const active = links.indexOf(document.activeElement as HTMLAnchorElement);
-        links[Math.max(0, Math.min(links.length - 1, active + (event.key === 'ArrowDown' ? 1 : -1))) ]?.focus();
-      } else if (event.key === 'Enter') links[0]?.click();
+        links[Math.max(0, Math.min(links.length - 1, active + (matchesShortcut(event, 'treeNext') ? 1 : -1))) ]?.focus();
+      } else if (matchesShortcut(event, 'treeOpen')) links[0]?.click();
     });
     tree.addEventListener('keydown', (event) => {
       const links = [...tree.querySelectorAll<HTMLAnchorElement>('a')].filter((link) => !link.closest('details:not([open])'));
       const active = links.indexOf(document.activeElement as HTMLAnchorElement);
       if (active < 0) return;
       let next = active;
-      if (event.key === 'ArrowDown') next++;
-      else if (event.key === 'ArrowUp') next--;
-      else if (event.key === 'Home') next = 0;
-      else if (event.key === 'End') next = links.length - 1;
+      if (matchesShortcut(event, 'treeNext')) next++;
+      else if (matchesShortcut(event, 'treePrevious')) next--;
+      else if (matchesShortcut(event, 'treeFirst')) next = 0;
+      else if (matchesShortcut(event, 'treeLast')) next = links.length - 1;
       else return;
       event.preventDefault(); links[Math.max(0, Math.min(links.length - 1, next))]?.focus();
     });
