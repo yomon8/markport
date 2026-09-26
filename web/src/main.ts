@@ -6,6 +6,9 @@ import { renderChanges, renderDiff, diffURL, reviewButton, type Change, type Cha
 import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
 import { copyText } from './clipboard';
+import { createDiagramOverlay } from './diagramOverlay';
+import { createShortcutHelp } from './shortcutHelp';
+import { editingShortcutTarget, matchesShortcut, shortcutText } from './shortcuts';
 import symbolLight from '../../logo/markport-symbol-light.svg';
 import symbolDark from '../../logo/markport-symbol-dark.svg';
 import favicon from '../../logo/markport-favicon.svg';
@@ -17,7 +20,8 @@ type ApiError = { error?: string; message?: string };
 class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
-app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><label for="search">Search files</label><input id="search" type="search" placeholder="Path or file name /"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><strong id="right-path"></strong><div class="right-actions"><button id="right-interactive" type="button" hidden>Enable JavaScript</button><button id="right-source" type="button" hidden>Source</button><button id="right-close" type="button" aria-label="Close split view">Close split</button></div></div><article id="right-content" aria-busy="false"></article></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
+app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><div id="header-extras"><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button></div><button id="header-more" type="button" aria-label="More header actions" aria-expanded="false" aria-controls="header-extras">⋯</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><label for="search">Search files</label><input id="search" type="search" placeholder="Path or file name /"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><div id="right-path" class="breadcrumbs"></div><div class="right-actions"><span id="right-kind" class="kind-badge"></span><div id="right-views" class="view-segment" role="group" aria-label="Rendered view or Source"><button id="right-rendered" type="button" aria-pressed="true">Rendered view</button><button id="right-source" type="button" aria-pressed="false">Source</button></div><button id="right-interactive" type="button" hidden>Enable JavaScript</button><button id="right-copy" type="button" class="title-icon" aria-label="Copy path" title="Copy path">⧉</button><button id="right-contents" type="button" class="title-icon" aria-label="Contents" title="Contents" hidden>☷</button><button id="right-swap" type="button" class="title-icon" aria-label="Swap panes" title="Swap panes">⇄</button><button id="right-only" type="button" class="title-icon" aria-label="Show this file only" title="Show this file only">▣</button><button id="right-close" type="button" class="title-icon" aria-label="Close split view" title="Close split view">×</button></div></div><article id="right-content" aria-busy="false"></article><nav id="right-outline" aria-label="Right table of contents" hidden></nav></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
+const diagramOverlay = createDiagramOverlay();
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
 if (!icon.isConnected) document.head.append(icon);
@@ -44,21 +48,38 @@ const count = document.querySelector<HTMLElement>('#result-count')!;
 const connection = document.querySelector<HTMLElement>('#connection')!;
 const banner = document.querySelector<HTMLElement>('#connection-banner')!;
 const reload = document.querySelector<HTMLButtonElement>('#reload')!;
+const helpToggle = document.createElement('button'); helpToggle.id = 'help-toggle'; helpToggle.type = 'button'; helpToggle.textContent = '?';
+helpToggle.setAttribute('aria-label', `Keyboard shortcuts (${shortcutText('help')})`); helpToggle.title = `Keyboard shortcuts (${shortcutText('help')})`;
+reload.before(helpToggle);
+const shortcutHelp = createShortcutHelp(helpToggle);
 const pasteToggle = document.querySelector<HTMLButtonElement>('#paste-toggle')!;
+const headerMore = document.querySelector<HTMLButtonElement>('#header-more')!;
+const headerExtras = document.querySelector<HTMLElement>('#header-extras')!;
 const main = document.querySelector<HTMLElement>('#main')!;
 const layout = document.querySelector<HTMLElement>('.layout')!;
 const rightPane = document.querySelector<HTMLElement>('#right-pane')!;
 const rightContent = document.querySelector<HTMLElement>('#right-content')!;
 const rightPath = document.querySelector<HTMLElement>('#right-path')!;
+const rightKind = document.querySelector<HTMLElement>('#right-kind')!;
+const rightViews = document.querySelector<HTMLElement>('#right-views')!;
+const rightRendered = document.querySelector<HTMLButtonElement>('#right-rendered')!;
 const rightInteractive = document.querySelector<HTMLButtonElement>('#right-interactive')!;
 const rightSource = document.querySelector<HTMLButtonElement>('#right-source')!;
+const rightOutline = document.querySelector<HTMLElement>('#right-outline')!;
+const rightContents = document.querySelector<HTMLButtonElement>('#right-contents')!;
 let rightShownPath = ''; let rightShownKey = ''; let rightSourceMode = false; let rightRequest = 0;
+let pendingRightScroll: number | undefined;
 let rightTag = ''; let rightTagCheckedAt = 0;
+let wrapCodeLines = false;
+try { wrapCodeLines = localStorage.getItem('markport-wrap-code') === 'true'; } catch { /* Storage may be unavailable. */ }
+let lineRangeAnchor = 0;
 const progress = document.querySelector<HTMLElement>('#progress')!;
 const outline = document.querySelector<HTMLElement>('#outline')!;
 const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
 const drawerToggle = document.querySelector<HTMLButtonElement>('#drawer-toggle')!;
+drawerToggle.title = `Open file list (${shortcutText('sidebar')})`;
 const sidebarToggle = document.querySelector<HTMLButtonElement>('#sidebar-toggle')!;
+sidebarToggle.title = `Collapse sidebar (${shortcutText('sidebar')})`;
 const view = new TreeView(tree, search, count, selected,
   (path) => { const current = revision; void loadPage(path, 0, '', false, current).then(() => loadOpenDirectories(current)).catch(() => status('Refresh failed. Please try again.', 'error')); },
   (path, offset) => { const current = revision; void loadPage(path, offset, '', false, current).catch(() => status('Refresh failed. Please try again.', 'error')); },
@@ -73,6 +94,7 @@ let displayedChanges = '';
 const review = new ReviewState();
 let reviewVersion = 0;
 let onlyUnreviewed = false;
+let groupChanges = false;
 let previewReload = 0;
 let previewInstance = '';
 const interactivePaths = new Set<string>();
@@ -144,10 +166,11 @@ function navigate(url: string): void {
   const right = new URL(location.href).searchParams.get('right');
   if (right && target.searchParams.has('path') && !target.searchParams.has('view')) target.searchParams.set('right', right);
   if (target.href === location.href) return;
-  saveScroll(); pasteVersion++; history.pushState({ scroll: 0 }, '', target); sidebarPanel = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = target.searchParams.get('source') === '1'; sidebar.classList.remove('open'); requestRefresh();
+  saveScroll(); pasteVersion++; lineRangeAnchor = 0; history.pushState({ scroll: 0 }, '', target); sidebarPanel = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = target.searchParams.get('source') === '1'; sidebar.classList.remove('open'); requestRefresh();
 }
 function rightSelected(): string { return selectedMode() === 'file' ? new URL(location.href).searchParams.get('right') ?? '' : ''; }
 function openRight(path: string): void {
+  if (path !== rightSelected()) rightSourceMode = false;
   const url = new URL(location.href); url.searchParams.set('right', path);
   history.pushState(history.state, '', url); sidebar.classList.remove('open'); void refreshRight();
 }
@@ -155,6 +178,29 @@ function closeRight(): void {
   const url = new URL(location.href); url.searchParams.delete('right');
   history.pushState(history.state, '', url); rightRequest++; rightPane.hidden = true; layout.classList.remove('split'); rightShownPath = ''; rightShownKey = '';
   rightTag = '';
+}
+function swapPanes(): void {
+  const left = selected(); const right = rightSelected();
+  if (!left || !right) return;
+  const leftScroll = main.scrollTop; const rightScroll = rightPane.scrollTop;
+  const leftSource = sourceMode;
+  const url = new URL(location.href); url.searchParams.set('path', right); url.searchParams.set('right', left);
+  history.replaceState({ scroll: leftScroll }, '', location.href);
+  history.pushState({ scroll: rightScroll }, '', url);
+  sourceMode = rightSourceMode; rightSourceMode = leftSource;
+  if (sourceMode) url.searchParams.set('source', '1'); else url.searchParams.delete('source');
+  history.replaceState({ scroll: rightScroll }, '', url);
+  rightShownPath = ''; rightShownKey = ''; rightTag = '';
+  pendingRightScroll = leftScroll;
+  requestRefresh();
+}
+function showRightOnly(): void {
+  const path = rightSelected(); if (!path) return;
+  const url = new URL(location.href); url.searchParams.set('path', path); url.searchParams.delete('right');
+  if (rightSourceMode) url.searchParams.set('source', '1'); else url.searchParams.delete('source');
+  history.replaceState({ scroll: main.scrollTop }, '', location.href);
+  history.pushState({ scroll: rightPane.scrollTop }, '', url);
+  sourceMode = rightSourceMode; rightPane.hidden = true; layout.classList.remove('split'); requestRefresh();
 }
 function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
   if (connection.dataset.state === state && connection.title === message) return;
@@ -346,7 +392,7 @@ function showTitle(path: string, kind = '', missing = false): void {
   const crumbs = document.createElement('div'); crumbs.className = 'breadcrumbs';
   const parts = path.split('/');
   parts.forEach((part, index) => {
-    if (index) crumbs.append(document.createTextNode(' / '));
+    if (index) { const separator = document.createElement('span'); separator.className = 'crumb-separator'; separator.textContent = ' / '; crumbs.append(separator); }
     if (index < parts.length - 1) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'crumb'; button.textContent = part;
       button.addEventListener('click', () => {
@@ -379,6 +425,19 @@ function showTitle(path: string, kind = '', missing = false): void {
     if (change) {
       const reviewed = review.has(change.path, change.revision);
       actions.append(reviewButton(change, reviewed, () => toggleReview(change)));
+      const previous = diffNeighbor(path, -1, onlyUnreviewed);
+      const next = diffNeighbor(path, 1, onlyUnreviewed);
+      const navigation = document.createElement('div'); navigation.className = 'diff-navigation';
+      const addNavigation = (label: string, target: Change | undefined): void => {
+        const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
+        button.disabled = !target; button.title = target ? `${label}: ${target.path}` : `No ${label.toLowerCase()} file`;
+        button.addEventListener('click', () => { if (target) navigate(diffURL(target.path)); }); navigation.append(button);
+      };
+      addNavigation(`Previous (${shortcutText('previousChange')})`, previous);
+      addNavigation(`Next (${shortcutText('nextChange')})`, next);
+      const reviewNext = document.createElement('button'); reviewNext.type = 'button'; reviewNext.textContent = `Review and next (${shortcutText('reviewNext')})`;
+      reviewNext.addEventListener('click', markReviewedAndNext); navigation.append(reviewNext);
+      actions.append(navigation);
     }
     const deleted = currentChanges?.changes.find((change) => change.path === path)?.status === 'deleted';
     segment([{ label: 'File', selected: false, disabled: deleted, select: () => navigate(fileURL(path)) }, { label: 'Diff', selected: true, select: () => {} }]);
@@ -416,6 +475,23 @@ function showTitle(path: string, kind = '', missing = false): void {
   addAux('Open on right', '◫', () => openRight(path), selectedMode() === 'file');
   addAux('Copy path', '⧉', (button) => copyWithFeedback(button, path, button.classList.contains('title-icon') ? '⧉' : 'Copy path'));
   addAux('Contents', '☷', () => outline.classList.toggle('open'), !outline.hidden);
+  const mobileChoices = [...actions.querySelectorAll<HTMLButtonElement>('.view-segment button, .review-toggle, .diff-navigation button, .interactive-toggle')].map((control) => {
+    const item = document.createElement('button'); item.type = 'button';
+    item.textContent = control.getAttribute('aria-label') ?? control.textContent;
+    item.disabled = control.disabled;
+    if (control.hasAttribute('aria-pressed')) {
+      item.setAttribute('role', 'menuitemradio'); item.setAttribute('aria-checked', control.getAttribute('aria-pressed')!);
+    } else item.setAttribute('role', 'menuitem');
+    item.addEventListener('click', () => { closeMenu(); control.click(); });
+    return item;
+  });
+  menu.prepend(...mobileChoices);
+  const parentCrumb = [...crumbs.querySelectorAll<HTMLButtonElement>('.crumb')].at(-1);
+  if (parentCrumb) {
+    const parentAction = document.createElement('button'); parentAction.type = 'button'; parentAction.textContent = 'Show parent folder'; parentAction.setAttribute('role', 'menuitem');
+    parentAction.addEventListener('click', () => { closeMenu(); parentCrumb.click(); });
+    menu.append(parentAction);
+  }
   actions.append(auxiliary, menuButton, menu);
   title.append(actions); document.title = `${parts.at(-1)} — markport`;
 }
@@ -425,17 +501,38 @@ function toggleReview(change: Change): void {
   updateChangeViews();
   if (selectedMode() === 'diff' && selected() === change.path) showTitle(change.path, 'diff');
 }
+function diffNeighbor(path: string, direction: -1 | 1, unreviewedOnly: boolean): Change | undefined {
+  const changes = currentChanges?.changes ?? [];
+  const index = changes.findIndex((change) => change.path === path);
+  if (index < 0) return undefined;
+  for (let next = index + direction; next >= 0 && next < changes.length; next += direction) {
+    const change = changes[next];
+    if (!unreviewedOnly || !review.has(change.path, change.revision)) return change;
+  }
+  return undefined;
+}
+function markReviewedAndNext(): void {
+  if (selectedMode() !== 'diff') return;
+  const path = selected(); const change = currentChanges?.changes.find((item) => item.path === path);
+  if (!change) return;
+  review.set(change.path, change.revision, true); reviewVersion++;
+  const next = diffNeighbor(path, 1, true);
+  updateChangeViews();
+  if (next) navigate(diffURL(next.path)); else showTitle(path, 'diff');
+}
 function setReviewFilter(value: boolean): void {
   onlyUnreviewed = value;
   reviewVersion++;
   updateChangeViews();
+  if (selectedMode() === 'diff') showTitle(selected(), 'diff');
 }
+function setGroupChanges(value: boolean): void { groupChanges = value; reviewVersion++; updateChangeViews(); }
 function updateChangeViews(): void {
   if (!currentChanges) return;
   const key = `${JSON.stringify(currentChanges)}:${reviewVersion}`;
   const isReviewed = (change: Change): boolean => review.has(change.path, change.revision);
   if (displayedChanges !== key) {
-    renderChanges(changesTree, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter, true);
+    renderChanges(changesTree, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter, groupChanges, setGroupChanges, true);
     displayedChanges = key;
   }
   const path = selected();
@@ -448,7 +545,7 @@ function updateChangeViews(): void {
   }
   if (selectedMode() === 'changes' && displayedHTML !== key) {
     content.dataset.kind = 'changes';
-    renderChanges(content, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter);
+    renderChanges(content, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter, groupChanges, setGroupChanges);
     displayedHTML = key;
     outline.hidden = true; showTitle('');
   }
@@ -551,16 +648,66 @@ function showError(error: unknown, path: string): void {
   box.append(icon, h, p, button); content.append(box); outline.hidden = true; showTitle(path, '', code === 'not_found');
 }
 function decorateContent(target = content, path = displayedPath): void {
+  function setWrap(frame: HTMLElement, enabled: boolean): void {
+    frame.classList.toggle('wrapped', enabled);
+    const numbers = [...frame.querySelectorAll<HTMLElement>('.lntd:first-child .lnt')];
+    const lines = [...frame.querySelectorAll<HTMLElement>('.lntd:last-child .line')];
+    lines.forEach((line, index) => {
+      const existing = line.querySelector('.wrapped-line-number');
+      const code = line.querySelector<HTMLElement>('.cl');
+      if (enabled) {
+        if (!existing && numbers[index]) {
+          const anchor = document.createElement('a'); anchor.className = 'wrapped-line-number';
+          anchor.href = `#L${index + 1}`; anchor.textContent = String(index + 1);
+          anchor.setAttribute('aria-label', `Line ${index + 1}`); line.prepend(anchor);
+        }
+        const tail = line.lastChild;
+        if (tail?.nodeType === Node.TEXT_NODE && tail.textContent?.endsWith('\n')) {
+          tail.textContent = tail.textContent.slice(0, -1); line.dataset.wrapNewline = 'true';
+        }
+        const codeTail = code?.lastChild;
+        if (codeTail?.nodeType === Node.TEXT_NODE && codeTail.textContent?.endsWith('\n')) {
+          codeTail.textContent = codeTail.textContent.slice(0, -1); code!.dataset.wrapNewline = 'true';
+        }
+      } else {
+        existing?.remove();
+        if (line.dataset.wrapNewline === 'true') { line.append(document.createTextNode('\n')); delete line.dataset.wrapNewline; }
+        if (code?.dataset.wrapNewline === 'true') { code.append(document.createTextNode('\n')); delete code.dataset.wrapNewline; }
+      }
+    });
+  }
   function wrapCode(element: HTMLElement): void {
     const frame = document.createElement('div'); frame.className = 'code-frame';
     const toolbar = document.createElement('div'); toolbar.className = 'code-toolbar';
     const label = document.createElement('span'); label.textContent = element.closest<HTMLElement>('[data-language]')?.dataset.language || (target.dataset.kind === 'code' ? path.split('.').at(-1) : 'text') || 'text';
     const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Copy';
     button.addEventListener('click', () => {
-      const code = element.querySelector<HTMLElement>('.lntd:last-child pre') ?? element;
-      copyWithFeedback(button, code.textContent ?? '', 'Copy');
+      const lines = [...element.querySelectorAll<HTMLElement>('.lntd:last-child .line')];
+      if (lines.length) {
+        const text = lines.map((line) => (line.querySelector<HTMLElement>('.cl')?.textContent ?? '').replace(/\n$/, '')).join('\n');
+        const last = lines.at(-1)!;
+        const trailing = last.dataset.wrapNewline === 'true' || last.querySelector<HTMLElement>('.cl')?.dataset.wrapNewline === 'true' || last.textContent?.endsWith('\n');
+        copyWithFeedback(button, text + (trailing ? '\n' : ''), 'Copy');
+      } else copyWithFeedback(button, element.textContent ?? '', 'Copy');
     });
-    toolbar.append(label, button); element.before(frame); frame.append(toolbar, element);
+    const wrap = document.createElement('button'); wrap.type = 'button'; wrap.textContent = 'Wrap lines'; wrap.setAttribute('aria-pressed', String(wrapCodeLines));
+    wrap.addEventListener('click', () => {
+      wrapCodeLines = !wrapCodeLines;
+      try { localStorage.setItem('markport-wrap-code', String(wrapCodeLines)); } catch { /* Storage may be unavailable. */ }
+      for (const codeFrame of document.querySelectorAll<HTMLElement>('.code-frame')) {
+        setWrap(codeFrame, wrapCodeLines);
+        codeFrame.querySelector<HTMLButtonElement>('.code-wrap-toggle')?.setAttribute('aria-pressed', String(wrapCodeLines));
+      }
+      highlightCodeLines(false);
+    });
+    wrap.className = 'code-wrap-toggle';
+    const controls = document.createElement('div'); controls.className = 'code-toolbar-actions'; controls.append(wrap, button);
+    if (element.querySelector('.lntable')) {
+      const copyLink = document.createElement('button'); copyLink.type = 'button'; copyLink.className = 'copy-line-link'; copyLink.textContent = 'Copy line link'; copyLink.hidden = true;
+      copyLink.addEventListener('click', () => copyWithFeedback(copyLink, location.href, 'Copy line link'));
+      controls.prepend(copyLink);
+    }
+    toolbar.append(label, controls); element.before(frame); frame.append(toolbar, element); setWrap(frame, wrapCodeLines);
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
       const scroller = element.classList.contains('chroma') ? element : element.querySelector<HTMLElement>('pre') ?? element;
       const updateOverflow = (): void => { frame.classList.toggle('overflows', scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 1); };
@@ -585,6 +732,24 @@ function decorateContent(target = content, path = displayedPath): void {
   }
   updateTableHeaders();
 }
+function highlightCodeLines(scroll: boolean): boolean {
+  const match = /^#L(\d+)(?:-L(\d+))?$/.exec(location.hash);
+  for (const marked of content.querySelectorAll<HTMLElement>('.selected-code-line')) marked.classList.remove('selected-code-line');
+  for (const button of content.querySelectorAll<HTMLButtonElement>('.copy-line-link')) button.hidden = !match;
+  if (!match) return false;
+  const start = Number(match[1]); const end = match[2] ? Number(match[2]) : start;
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start || end - start > 500) return false;
+  if (!lineRangeAnchor) lineRangeAnchor = start;
+  const numbers = [...content.querySelectorAll<HTMLElement>('.lntd:first-child .lnt')];
+  const lines = [...content.querySelectorAll<HTMLElement>('.lntd:last-child .line')];
+  for (let line = start; line <= end; line++) {
+    numbers[line - 1]?.classList.add('selected-code-line');
+    lines[line - 1]?.classList.add('selected-code-line');
+  }
+  const target = wrapCodeLines ? lines[start - 1] : numbers[start - 1];
+  if (scroll && target) target.scrollIntoView({ block: 'center' });
+  return Boolean(target);
+}
 function updateTableHeaders(): void {
   const top = main.getBoundingClientRect().top + title.getBoundingClientRect().height;
   for (const table of content.querySelectorAll<HTMLTableElement>('.table-wrap table')) {
@@ -608,6 +773,31 @@ function updateOutline(): void {
     outlineObserver = new IntersectionObserver((entries) => { for (const entry of entries) if (entry.isIntersecting) for (const link of outline.querySelectorAll('a')) link.classList.toggle('active', decodeURIComponent(link.hash.slice(1)) === entry.target.id); }, { root: main, rootMargin: '-15% 0px -70% 0px' });
     headings.forEach((heading) => outlineObserver?.observe(heading));
   }
+}
+function updateRightOutline(): void {
+  rightOutline.replaceChildren(); rightOutline.classList.remove('open');
+  const headings = [...rightContent.querySelectorAll<HTMLElement>('h1[id],h2[id],h3[id],h4[id],h5[id],h6[id]')];
+  rightOutline.hidden = headings.length < 3; rightContents.hidden = rightOutline.hidden;
+  for (const heading of headings) {
+    const link = document.createElement('a'); link.href = `#${encodeURIComponent(heading.id)}`;
+    link.textContent = heading.textContent; link.className = `outline-h${heading.tagName.slice(1)}`;
+    link.addEventListener('click', (event) => { event.preventDefault(); heading.scrollIntoView(); rightOutline.classList.remove('open'); });
+    rightOutline.append(link);
+  }
+}
+function showRightTitle(path: string, kind: FileReply['type']): void {
+  rightPath.replaceChildren(); rightPath.title = path;
+  const parts = path.split('/');
+  if (parts.length > 1) {
+    const parent = document.createElement('span'); parent.className = 'breadcrumb-parent';
+    parent.textContent = `${parts.slice(0, -1).join('/')} / `; rightPath.append(parent);
+  }
+  const name = document.createElement('strong'); name.textContent = parts.at(-1) ?? path; rightPath.append(name);
+  rightKind.textContent = kind === 'markdown' ? 'Markdown' : kind === 'html' ? 'HTML' : kind === 'image' ? 'Image' : (parts.at(-1)?.split('.').at(-1)?.toUpperCase() || 'Code');
+  rightViews.hidden = kind !== 'markdown' && kind !== 'html';
+  rightRendered.textContent = kind === 'html' ? 'Preview' : 'Rendered view';
+  rightRendered.setAttribute('aria-pressed', String(!rightSourceMode));
+  rightSource.setAttribute('aria-pressed', String(rightSourceMode));
 }
 function beginLoading(): void { content.setAttribute('aria-busy', 'true'); reload.disabled = true; clearTimeout(loadingTimer); loadingTimer = setTimeout(() => { progress.hidden = false; }, 200); }
 function endLoading(): void { clearTimeout(loadingTimer); progress.hidden = true; reload.disabled = false; content.setAttribute('aria-busy', 'false'); }
@@ -668,8 +858,8 @@ async function refreshRight(): Promise<void> {
   const path = rightSelected(); const request = ++rightRequest;
   rightPane.hidden = !path; layout.classList.toggle('split', Boolean(path));
   if (!path) { rightShownPath = ''; rightShownKey = ''; return; }
-  if (path !== rightShownPath) { rightPane.scrollTop = 0; rightShownKey = ''; rightTag = ''; rightSourceMode = false; }
-  rightContent.setAttribute('aria-busy', 'true'); rightPath.textContent = path;
+  if (path !== rightShownPath) { rightPane.scrollTop = 0; rightShownKey = ''; rightTag = ''; }
+  rightContent.setAttribute('aria-busy', 'true');
   try {
     const headers: Record<string, string> = {};
     if (rightShownPath === path && rightTag && Date.now() - rightTagCheckedAt < 60000) headers['If-None-Match'] = rightTag;
@@ -692,19 +882,20 @@ async function refreshRight(): Promise<void> {
         img.src = file.assetUrl; img.addEventListener('error', () => { if (img.isConnected) rightContent.textContent = 'Cannot display image.'; }); rightContent.replaceChildren(img);
       } else { rightContent.innerHTML = file.html; decorateContent(rightContent, path); }
       rightPane.scrollTop = scroll; rightShownKey = key;
+      updateRightOutline();
       void drawMermaid(rightContent, () => request === rightRequest && path === rightSelected());
     }
-    rightSource.hidden = file.type !== 'html' && file.type !== 'markdown';
-    rightSource.textContent = rightSourceMode ? file.type === 'html' ? 'Preview' : 'Rendered view' : 'Source';
+    showRightTitle(path, file.type);
     rightInteractive.hidden = file.type !== 'html';
     rightInteractive.textContent = interactivePaths.has(path) ? 'Disable JavaScript' : 'Enable JavaScript';
     rightInteractive.setAttribute('aria-pressed', String(interactivePaths.has(path)));
     rightShownPath = path;
+    if (pendingRightScroll !== undefined) { rightPane.scrollTop = pendingRightScroll; pendingRightScroll = undefined; }
   } catch (error) {
     if (request !== rightRequest || path !== rightSelected()) return;
     rightContent.replaceChildren(); const message = document.createElement('div'); message.className = 'file-error'; message.setAttribute('role', 'alert');
     message.textContent = error instanceof RequestError && error.code === 'not_found' ? 'File not found.' : 'Cannot display file. Please try again.'; rightContent.append(message);
-    rightInteractive.hidden = true;
+    rightInteractive.hidden = true; rightViews.hidden = true; rightOutline.hidden = true; rightContents.hidden = true;
     rightShownPath = path; rightShownKey = '';
   } finally { if (request === rightRequest) rightContent.setAttribute('aria-busy', 'false'); }
 }
@@ -774,7 +965,9 @@ async function refreshLoop(): Promise<void> {
             displayedHTML = displayKey; displayedSource = source;
             updateOutline(); showTitle(path, file.type);
             if (!pathChanged && oldScroll > 0) main.scrollTop = oldScroll;
-            if (location.hash && file.type !== 'html') { try { document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ } }
+            if (location.hash && file.type !== 'html' && !highlightCodeLines(pathChanged)) {
+              try { if (pathChanged) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ }
+            }
             if (!pathChanged && current > 1) {
               title.classList.add('updated'); const note = document.createElement('span'); note.className = 'update-note'; note.textContent = 'Updated'; title.querySelector('.title-actions')?.prepend(note);
               clearTimeout(updatedTimer); updatedTimer = setTimeout(() => { title.classList.remove('updated'); note.remove(); }, 3500);
@@ -817,14 +1010,35 @@ function selectSidebarTab(mode: 'file' | 'changes'): void {
 filesTab.addEventListener('click', () => selectSidebarTab('file'));
 changesTab.addEventListener('click', () => selectSidebarTab('changes'));
 document.querySelector<HTMLElement>('.sidebar-tabs')!.addEventListener('keydown', (event) => {
-  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+  if (!matchesShortcut(event, 'tabSwitch') && !matchesShortcut(event, 'tabFirst') && !matchesShortcut(event, 'tabLast')) return;
   event.preventDefault();
-  const mode = event.key === 'Home' ? 'file' : event.key === 'End' ? 'changes' : document.activeElement === filesTab ? 'changes' : 'file';
+  const mode = matchesShortcut(event, 'tabFirst') ? 'file' : matchesShortcut(event, 'tabLast') ? 'changes' : document.activeElement === filesTab ? 'changes' : 'file';
   selectSidebarTab(mode);
 });
-pasteToggle.addEventListener('click', () => navigate('/?view=paste'));
+pasteToggle.addEventListener('click', () => { headerExtras.classList.remove('open'); headerMore.setAttribute('aria-expanded', 'false'); navigate('/?view=paste'); });
+headerMore.addEventListener('click', () => {
+  const open = headerExtras.classList.toggle('open'); headerMore.setAttribute('aria-expanded', String(open));
+  if (open) headerExtras.querySelector<HTMLButtonElement>('button')?.focus();
+});
+headerExtras.addEventListener('keydown', (event) => {
+  if (event.key !== 'Escape' || !headerExtras.classList.contains('open') || !document.querySelector<HTMLElement>('#theme-menu')?.hidden) return;
+  event.preventDefault(); headerExtras.classList.remove('open'); headerMore.setAttribute('aria-expanded', 'false'); headerMore.focus();
+});
 function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
   const target = event.target as HTMLElement;
+  const lineLink = pane === 'left' ? target.closest<HTMLAnchorElement>('.lnlinks, .wrapped-line-number') : null;
+  if (lineLink) {
+    const number = Number(lineLink.hash.slice(2));
+    if (Number.isSafeInteger(number) && number > 0) {
+      event.preventDefault();
+      const start = event.shiftKey && lineRangeAnchor ? Math.min(number, lineRangeAnchor) : number;
+      const end = event.shiftKey && lineRangeAnchor ? Math.max(number, lineRangeAnchor) : number;
+      if (!event.shiftKey) lineRangeAnchor = number;
+      const url = new URL(location.href); url.hash = end > start ? `L${start}-L${end}` : `L${start}`;
+      history.replaceState(history.state, '', url); highlightCodeLines(true);
+    }
+    return;
+  }
   const action = target.closest<HTMLButtonElement>('[data-diagram-action]');
   if (action) {
     const diagram = action.closest<HTMLElement>('[data-mermaid]')!;
@@ -834,8 +1048,8 @@ function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
       if (!source) { source = document.createElement('pre'); source.className = 'diagram-source'; source.textContent = diagram.dataset.source ?? ''; diagram.append(source); }
       source.hidden = showing; action.textContent = showing ? 'Source' : 'Diagram';
     } else {
-      document.querySelector<HTMLElement>('#overlay-content')!.innerHTML = diagram.querySelector('.diagram-image')?.innerHTML ?? '';
-      document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = false;
+      const svg = diagram.querySelector<SVGSVGElement>('.diagram-image svg');
+      if (svg) diagramOverlay.open(svg, action);
     }
     return;
   }
@@ -847,22 +1061,34 @@ function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
 content.addEventListener('click', (event) => onContentClick(event, 'left'));
 rightContent.addEventListener('click', (event) => onContentClick(event, 'right'));
 document.querySelector('#right-close')!.addEventListener('click', closeRight);
-rightSource.addEventListener('click', () => { rightSourceMode = !rightSourceMode; rightShownKey = ''; void refreshRight(); });
+rightSource.addEventListener('click', () => { rightSourceMode = true; rightShownKey = ''; rightTag = ''; void refreshRight(); });
+rightRendered.addEventListener('click', () => { rightSourceMode = false; rightShownKey = ''; rightTag = ''; void refreshRight(); });
+rightContents.addEventListener('click', () => rightOutline.classList.toggle('open'));
+document.querySelector('#right-copy')!.addEventListener('click', (event) => { const path = rightSelected(); if (path) copyWithFeedback(event.currentTarget as HTMLButtonElement, path, '⧉'); });
+document.querySelector('#right-swap')!.addEventListener('click', swapPanes);
+document.querySelector('#right-only')!.addEventListener('click', showRightOnly);
 rightInteractive.addEventListener('click', () => { const path = rightSelected(); if (path) setInteractive(path, !interactivePaths.has(path)); });
-document.querySelector('#overlay-close')!.addEventListener('click', () => { document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; });
 window.addEventListener('popstate', () => { pasteVersion++; sidebarPanel = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); });
+window.addEventListener('hashchange', () => { highlightCodeLines(true); });
 window.addEventListener('keydown', (event) => {
   if (event.isComposing || event.keyCode === 229) return;
-  const target = event.target;
-  const editing = target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, [contenteditable]') !== null);
-  if (editing) return;
-  if ((event.key === '/' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k'))) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') { event.preventDefault(); sidebarToggle.click(); }
-  if (event.key === 'Escape') { sidebar.classList.remove('open'); outline.classList.remove('open'); document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; }
+  if (editingShortcutTarget(event.target)) return;
+  if (selectedMode() === 'diff' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+    if (matchesShortcut(event, 'nextChange') || matchesShortcut(event, 'previousChange')) {
+      const next = diffNeighbor(selected(), matchesShortcut(event, 'nextChange') ? 1 : -1, onlyUnreviewed);
+      if (next) { event.preventDefault(); navigate(diffURL(next.path)); }
+      return;
+    }
+    if (matchesShortcut(event, 'reviewNext')) { event.preventDefault(); markReviewedAndNext(); return; }
+  }
+  if (matchesShortcut(event, 'search')) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
+  if (matchesShortcut(event, 'sidebar')) { event.preventDefault(); if (window.innerWidth <= 700) drawerToggle.click(); else sidebarToggle.click(); }
+  if (matchesShortcut(event, 'help')) { event.preventDefault(); shortcutHelp.open(); }
+  if (matchesShortcut(event, 'close')) { sidebar.classList.remove('open'); outline.classList.remove('open'); diagramOverlay.close(); shortcutHelp.close(); }
 });
 reload.addEventListener('click', manualRefresh);
-drawerToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
-sidebarToggle.addEventListener('click', () => { const collapsed = sidebar.classList.toggle('collapsed'); sidebarToggle.setAttribute('aria-expanded', String(!collapsed)); sidebarToggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar'); });
+drawerToggle.addEventListener('click', () => { const open = sidebar.classList.toggle('open'); drawerToggle.title = `${open ? 'Close' : 'Open'} file list (${shortcutText('sidebar')})`; drawerToggle.setAttribute('aria-label', `${open ? 'Close' : 'Open'} file list`); });
+sidebarToggle.addEventListener('click', () => { const collapsed = sidebar.classList.toggle('collapsed'); sidebarToggle.setAttribute('aria-expanded', String(!collapsed)); sidebarToggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar'); sidebarToggle.title = `${collapsed ? 'Expand' : 'Collapse'} sidebar (${shortcutText('sidebar')})`; });
 const resize = document.querySelector<HTMLElement>('#sidebar-resize')!;
 resize.addEventListener('pointerdown', (event) => { resize.setPointerCapture(event.pointerId); resize.classList.add('dragging'); });
 resize.addEventListener('pointermove', (event) => { if (!resize.hasPointerCapture(event.pointerId)) return; const width = Math.max(200, Math.min(480, event.clientX)); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });

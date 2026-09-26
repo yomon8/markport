@@ -113,6 +113,31 @@ test('keeps global shortcuts out of Markdown and editable text', async ({ page }
   await expect(page.getByRole('searchbox', { name: 'Search files' })).toBeFocused();
 });
 
+test('shortcut help opens by keyboard and mouse without interrupting editing', async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' }));
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await expect(page.locator('#sidebar-toggle')).toHaveAttribute('title', /⌘B/);
+  await page.keyboard.press('?');
+  const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('⌘K');
+  await expect(dialog).toContainText('Next changed file');
+  await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('#help-toggle')).toBeFocused();
+  await page.locator('#help-toggle').click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
+  await page.locator('#search').fill('?');
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('#search')).toHaveValue('?');
+  await page.locator('#search').blur();
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: '?', isComposing: true, bubbles: true })));
+  await expect(dialog).toBeHidden();
+});
+
 test('theme colors follow the selected theme and HTML keeps document colors', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('markport-theme', 'light'));
   await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
@@ -122,6 +147,7 @@ test('theme colors follow the selected theme and HTML keeps document colors', as
   });
   const light = await colors();
   await page.getByRole('button', { name: 'Theme: Light' }).click();
+  await page.getByRole('menuitemradio', { name: 'Dark' }).click();
   const dark = await colors();
   expect(dark.every((value, index) => value !== light[index])).toBe(true);
   for (const name of ['first.html', 'transparent.html', 'colored.html']) {
@@ -133,6 +159,36 @@ test('theme colors follow the selected theme and HTML keeps document colors', as
     else expect(background).toBe('rgba(0, 0, 0, 0)');
     await expect(page.locator('.html-preview')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
   }
+});
+
+test('header controls stay aligned and theme choices work by keyboard on mobile', async ({ page }, testInfo) => {
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const theme of ['light', 'dark']) {
+      await page.addInitScript((value) => localStorage.setItem('markport-theme', value), theme);
+      await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+      const buttons = width <= 700 ? ['#drawer-toggle', '#header-more', '#reload'] : ['#sidebar-toggle', '#theme-toggle', '#paste-toggle', '#reload'];
+      const positions = await page.locator(buttons.join(',')).evaluateAll((elements) => elements.map((element) => {
+        const box = element.getBoundingClientRect(); return { top: box.top, height: box.height, right: box.right };
+      }));
+      expect(new Set(positions.map((position) => position.height)).size, JSON.stringify({ width, theme, positions })).toBe(1);
+      expect(new Set(positions.map((position) => position.top)).size).toBe(1);
+      expect(Math.max(...positions.map((position) => position.right))).toBeLessThanOrEqual(width);
+      await expect(page.locator('#connection')).toHaveAttribute('role', 'status');
+      await page.screenshot({ path: testInfo.outputPath(`header-${width}-${theme}.png`) });
+    }
+  }
+  await page.getByRole('button', { name: 'More header actions' }).click();
+  await page.getByRole('button', { name: 'Theme: Dark' }).click();
+  await expect(page.getByRole('menuitemradio', { name: 'Dark' })).toHaveAttribute('aria-checked', 'true');
+  await page.keyboard.press('Home');
+  await expect(page.getByRole('menuitemradio', { name: 'Auto' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menuitemradio', { name: 'Light' })).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await page.getByRole('button', { name: 'Paste Markdown' }).click();
+  await expect(page.locator('#paste-input')).toBeVisible();
 });
 
 test('title controls show active views and keep auxiliary actions reachable on mobile', async ({ page }) => {
@@ -147,15 +203,50 @@ test('title controls show active views and keep auxiliary actions reachable on m
   await page.setViewportSize({ width: 390, height: 720 });
   const more = title.getByRole('button', { name: 'More actions' });
   await more.focus(); await page.keyboard.press('Enter');
-  await expect(title.getByRole('menuitem', { name: 'Open on right' })).toBeFocused();
+  await expect(title.getByRole('menuitemradio', { name: 'File' })).toBeFocused();
   await page.keyboard.press('ArrowDown');
-  await expect(title.getByRole('menuitem', { name: 'Copy path' })).toBeFocused();
+  await expect(title.getByRole('menuitemradio', { name: 'Diff' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(more).toBeFocused();
   await expect(more).toHaveAttribute('aria-expanded', 'false');
   await more.click();
   await title.getByRole('menuitem', { name: 'Open on right' }).click();
   await expect(page.locator('#right-pane')).toBeVisible();
+});
+
+test('mobile title stays one row and keeps reading actions close', async ({ page }, testInfo) => {
+  await writeFile(join(directory, 'mobile-title.md'), `# Mobile title\n\n## First\n\n${'Reading line\n\n'.repeat(60)}## Second\n\n## Third\n\n## Fourth\n`);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(`http://127.0.0.1:${port}/?path=mobile-title.md`);
+  await expect(page.locator('#content h1')).toHaveText('Mobile title');
+  expect((await page.locator('#file-title').boundingBox())!.height).toBeLessThanOrEqual(48);
+  await page.screenshot({ path: testInfo.outputPath('mobile-title-390.png') });
+  const more = page.locator('#file-title').getByRole('button', { name: 'More actions' });
+  await more.click();
+  await page.getByRole('menuitemradio', { name: 'Source' }).click();
+  await expect(page.locator('#content')).toHaveAttribute('data-kind', 'code');
+  await more.click();
+  await page.getByRole('menuitemradio', { name: 'Rendered view' }).click();
+  await expect(page.locator('#content h1')).toHaveText('Mobile title');
+  await more.click();
+  await page.getByRole('menuitem', { name: 'Contents' }).click();
+  await expect(page.locator('#outline')).toBeVisible();
+  await page.locator('#outline a', { hasText: 'Fourth' }).click();
+  const heading = (await page.locator('#content h2', { hasText: 'Fourth' }).boundingBox())!;
+  const title = (await page.locator('#file-title').boundingBox())!;
+  expect(heading.y).toBeGreaterThanOrEqual(title.y + title.height);
+  await more.click();
+  await page.getByRole('menuitem', { name: 'Copy path' }).click();
+  await expect(page.locator('#file-title')).toContainText('mobile-title.md');
+  await page.route('**/api/git/changes', (route) => route.fulfill({ json: { available: true, rootId: 'mobile-title-review', changes: [{ path: 'mobile-title.md', status: 'modified', revision: 'one', added: 1, deleted: 1 }] } }));
+  await page.route('**/api/git/diff?**', (route) => route.fulfill({ json: { path: 'mobile-title.md', kind: 'text', patch: '@@ -1 +1 @@\n-old\n+new\n' } }));
+  await page.goto(`http://127.0.0.1:${port}/?path=mobile-title.md&view=diff`);
+  await more.click();
+  await expect(page.getByRole('menuitem', { name: 'Review and next (r)' })).toBeVisible();
+  await page.getByRole('menuitemradio', { name: 'Mark reviewed: mobile-title.md' }).click();
+  await more.click();
+  await expect(page.getByRole('menuitemradio', { name: 'Mark unreviewed: mobile-title.md' })).toBeVisible();
 });
 
 test('sidebar tabs and resize handle work with keyboard, pointer, and mobile drawer', async ({ page }) => {
@@ -212,7 +303,7 @@ test('keeps sidebar controls visible while file and change lists scroll', async 
 
     await page.getByRole('tab', { name: 'Changes' }).click();
     await expect(page.locator('#changes-tree .hint')).toContainText('not a Git repository');
-    if (width < 700) await page.getByRole('button', { name: 'Open file list' }).click();
+    if (width < 700) await page.getByRole('button', { name: 'Close file list' }).click();
     await page.locator('#changes-tree').evaluate((tree) => {
       for (let i = 0; i < 80; i++) tree.appendChild(document.createElement('p')).textContent = `Change ${i}`;
       tree.scrollTop = tree.scrollHeight;
@@ -250,10 +341,14 @@ test('searches text within a folder and opens the matching source line', async (
   await page.locator('.content-search-results a', { hasText: 'code.py' }).click();
   await expect(page).toHaveURL(/path=content-scope%2Fcode\.py#L2$/);
   await expect(page.locator('#L2')).toBeVisible();
+  await expect(page.locator('#content .line.selected-code-line')).toHaveCount(1);
+  const titleBox = (await page.locator('#file-title').boundingBox())!;
+  expect((await page.locator('#L2').boundingBox())!.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
   await page.locator('.content-search-results a', { hasText: 'guide.md' }).click();
   await expect(page).toHaveURL(/path=content-scope%2Fguide\.md&source=1#L4$/);
   await expect(page.locator('#file-title').getByRole('button', { name: 'Rendered view' })).toBeVisible();
   await expect(page.locator('#L4')).toBeVisible();
+  await expect(page.locator('#content .line.selected-code-line')).toHaveCount(1);
   await page.locator('#content-folder').fill('missing-folder');
   await contentSearch.getByRole('button', { name: 'Search' }).click();
   await expect(page.locator('.content-search-status')).toHaveText('Folder not found.');
@@ -340,6 +435,47 @@ test('opens and refreshes two independently scrolling files', async ({ page }) =
   await expect(page.locator('#content h1')).toHaveText('Left updated');
 });
 
+test('split pane titles, controls, and navigation keep file context', async ({ page }, testInfo) => {
+  await mkdir(join(directory, 'docs'), { recursive: true });
+  await writeFile(join(directory, 'docs', 'split-left.md'), `# Left\n\n## First\n\n## Second\n\n${'Left line\n\n'.repeat(100)}`);
+  await writeFile(join(directory, 'docs', 'split-right.md'), `# Right\n\n## First\n\n## Second\n\n${'Right line\n\n'.repeat(100)}`);
+  for (const width of [1280, 1400, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`http://127.0.0.1:${port}/?path=docs%2Fsplit-left.md&right=docs%2Fsplit-right.md`);
+    await expect(page.locator('#right-content h1')).toHaveText('Right');
+    await expect(page.locator('#file-title .breadcrumbs strong')).toHaveText('split-left.md');
+    await expect(page.locator('#right-path strong')).toHaveText('split-right.md');
+    for (const selector of ['#file-title .breadcrumbs strong', '#right-path strong']) {
+      const visible = await page.locator(selector).evaluate((element) => {
+        const box = element.getBoundingClientRect(); const pane = element.closest('#main, #right-pane')!.getBoundingClientRect();
+        return box.left >= pane.left && box.right <= pane.right && box.width > 0;
+      });
+      expect(visible, `${selector} at ${width}px`).toBe(true);
+    }
+    expect(await page.locator('.content-layout').evaluate((element) => getComputedStyle(element).display)).toBe('block');
+    await page.screenshot({ path: testInfo.outputPath(`split-${width}.png`) });
+  }
+  await expect(page.locator('#right-rendered')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#right-source').click();
+  await expect(page.locator('#right-source')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#right-rendered').click();
+  await page.locator('#right-contents').click();
+  await expect(page.locator('#right-outline')).toBeVisible();
+  await page.locator('#right-pane').evaluate((pane) => { pane.scrollTop = 350; });
+  await page.locator('#main').evaluate((pane) => { pane.scrollTop = 250; });
+  await page.getByRole('button', { name: 'Swap panes' }).click();
+  await expect(page.locator('#content h1')).toHaveText('Right');
+  await expect(page.locator('#right-content h1')).toHaveText('Left');
+  expect(new URL(page.url()).searchParams.get('path')).toBe('docs/split-right.md');
+  expect(new URL(page.url()).searchParams.get('right')).toBe('docs/split-left.md');
+  expect(await page.locator('#main').evaluate((pane) => pane.scrollTop)).toBeGreaterThan(0);
+  expect(await page.locator('#right-pane').evaluate((pane) => pane.scrollTop)).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Show this file only' }).click();
+  await expect(page.locator('#right-pane')).toBeHidden();
+  await expect(page.locator('#content h1')).toHaveText('Left');
+  expect(new URL(page.url()).searchParams.get('right')).toBeNull();
+});
+
 test('scrolls long code and table lines inside narrow panes', async ({ page }) => {
   const longLine = `value = '${'x'.repeat(200)}END'`;
   await writeFile(join(directory, 'long-lines.md'), `# Long lines\n\n\`\`\`python\n${longLine}\n\`\`\`\n\n| Column |\n|---|\n| ${longLine} |\n`);
@@ -380,7 +516,7 @@ test('keeps the HTML preview sandbox in the right pane and works on a narrow scr
   const scrollable = await page.locator('#right-pane').evaluate((pane) => getComputedStyle(pane).overflowY);
   expect(scrollable).toBe('auto');
   await page.frameLocator('#right-content .html-preview').getByRole('link', { name: 'Next HTML' }).click();
-  await expect(page.locator('#right-path')).toHaveText('docs/second.htm');
+  await expect(page.locator('#right-path')).toHaveAttribute('title', 'docs/second.htm');
   await expect(page.locator('#content h1')).toHaveText('Demo');
   await page.locator('#right-source').click();
   await expect(page.locator('#right-content .lntd:last-child pre')).toContainText('Second HTML');
@@ -420,7 +556,8 @@ test('directory breadcrumbs reveal the folder in the sidebar', async ({ page }) 
   expect(page.url()).toBe(url);
 
   await page.setViewportSize({ width: 390, height: 800 });
-  await page.locator('.crumb', { hasText: 'docs' }).click();
+  await page.locator('#file-title').getByRole('button', { name: 'More actions' }).click();
+  await page.getByRole('menuitem', { name: 'Show parent folder' }).click();
   await expect(page.locator('#sidebar')).toHaveClass(/open/);
   await expect(page.locator('details[data-path="docs"] > summary')).toBeFocused();
   expect(page.url()).toBe(url);
@@ -451,9 +588,9 @@ test('previews HTML with CSS and images, blocks scripts, and follows local links
   await expect(frame.locator('h1')).toHaveCSS('background-color', 'rgb(40, 50, 60)');
   for (const image of await frame.locator('img').all()) await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
   expect(await frame.locator('body').evaluate((body) => (body.ownerDocument.defaultView as Window & { previewScriptRan?: boolean }).previewScriptRan)).toBeUndefined();
-  await page.locator('.title-actions button', { hasText: 'Source' }).click();
+  await page.locator('#file-title .view-segment').getByRole('button', { name: 'Source' }).click();
   await expect(page.locator('article .lntd:last-child pre')).toContainText('HTML preview');
-  await page.locator('.title-actions button', { hasText: 'Preview' }).click();
+  await page.locator('#file-title .view-segment').getByRole('button', { name: 'Preview' }).click();
   await frame.locator('a', { hasText: 'Next HTML' }).click();
   await expect(page).toHaveURL(/path=docs%2Fsecond\.htm/);
   await expect(page.frameLocator('.html-preview').locator('h1')).toHaveText('Second HTML');
@@ -500,7 +637,7 @@ test('enables interactive HTML in the right pane', async ({ page }) => {
   await page.locator('#right-interactive').click();
   await expect(frame.locator('body')).toHaveAttribute('data-local-script', 'ready');
   await frame.getByRole('link', { name: 'Next HTML' }).click();
-  await expect(page.locator('#right-path')).toHaveText('docs/second.htm');
+  await expect(page.locator('#right-path')).toHaveAttribute('title', 'docs/second.htm');
   await expect(page.locator('#right-interactive')).toHaveAttribute('aria-pressed', 'false');
 });
 
@@ -532,6 +669,69 @@ test('renders GFM, Mermaid and code, then tracks files', async ({ page }) => {
   await unlink(join(directory, 'new.md'));
   await expect(page.locator('.file-error')).toContainText('File not found');
   await expect(page.getByRole('link', { name: 'new.md' })).toHaveCount(0);
+});
+
+test('expanded Mermaid diagrams fit, zoom, pan, and restore focus', async ({ page }) => {
+  const directions = ['LR', 'TB'];
+  for (const direction of directions) {
+    const diagram = `flowchart ${direction}\n${Array.from({ length: 12 }, (_, index) => `N${index}[Node ${index}] --> N${index + 1}[Node ${index + 1}]`).join('\n')}`;
+    await writeFile(join(directory, `diagram-${direction}.md`), `# Diagram\n\n\`\`\`mermaid\n${diagram}\n\`\`\`\n`);
+  }
+  for (const theme of ['light', 'dark']) {
+    await page.addInitScript((value) => localStorage.setItem('markport-theme', value), theme);
+    for (const direction of directions) {
+      await page.setViewportSize({ width: 900, height: 650 });
+      await page.goto(`http://127.0.0.1:${port}/?path=diagram-${direction}.md`);
+      const expand = page.getByRole('button', { name: 'Expand' });
+      await expect(expand).toBeVisible({ timeout: 15000 });
+      await expand.click();
+      const dialog = page.getByRole('dialog', { name: 'Expanded Mermaid diagram' });
+      await expect(dialog).toBeVisible();
+      await expect(page.locator('#overlay-close')).toBeFocused();
+      await expect(page.locator('#overlay-zoom-status')).not.toHaveText('');
+      const bounds = await page.locator('#overlay-viewport').evaluate((viewport) => {
+        const image = viewport.querySelector('#overlay-content')!.getBoundingClientRect(); const space = viewport.getBoundingClientRect();
+        return { left: image.left - space.left, top: image.top - space.top, right: space.right - image.right, bottom: space.bottom - image.bottom };
+      });
+      expect(Math.min(...Object.values(bounds))).toBeGreaterThanOrEqual(-2);
+      const sourceFill = await page.locator('.diagram-image svg .node').first().evaluate((node) => getComputedStyle(node).fill);
+      const overlayFill = await page.locator('#overlay-content svg .node').first().evaluate((node) => getComputedStyle(node).fill);
+      expect(overlayFill).toBe(sourceFill);
+      await page.getByRole('button', { name: 'Zoom in' }).click();
+      const zoomed = await page.locator('#overlay-zoom-status').textContent();
+      await page.getByRole('button', { name: '100%' }).click();
+      await expect(page.locator('#overlay-zoom-status')).toHaveText('100%');
+      await page.getByRole('button', { name: 'Fit diagram' }).click();
+      await expect(page.locator('#overlay-zoom-status')).not.toHaveText(zoomed ?? '');
+      if (theme === 'light' && direction === 'LR') {
+        const fitted = await page.locator('#overlay-zoom-status').textContent();
+        const center = (await page.locator('#overlay-viewport').boundingBox())!;
+        await page.mouse.move(center.x + center.width / 2, center.y + center.height / 2);
+        await page.keyboard.down('Control'); await page.mouse.wheel(0, -180); await page.keyboard.up('Control');
+        await expect(page.locator('#overlay-zoom-status')).not.toHaveText(fitted ?? '');
+        const client = await page.context().newCDPSession(page);
+        const x = center.x + center.width / 2; const y = center.y + center.height / 2;
+        await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x - 20, y, id: 1 }, { x: x + 20, y, id: 2 }] });
+        const beforePinch = await page.locator('#overlay-zoom-status').textContent();
+        await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x - 45, y, id: 1 }, { x: x + 45, y, id: 2 }] });
+        await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await expect(page.locator('#overlay-zoom-status')).not.toHaveText(beforePinch ?? '');
+        await client.detach();
+      }
+      const before = await page.locator('#overlay-content').evaluate((element) => getComputedStyle(element).transform);
+      const viewport = page.locator('#overlay-viewport');
+      const box = (await viewport.boundingBox())!;
+      await page.mouse.move(box.x + 100, box.y + 100);
+      await page.mouse.down(); await page.mouse.move(box.x + 140, box.y + 130); await page.mouse.up();
+      const after = await page.locator('#overlay-content').evaluate((element) => getComputedStyle(element).transform);
+      expect(after).not.toBe(before);
+      await page.keyboard.press('Tab');
+      expect(await page.evaluate(() => document.activeElement?.closest('dialog')?.id)).toBe('diagram-overlay');
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await expect(expand).toBeFocused();
+    }
+  }
 });
 
 test('previews SVG and PNG files and refreshes a changed image', async ({ page }) => {
@@ -638,7 +838,9 @@ test('desktop and mobile views in both themes', async ({ page }, testInfo) => {
   expect(faviconSvg).toContain('--icon-accent: #0969DA');
   await page.evaluate(() => { localStorage.setItem('markport-theme', 'light'); });
   await page.reload();
+  if (!(await page.locator('#theme-toggle').isVisible())) await page.getByRole('button', { name: 'More header actions' }).click();
   await page.getByRole('button', { name: 'Theme: Light' }).click();
+  await page.getByRole('menuitemradio', { name: 'Dark' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   const switchedSvg = await page.locator('.brand-symbol').evaluate(async (image: HTMLImageElement) => (await fetch(image.src)).text());
   expect(switchedSvg).toContain('#75B7FF');
@@ -666,8 +868,38 @@ test('opens README, switches source, searches by keyboard, and follows code line
   await expect(page).toHaveURL(/path=sample.py/);
   await expect(page.locator('#L1')).toHaveCount(1);
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.locator('.code-toolbar button').click();
+  await page.locator('.code-toolbar').getByRole('button', { name: 'Copy', exact: true }).click();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^print\(/);
+});
+
+test('highlights linked code lines and keeps wrapped line numbers aligned', async ({ page }) => {
+  const file = join(directory, 'long-wrap.ts');
+  await writeFile(file, `const first = 1;\nconst long = '${'x'.repeat(300)}';\nconst third = 3;\nconst fourth = 4;\nconst fifth = 5;\n`);
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.goto(`http://127.0.0.1:${port}/?path=long-wrap.ts#L2`);
+  await expect(page.locator('#content .lnt.selected-code-line')).toHaveCount(1);
+  await expect(page.locator('#content .line.selected-code-line')).toHaveCount(1);
+  await page.locator('#content .lnlinks[href="#L5"]').click({ modifiers: ['Shift'] });
+  await expect(page).toHaveURL(/#L2-L5$/);
+  await expect(page.locator('#content .line.selected-code-line')).toHaveCount(4);
+  await expect(page.locator('#content .copy-line-link')).toBeVisible();
+  await page.getByRole('button', { name: 'Wrap lines' }).click();
+  await expect(page.getByRole('button', { name: 'Wrap lines' })).toHaveAttribute('aria-pressed', 'true');
+  const alignment = await page.locator('#content .lntd:last-child .line').evaluateAll((lines) => {
+    const second = lines[1].getBoundingClientRect(); const third = lines[2].getBoundingClientRect();
+    const number = lines[1].querySelector('.wrapped-line-number')!.getBoundingClientRect();
+    return { lineTop: second.top, numberTop: number.top, lineHeight: second.height, nextTop: third.top, overflow: document.querySelector('#content .code-frame')!.scrollWidth > document.querySelector('#content .code-frame')!.clientWidth };
+  });
+  expect(alignment.numberTop).toBe(alignment.lineTop);
+  expect(alignment.lineHeight).toBeGreaterThan(30);
+  expect(alignment.nextTop).toBeGreaterThanOrEqual(alignment.lineTop + alignment.lineHeight);
+  expect(alignment.overflow).toBe(false);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Wrap lines' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#content .line.selected-code-line')).toHaveCount(4);
+  await writeFile(file, `const first = 1;\nconst long = '${'y'.repeat(300)}';\nconst third = 3;\nconst fourth = 4;\nconst fifth = 5;\n`);
+  await expect(page.locator('#content .lntd:last-child .line').nth(1)).toContainText('yyyy', { timeout: 15000 });
+  await expect(page.locator('#content .line.selected-code-line')).toHaveCount(4);
 });
 
 test('copies Markdown blocks, code files, and paths without the Clipboard API', async ({ page, context }) => {
@@ -685,21 +917,22 @@ test('copies Markdown blocks, code files, and paths without the Clipboard API', 
   });
 
   await page.goto(`http://127.0.0.1:${port}/?path=copy.md`);
-  await expect(page.locator('.code-toolbar button')).toHaveCount(2);
+  const copyButtons = page.locator('.code-toolbar').getByRole('button', { name: 'Copy', exact: true });
+  await expect(copyButtons).toHaveCount(2);
   await hideClipboard();
-  await page.locator('.code-toolbar button').first().click();
-  await expect(page.locator('.code-toolbar button').first()).toHaveText('Copied');
+  await copyButtons.first().click();
+  await expect(page.locator('.code-toolbar').first().getByRole('button', { name: 'Copied' })).toBeVisible();
   expect(await readClipboard()).toBe('print("markdown")\n');
 
   await hideClipboard();
-  await page.locator('.code-toolbar button').last().click();
-  await expect(page.locator('.code-toolbar button').last()).toHaveText('Copied');
+  await copyButtons.last().click();
+  await expect(page.locator('.code-toolbar').last().getByRole('button', { name: 'Copied' })).toBeVisible();
   expect(await readClipboard()).toBe('plain <text>\n');
 
   await page.goto(`http://127.0.0.1:${port}/?path=copy.py`);
   await hideClipboard();
-  await page.locator('.code-toolbar button').click();
-  await expect(page.locator('.code-toolbar button')).toHaveText('Copied');
+  await page.locator('.code-toolbar').getByRole('button', { name: 'Copy', exact: true }).click();
+  await expect(page.locator('.code-toolbar').getByRole('button', { name: 'Copied' })).toBeVisible();
   expect(await readClipboard()).toBe('print("code file")\n');
 
   await hideClipboard();
@@ -709,8 +942,8 @@ test('copies Markdown blocks, code files, and paths without the Clipboard API', 
 
   await hideClipboard();
   await page.evaluate(() => { document.execCommand = () => false; });
-  await page.locator('.code-toolbar button').click();
-  await expect(page.locator('.code-toolbar button')).toHaveText('Copy failed');
+  await page.locator('.code-toolbar').getByRole('button', { name: 'Copy', exact: true }).click();
+  await expect(page.locator('.code-toolbar').getByRole('button', { name: 'Copy failed' })).toBeVisible();
   expect(pageErrors).toEqual([]);
 });
 
@@ -742,6 +975,30 @@ test('searches a closed folder and refreshes search results after file changes',
   await unlink(join(folder, 'hidden-target.md'));
   await expect(page.locator('#result-count')).toHaveText('1 match', { timeout: 20000 });
   await expect(page.getByRole('link', { name: 'search-refresh/hidden-target-new.md' })).toBeVisible();
+});
+
+test('filename search keeps names readable in a narrow sidebar', async ({ page }) => {
+  await mkdir(join(directory, 'search-names', 'one'), { recursive: true });
+  await mkdir(join(directory, 'search-names', 'two'), { recursive: true });
+  const name = 'distinctive-long-filename.md';
+  await writeFile(join(directory, 'search-names', 'one', name), '# One');
+  await writeFile(join(directory, 'search-names', 'two', name), '# Two');
+  await page.goto(`http://127.0.0.1:${port}/`);
+  await page.evaluate(() => { localStorage.setItem('markport-sidebar-width', '200'); document.documentElement.style.setProperty('--sidebar-width', '200px'); });
+  await page.locator('#search').fill(name);
+  await expect(page.locator('#tree .search-results a')).toHaveCount(2);
+  const rows = page.locator('#tree .search-results li');
+  await expect(rows.nth(0).locator('.node-file-name')).toHaveText(name);
+  await expect(rows.nth(1).locator('.node-file-name')).toHaveText(name);
+  expect(await rows.nth(0).locator('.node-file-name').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await rows.nth(0).locator('.node-parent-path').textContent()).not.toBe(await rows.nth(1).locator('.node-parent-path').textContent());
+  await page.locator('#search').press('ArrowDown');
+  await expect(rows.nth(0).locator('a')).toBeFocused();
+  await rows.nth(0).locator('.open-right').focus();
+  await expect(rows.nth(0).locator('.open-right')).toBeFocused();
+  await page.locator('#search').focus();
+  await page.locator('#search').press('Escape');
+  await expect(page.locator('#tree .search-results')).toHaveCount(0);
 });
 
 test('shows an outline and keeps a long table header visible', async ({ page }) => {
@@ -801,7 +1058,7 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   });
   expect(positions.buttonTop).toBe(positions.linkTop);
   expect(positions.linkWidth).toBeGreaterThan(100);
-  await page.getByRole('button', { name: 'Open file list' }).click();
+  await page.getByRole('button', { name: 'Close file list' }).click();
   const count = page.locator('#content .review-count');
   await expect(count).toContainText('0 of');
   await page.locator('#content a[href*="new-diff.md"]').click();
@@ -825,7 +1082,7 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   await expect(page.locator('.diff-added .diff-code')).toContainText('alert(2)');
   await page.getByRole('tab', { name: 'Changes' }).click();
   await expect(page.locator('#content .review-count')).toContainText('0 of');
-  await page.locator('#content .review-filter input').check();
+  await page.locator('#content').getByLabel('Unreviewed only').check();
   await expect(page.locator('#content .change-path', { hasText: 'new-diff.md' })).toBeVisible();
   await page.locator('#changes-tree a[href*="sample.py"]').click();
   await expect(page.locator('.diff-added .diff-code')).toContainText('changed');
@@ -842,4 +1099,40 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.locator('#files-panel')).toBeVisible();
   await expect(page.locator('.diff-added .diff-code')).toContainText('color: red');
+});
+
+test('reviews changed files in order with counts and directory groups', async ({ page }) => {
+  const changes = [
+    { path: 'a.md', status: 'modified', revision: 'a1', added: 1, deleted: 2 },
+    { path: 'b.md', status: 'added', revision: 'b1', added: 3, deleted: 0 },
+    { path: 'docs/c.md', status: 'deleted', revision: 'c1', added: 0, deleted: 4 },
+  ];
+  await page.route('**/api/git/changes', (route) => route.fulfill({ json: { available: true, rootId: 'review-navigation-test', changes } }));
+  await page.route('**/api/git/diff?**', (route) => {
+    const path = new URL(route.request().url()).searchParams.get('path')!;
+    return route.fulfill({ json: { path, kind: 'text', patch: `diff --git a/${path} b/${path}\n@@ -1 +1 @@\n-old\n+new\n` } });
+  });
+  await page.goto(`http://127.0.0.1:${port}/?view=changes`);
+  await expect(page.locator('#content .change-lines').first()).toContainText('+1 −2');
+  await page.locator('#content').getByLabel('Group by directory').check();
+  await expect(page.locator('#content .change-directory')).toHaveText(['Root', 'docs']);
+  await page.locator('#content a[href*="b.md"]').click();
+  await expect(page.locator('#file-title .diff-navigation')).toBeVisible();
+  await page.keyboard.press('n');
+  expect(new URL(page.url()).searchParams.get('path')).toBe('docs/c.md');
+  await expect(page.getByRole('button', { name: 'Next (n)' })).toBeDisabled();
+  await page.keyboard.press('p');
+  expect(new URL(page.url()).searchParams.get('path')).toBe('b.md');
+  await page.keyboard.press('r');
+  expect(new URL(page.url()).searchParams.get('path')).toBe('docs/c.md');
+  await expect(page.locator('#changes-tree .review-count')).toContainText('1 of 3 reviewed');
+  await page.locator('#changes-tree').getByLabel('Unreviewed only').check();
+  await page.keyboard.press('p');
+  expect(new URL(page.url()).searchParams.get('path')).toBe('a.md');
+  await page.locator('#changes-tree .review-filter input').first().focus();
+  await page.keyboard.press('n');
+  expect(new URL(page.url()).searchParams.get('path')).toBe('a.md');
+  await page.locator('#changes-tree .review-filter input').first().blur();
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', isComposing: true, bubbles: true })));
+  expect(new URL(page.url()).searchParams.get('path')).toBe('a.md');
 });

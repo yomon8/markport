@@ -259,7 +259,7 @@ describe('lazy browsing and refresh', () => {
     expect(document.querySelector('#result-count')?.textContent).toBe('1 match');
     expect(document.querySelector('#tree a')?.textContent).toBe('last.md');
     search.value = 'hidden'; search.dispatchEvent(new Event('input'));
-    expect(document.querySelector('#tree a')?.textContent).toBe('nested/hidden.md');
+    expect(document.querySelector('#tree a')?.getAttribute('aria-label')).toBe('nested/hidden.md');
     expect(fetch.mock.calls.filter(([url]) => url === '/api/search-index')).toHaveLength(1);
     search.value = ''; search.dispatchEvent(new Event('input'));
     document.querySelector<HTMLButtonElement>('button[data-offset="200"]')!.click(); await flush();
@@ -276,6 +276,21 @@ describe('lazy browsing and refresh', () => {
     expect(document.querySelectorAll('#tree a')).toHaveLength(100);
     expect(document.querySelector('#tree')?.textContent).toContain('item099.md');
     expect(document.querySelector('#tree')?.textContent).not.toContain('item100.md');
+  });
+
+  it('ranks filename matches first and shows names with parent folders', async () => {
+    const paths = ['srv/archive.ts', 'docs/server.ts', 'other/server.ts'];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths }) : reply(page([]))));
+    await import('../src/main'); await flush();
+    const search = document.querySelector<HTMLInputElement>('#search')!;
+    search.value = 'srv'; search.dispatchEvent(new Event('input')); await flush();
+    const results = [...document.querySelectorAll<HTMLAnchorElement>('#tree .search-results a')];
+    expect(results).toHaveLength(3);
+    expect(results.slice(0, 2).map((link) => link.getAttribute('aria-label'))).toEqual(['docs/server.ts', 'other/server.ts']);
+    expect(results[0].querySelector('.node-file-name')?.textContent).toBe('server.ts');
+    expect(results[0].querySelector('.node-parent-path')?.textContent).toBe('docs');
+    expect(results[0].querySelectorAll('.node-file-name mark')).toHaveLength(3);
+    expect(results[0].querySelectorAll('.node-parent-path mark')).toHaveLength(0);
   });
 
   it('includes a matching file even when its path is very long', async () => {

@@ -1,4 +1,4 @@
-export type Change = { path: string; status: 'added' | 'modified' | 'deleted'; revision: string };
+export type Change = { path: string; status: 'added' | 'modified' | 'deleted'; revision: string; added?: number | null; deleted?: number | null };
 export type ChangesReply = { available: boolean; reason?: 'git_unavailable' | 'not_repository'; rootId?: string; changes: Change[] };
 export type DiffReply = { path: string; kind: 'text' | 'binary'; patch: string };
 
@@ -24,7 +24,7 @@ export function reviewButton(change: Change, isReviewed: boolean, toggle: () => 
   return button;
 }
 
-export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed: (change: Change) => boolean, toggle: (change: Change) => void, onlyUnreviewed: boolean, setFilter: (value: boolean) => void, compact = false): void {
+export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed: (change: Change) => boolean, toggle: (change: Change) => void, onlyUnreviewed: boolean, setFilter: (value: boolean) => void, groupByDirectory: boolean, setGroup: (value: boolean) => void, compact = false): void {
   target.replaceChildren();
   if (!reply.available) {
     const message = document.createElement('p'); message.className = 'hint';
@@ -37,22 +37,37 @@ export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed
   const filter = document.createElement('label'); filter.className = 'review-filter';
   const input = document.createElement('input'); input.type = 'checkbox'; input.checked = onlyUnreviewed;
   input.addEventListener('change', () => setFilter(input.checked));
-  filter.append(input, document.createTextNode(' Unreviewed only')); controls.append(count, filter); target.append(controls);
+  filter.append(input, document.createTextNode(' Unreviewed only'));
+  const group = document.createElement('label'); group.className = 'review-filter';
+  const groupInput = document.createElement('input'); groupInput.type = 'checkbox'; groupInput.checked = groupByDirectory;
+  groupInput.addEventListener('change', () => setGroup(groupInput.checked));
+  group.append(groupInput, document.createTextNode(' Group by directory'));
+  controls.append(count, filter, group); target.append(controls);
   if (!reply.changes.length) {
     const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'No changes.'; target.append(message); return;
   }
-  const list = document.createElement('ul'); list.className = compact ? 'change-list compact' : 'change-list';
+  const lists = new Map<string, HTMLUListElement>();
   for (const change of reply.changes.filter((item) => !onlyUnreviewed || !reviewed(item))) {
+    const directory = groupByDirectory ? change.path.includes('/') ? change.path.slice(0, change.path.lastIndexOf('/')) : 'Root' : '';
+    let list = lists.get(directory);
+    if (!list) {
+      if (groupByDirectory) { const heading = document.createElement('h3'); heading.className = 'change-directory'; heading.textContent = directory; target.append(heading); }
+      list = document.createElement('ul'); list.className = compact ? 'change-list compact' : 'change-list';
+      lists.set(directory, list); target.append(list);
+    }
     const item = document.createElement('li');
     const link = document.createElement('a'); link.href = diffURL(change.path); link.title = change.path;
     const badge = document.createElement('span'); badge.className = `change-status ${change.status}`; badge.textContent = statusLabels[change.status];
-    const label = document.createElement('span'); label.className = 'change-path'; label.textContent = change.path;
+    const label = document.createElement('span'); label.className = 'change-path'; label.textContent = groupByDirectory ? change.path.split('/').at(-1)! : change.path;
     link.append(badge, label);
+    const lines = document.createElement('span'); lines.className = 'change-lines';
+    lines.setAttribute('aria-label', `Added ${change.added ?? 'unknown'} lines, deleted ${change.deleted ?? 'unknown'} lines`);
+    lines.textContent = change.added === null || change.deleted === null || change.added === undefined || change.deleted === undefined ? 'Binary' : `+${change.added} −${change.deleted}`;
+    link.append(lines);
     const button = reviewButton(change, reviewed(change), () => toggle(change));
     item.append(link, button); list.append(item);
   }
-  if (!list.childElementCount) { const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'All changes reviewed.'; target.append(message); }
-  target.append(list);
+  if (!lists.size) { const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'All changes reviewed.'; target.append(message); }
 }
 
 export function renderDiff(target: HTMLElement, reply: DiffReply): void {

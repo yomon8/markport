@@ -1,7 +1,8 @@
+import { matchesShortcut } from './shortcuts';
 export type Node = { name: string; path: string; type: 'directory' | 'file' };
 export type Page = { entries: Node[]; offset: number; nextOffset: number | null; revision: string; root: string; readme?: string };
 type Directory = { pages: Map<number, Node[]>; next: Map<number, number | null>; revision: string };
-type SearchMatch = { path: string; rank: number };
+type SearchMatch = { path: string; rank: number; positions: number[] };
 type SearchState = 'idle' | 'loading' | 'ready' | 'error';
 const searchResultLimit = 100;
 
@@ -29,17 +30,29 @@ function icon(name: string, directory = false): string {
   if (/\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html?|json|ya?ml)$/i.test(name)) return icons.code;
   return icons.other;
 }
-function score(path: string, query: string): number {
+function score(path: string, query: string): { rank: number; positions: number[] } | null {
   const target = path.toLocaleLowerCase();
-  let position = 0; let points = 0; let last = -2;
-  for (const char of query) {
-    const found = target.indexOf(char, position);
-    if (found < 0) return -1;
-    points += found === last + 1 ? 4 : 1;
-    if (found === 0 || '/-_.'.includes(target[found - 1])) points += 5;
-    last = found; position = found + 1;
+  const filenameStart = path.lastIndexOf('/') + 1;
+  const find = (start: number): number[] | null => {
+    const positions: number[] = []; let position = start;
+    for (const char of query) {
+      const found = target.indexOf(char, position);
+      if (found < 0) return null;
+      positions.push(found); position = found + 1;
+    }
+    return positions;
+  };
+  const filename = find(filenameStart);
+  const positions = filename ?? find(0);
+  if (!positions) return null;
+  let points = filename ? 30 : 0;
+  for (let index = 0; index < positions.length; index++) {
+    const found = positions[index];
+    points += index && found === positions[index - 1] + 1 ? 5 : 1;
+    if (found === filenameStart || found === 0 || '/-_.'.includes(target[found - 1])) points += 6;
   }
-  return Math.max(0, points - path.length / 100);
+  if (positions.at(-1)! - positions[0] + 1 === query.length) points += 15;
+  return { rank: points - path.length / 100, positions };
 }
 function better(a: SearchMatch, b: SearchMatch): boolean {
   return a.rank > b.rank || (a.rank === b.rank && compareNames(a.path, b.path) < 0);
@@ -65,20 +78,20 @@ function searchMatches(paths: string[], query: string): { matches: SearchMatch[]
     }
   };
   for (const path of paths) {
-    const rank = score(path, query); if (rank < 0) continue;
+    const result = score(path, query); if (!result) continue;
     count++;
-    const candidate = { path, rank };
+    const candidate = { path, ...result };
     if (heap.length < searchResultLimit) { heap.push(candidate); siftUp(heap.length - 1); }
     else if (better(candidate, heap[0])) { heap[0] = candidate; siftDown(); }
   }
   return { matches: heap.sort((a, b) => better(a, b) ? -1 : better(b, a) ? 1 : 0), count };
 }
-function highlighted(label: string, query: string): DocumentFragment {
+function highlighted(label: string, positions: number[], offset: number): DocumentFragment {
   const fragment = document.createDocumentFragment();
-  const lower = label.toLocaleLowerCase(); let index = 0;
-  for (const char of query) {
-    const found = lower.indexOf(char, index);
-    if (found < 0) break;
+  let index = 0;
+  for (const absolute of positions) {
+    const found = absolute - offset;
+    if (found < 0 || found >= label.length) continue;
     fragment.append(document.createTextNode(label.slice(index, found)));
     const mark = document.createElement('mark'); mark.textContent = label[found]; fragment.append(mark);
     index = found + 1;
@@ -86,14 +99,23 @@ function highlighted(label: string, query: string): DocumentFragment {
   fragment.append(document.createTextNode(label.slice(index)));
   return fragment;
 }
-function fileLink(node: Node, selected: string, query = ''): DocumentFragment {
+function fileLink(node: Node, selected: string, positions?: number[]): DocumentFragment {
   const row = document.createDocumentFragment();
   const link = document.createElement('a');
   link.href = `/?path=${encodeURIComponent(node.path)}`;
   link.title = node.path;
   link.className = `file file-${/\.(md|markdown)$/i.test(node.name) ? 'markdown' : /\.(png|jpe?g|gif|webp|svg)$/i.test(node.name) ? 'image' : /\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html?|json|ya?ml)$/i.test(node.name) ? 'code' : 'other'}`;
   link.innerHTML = icon(node.name);
-  const label = document.createElement('span'); label.className = 'node-label'; label.append(query ? highlighted(node.path, query) : document.createTextNode(node.name)); link.append(label);
+  const label = document.createElement('span'); label.className = 'node-label';
+  if (positions) {
+    link.setAttribute('aria-label', node.path);
+    const start = node.path.lastIndexOf('/') + 1;
+    const name = document.createElement('span'); name.className = 'node-file-name'; name.append(highlighted(node.name, positions, start)); label.append(name);
+    if (start) {
+      const parent = document.createElement('span'); parent.className = 'node-parent-path'; parent.append(highlighted(node.path.slice(0, start - 1), positions, 0)); label.append(parent);
+    }
+  } else label.textContent = node.name;
+  link.append(label);
   if (node.path === selected) link.setAttribute('aria-current', 'page');
   const right = document.createElement('button'); right.type = 'button'; right.className = 'open-right'; right.dataset.rightPath = node.path;
   right.title = `Open ${node.path} on right`; right.setAttribute('aria-label', `Open ${node.path} on right`); right.textContent = '⇥';
@@ -123,21 +145,21 @@ export class TreeView {
     search.addEventListener('input', () => { this.render(); this.onSearch(search.value.trim()); });
     search.addEventListener('keydown', (event) => {
       const links = [...tree.querySelectorAll<HTMLAnchorElement>('a')];
-      if (event.key === 'Escape') { search.value = ''; this.render(); this.onSearch(''); return; }
-      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (matchesShortcut(event, 'treeClear')) { search.value = ''; this.render(); this.onSearch(''); return; }
+      if (matchesShortcut(event, 'treeNext') || matchesShortcut(event, 'treePrevious')) {
         event.preventDefault(); const active = links.indexOf(document.activeElement as HTMLAnchorElement);
-        links[Math.max(0, Math.min(links.length - 1, active + (event.key === 'ArrowDown' ? 1 : -1))) ]?.focus();
-      } else if (event.key === 'Enter') links[0]?.click();
+        links[Math.max(0, Math.min(links.length - 1, active + (matchesShortcut(event, 'treeNext') ? 1 : -1))) ]?.focus();
+      } else if (matchesShortcut(event, 'treeOpen')) links[0]?.click();
     });
     tree.addEventListener('keydown', (event) => {
       const links = [...tree.querySelectorAll<HTMLAnchorElement>('a')].filter((link) => !link.closest('details:not([open])'));
       const active = links.indexOf(document.activeElement as HTMLAnchorElement);
       if (active < 0) return;
       let next = active;
-      if (event.key === 'ArrowDown') next++;
-      else if (event.key === 'ArrowUp') next--;
-      else if (event.key === 'Home') next = 0;
-      else if (event.key === 'End') next = links.length - 1;
+      if (matchesShortcut(event, 'treeNext')) next++;
+      else if (matchesShortcut(event, 'treePrevious')) next--;
+      else if (matchesShortcut(event, 'treeFirst')) next = 0;
+      else if (matchesShortcut(event, 'treeLast')) next = links.length - 1;
       else return;
       event.preventDefault(); links[Math.max(0, Math.min(links.length - 1, next))]?.focus();
     });
@@ -240,14 +262,14 @@ export class TreeView {
       if (!count) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = 'No matching files.'; this.tree.append(empty); }
       else {
         const list = document.createElement('ul'); list.className = 'search-results';
-        for (const { path } of matches) {
+        for (const { path, positions } of matches) {
           const item = document.createElement('li');
-          item.append(fileLink({ name: path.split('/').at(-1)!, path, type: 'file' }, this.selected(), query)); list.append(item);
+          item.append(fileLink({ name: path.split('/').at(-1)!, path, type: 'file' }, this.selected(), positions)); list.append(item);
         }
         this.tree.append(list);
       }
     } else {
-      this.count.textContent = `${this.fileCount()} ${this.fileCount() === 1 ? 'file' : 'files'} loaded`;
+      this.count.textContent = `${this.fileCount()} ${this.fileCount() === 1 ? 'file' : 'files'} loaded from open folders`;
       if (this.has('') && !this.nodes('').length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = 'No files to display (.git, node_modules, and .venv are excluded).'; this.tree.append(empty); }
       else this.appendNodes(this.tree, '');
     }

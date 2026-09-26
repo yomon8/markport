@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -32,7 +33,16 @@ type Change struct {
 	Path     string `json:"path"`
 	Status   string `json:"status"`
 	Revision string `json:"revision"`
+	Added    *int   `json:"added"`
+	Deleted  *int   `json:"deleted"`
 }
+
+type lineCounts struct{ added, deleted *int }
+
+var statsCache = struct {
+	sync.Mutex
+	values map[string]lineCounts
+}{values: make(map[string]lineCounts)}
 
 type Listing struct {
 	Available bool     `json:"available"`
@@ -190,7 +200,7 @@ func names(output []byte, withStatus bool) ([]Change, error) {
 	return changes, nil
 }
 
-func collect(ctx context.Context, store *files.Store, repo repository) ([]Change, error) {
+func collect(ctx context.Context, store *files.Store, repo repository, withStats bool) ([]Change, error) {
 	var tracked []Change
 	if repo.unborn {
 		output, err := run(ctx, repo.root, "ls-files", "--cached", "-z", "--", repo.scope())
@@ -238,6 +248,10 @@ func collect(ctx context.Context, store *files.Store, repo repository) ([]Change
 		if err := fingerprint(ctx, store, repo, &change); err != nil {
 			return nil, err
 		}
+		if withStats {
+			counts := countChange(ctx, store, repo, change)
+			change.Added, change.Deleted = counts.added, counts.deleted
+		}
 		result = append(result, change)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
@@ -281,7 +295,7 @@ func List(ctx context.Context, store *files.Store) (Listing, error) {
 	if reason != "" {
 		return Listing{Available: false, Reason: reason, Changes: []Change{}}, nil
 	}
-	changes, err := collect(ctx, store, repo)
+	changes, err := collect(ctx, store, repo, true)
 	rootID := sha256.Sum256([]byte(store.Path))
 	return Listing{Available: true, RootID: hex.EncodeToString(rootID[:]), Changes: changes}, err
 }
@@ -297,7 +311,7 @@ func File(ctx context.Context, store *files.Store, name string) (Diff, error) {
 	if reason != "" {
 		return Diff{}, ErrUnavailable
 	}
-	changes, err := collect(ctx, store, repo)
+	changes, err := collect(ctx, store, repo, false)
 	if err != nil {
 		return Diff{}, err
 	}
@@ -311,15 +325,20 @@ func File(ctx context.Context, store *files.Store, name string) (Diff, error) {
 	if change == nil {
 		return Diff{}, ErrNoChange
 	}
+	return changeDiff(ctx, store, repo, name, change.Status)
+}
+
+func changeDiff(ctx context.Context, store *files.Store, repo repository, name, status string) (Diff, error) {
 	var oldContent []byte
-	if !repo.unborn && change.Status != "added" {
+	var err error
+	if !repo.unborn && status != "added" {
 		oldContent, err = run(ctx, repo.root, "cat-file", "blob", repo.head+":"+repo.path(name))
 		if err != nil {
 			return Diff{}, err
 		}
 	}
 	var newContent []byte
-	if change.Status != "deleted" {
+	if status != "deleted" {
 		current, readErr := store.ReadText(name)
 		if errors.Is(readErr, files.ErrBinary) {
 			return Diff{Path: name, Kind: "binary"}, nil
@@ -332,10 +351,10 @@ func File(ctx context.Context, store *files.Store, name string) (Diff, error) {
 	if !validText(oldContent) {
 		return Diff{Path: name, Kind: "binary"}, nil
 	}
-	if change.Status == "added" {
+	if status == "added" {
 		return textDiff(name, addedPatch(name, string(newContent)))
 	}
-	if change.Status == "deleted" {
+	if status == "deleted" {
 		return textDiff(name, deletedPatch(name, string(oldContent)))
 	}
 	if bytes.Equal(oldContent, newContent) {
@@ -346,6 +365,48 @@ func File(ctx context.Context, store *files.Store, name string) (Diff, error) {
 		return Diff{}, err
 	}
 	return textDiff(name, patch)
+}
+
+func countChange(ctx context.Context, store *files.Store, repo repository, change Change) lineCounts {
+	key := store.Path + "\x00" + change.Path + "\x00" + change.Revision
+	statsCache.Lock()
+	if cached, ok := statsCache.values[key]; ok {
+		statsCache.Unlock()
+		return cached
+	}
+	statsCache.Unlock()
+	var counts lineCounts
+	diff, err := changeDiff(ctx, store, repo, change.Path, change.Status)
+	if err == nil && diff.Kind == "text" {
+		added, deleted := 0, 0
+		inHunk := false
+		for _, line := range strings.Split(diff.Patch, "\n") {
+			if strings.HasPrefix(line, "@@ ") {
+				inHunk = true
+				continue
+			}
+			if !inHunk {
+				continue
+			}
+			if strings.HasPrefix(line, "+") {
+				added++
+			}
+			if strings.HasPrefix(line, "-") {
+				deleted++
+			}
+		}
+		counts = lineCounts{&added, &deleted}
+	}
+	if err != nil && !errors.Is(err, ErrTooLarge) {
+		return counts
+	}
+	statsCache.Lock()
+	if len(statsCache.values) >= 4000 {
+		statsCache.values = make(map[string]lineCounts)
+	}
+	statsCache.values[key] = counts
+	statsCache.Unlock()
+	return counts
 }
 
 func validText(content []byte) bool {
