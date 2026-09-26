@@ -340,6 +340,47 @@ test('opens and refreshes two independently scrolling files', async ({ page }) =
   await expect(page.locator('#content h1')).toHaveText('Left updated');
 });
 
+test('split pane titles, controls, and navigation keep file context', async ({ page }, testInfo) => {
+  await mkdir(join(directory, 'docs'), { recursive: true });
+  await writeFile(join(directory, 'docs', 'split-left.md'), `# Left\n\n## First\n\n## Second\n\n${'Left line\n\n'.repeat(100)}`);
+  await writeFile(join(directory, 'docs', 'split-right.md'), `# Right\n\n## First\n\n## Second\n\n${'Right line\n\n'.repeat(100)}`);
+  for (const width of [1280, 1400, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`http://127.0.0.1:${port}/?path=docs%2Fsplit-left.md&right=docs%2Fsplit-right.md`);
+    await expect(page.locator('#right-content h1')).toHaveText('Right');
+    await expect(page.locator('#file-title .breadcrumbs strong')).toHaveText('split-left.md');
+    await expect(page.locator('#right-path strong')).toHaveText('split-right.md');
+    for (const selector of ['#file-title .breadcrumbs strong', '#right-path strong']) {
+      const visible = await page.locator(selector).evaluate((element) => {
+        const box = element.getBoundingClientRect(); const pane = element.closest('#main, #right-pane')!.getBoundingClientRect();
+        return box.left >= pane.left && box.right <= pane.right && box.width > 0;
+      });
+      expect(visible, `${selector} at ${width}px`).toBe(true);
+    }
+    expect(await page.locator('.content-layout').evaluate((element) => getComputedStyle(element).display)).toBe('block');
+    await page.screenshot({ path: testInfo.outputPath(`split-${width}.png`) });
+  }
+  await expect(page.locator('#right-rendered')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#right-source').click();
+  await expect(page.locator('#right-source')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#right-rendered').click();
+  await page.locator('#right-contents').click();
+  await expect(page.locator('#right-outline')).toBeVisible();
+  await page.locator('#right-pane').evaluate((pane) => { pane.scrollTop = 350; });
+  await page.locator('#main').evaluate((pane) => { pane.scrollTop = 250; });
+  await page.getByRole('button', { name: 'Swap panes' }).click();
+  await expect(page.locator('#content h1')).toHaveText('Right');
+  await expect(page.locator('#right-content h1')).toHaveText('Left');
+  expect(new URL(page.url()).searchParams.get('path')).toBe('docs/split-right.md');
+  expect(new URL(page.url()).searchParams.get('right')).toBe('docs/split-left.md');
+  expect(await page.locator('#main').evaluate((pane) => pane.scrollTop)).toBeGreaterThan(0);
+  expect(await page.locator('#right-pane').evaluate((pane) => pane.scrollTop)).toBeGreaterThan(0);
+  await page.getByRole('button', { name: 'Show this file only' }).click();
+  await expect(page.locator('#right-pane')).toBeHidden();
+  await expect(page.locator('#content h1')).toHaveText('Left');
+  expect(new URL(page.url()).searchParams.get('right')).toBeNull();
+});
+
 test('scrolls long code and table lines inside narrow panes', async ({ page }) => {
   const longLine = `value = '${'x'.repeat(200)}END'`;
   await writeFile(join(directory, 'long-lines.md'), `# Long lines\n\n\`\`\`python\n${longLine}\n\`\`\`\n\n| Column |\n|---|\n| ${longLine} |\n`);
@@ -380,7 +421,7 @@ test('keeps the HTML preview sandbox in the right pane and works on a narrow scr
   const scrollable = await page.locator('#right-pane').evaluate((pane) => getComputedStyle(pane).overflowY);
   expect(scrollable).toBe('auto');
   await page.frameLocator('#right-content .html-preview').getByRole('link', { name: 'Next HTML' }).click();
-  await expect(page.locator('#right-path')).toHaveText('docs/second.htm');
+  await expect(page.locator('#right-path')).toHaveAttribute('title', 'docs/second.htm');
   await expect(page.locator('#content h1')).toHaveText('Demo');
   await page.locator('#right-source').click();
   await expect(page.locator('#right-content .lntd:last-child pre')).toContainText('Second HTML');
@@ -500,7 +541,7 @@ test('enables interactive HTML in the right pane', async ({ page }) => {
   await page.locator('#right-interactive').click();
   await expect(frame.locator('body')).toHaveAttribute('data-local-script', 'ready');
   await frame.getByRole('link', { name: 'Next HTML' }).click();
-  await expect(page.locator('#right-path')).toHaveText('docs/second.htm');
+  await expect(page.locator('#right-path')).toHaveAttribute('title', 'docs/second.htm');
   await expect(page.locator('#right-interactive')).toHaveAttribute('aria-pressed', 'false');
 });
 
