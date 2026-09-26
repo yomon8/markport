@@ -6,6 +6,7 @@ import { renderChanges, renderDiff, diffURL, reviewButton, type Change, type Cha
 import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
 import { copyText } from './clipboard';
+import { createDiagramOverlay } from './diagramOverlay';
 import symbolLight from '../../logo/markport-symbol-light.svg';
 import symbolDark from '../../logo/markport-symbol-dark.svg';
 import favicon from '../../logo/markport-favicon.svg';
@@ -18,6 +19,7 @@ class RequestError extends Error { constructor(readonly code: string, message: s
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
 app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><div id="header-extras"><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button></div><button id="header-more" type="button" aria-label="More header actions" aria-expanded="false" aria-controls="header-extras">⋯</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><label for="search">Search files</label><input id="search" type="search" placeholder="Path or file name /"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><div id="right-path" class="breadcrumbs"></div><div class="right-actions"><span id="right-kind" class="kind-badge"></span><div id="right-views" class="view-segment" role="group" aria-label="Rendered view or Source"><button id="right-rendered" type="button" aria-pressed="true">Rendered view</button><button id="right-source" type="button" aria-pressed="false">Source</button></div><button id="right-interactive" type="button" hidden>Enable JavaScript</button><button id="right-copy" type="button" class="title-icon" aria-label="Copy path" title="Copy path">⧉</button><button id="right-contents" type="button" class="title-icon" aria-label="Contents" title="Contents" hidden>☷</button><button id="right-swap" type="button" class="title-icon" aria-label="Swap panes" title="Swap panes">⇄</button><button id="right-only" type="button" class="title-icon" aria-label="Show this file only" title="Show this file only">▣</button><button id="right-close" type="button" class="title-icon" aria-label="Close split view" title="Close split view">×</button></div></div><article id="right-content" aria-busy="false"></article><nav id="right-outline" aria-label="Right table of contents" hidden></nav></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
+const diagramOverlay = createDiagramOverlay();
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
 if (!icon.isConnected) document.head.append(icon);
@@ -1038,8 +1040,8 @@ function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
       if (!source) { source = document.createElement('pre'); source.className = 'diagram-source'; source.textContent = diagram.dataset.source ?? ''; diagram.append(source); }
       source.hidden = showing; action.textContent = showing ? 'Source' : 'Diagram';
     } else {
-      document.querySelector<HTMLElement>('#overlay-content')!.innerHTML = diagram.querySelector('.diagram-image')?.innerHTML ?? '';
-      document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = false;
+      const svg = diagram.querySelector<SVGSVGElement>('.diagram-image svg');
+      if (svg) diagramOverlay.open(svg, action);
     }
     return;
   }
@@ -1058,7 +1060,6 @@ document.querySelector('#right-copy')!.addEventListener('click', (event) => { co
 document.querySelector('#right-swap')!.addEventListener('click', swapPanes);
 document.querySelector('#right-only')!.addEventListener('click', showRightOnly);
 rightInteractive.addEventListener('click', () => { const path = rightSelected(); if (path) setInteractive(path, !interactivePaths.has(path)); });
-document.querySelector('#overlay-close')!.addEventListener('click', () => { document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; });
 window.addEventListener('popstate', () => { pasteVersion++; sidebarPanel = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); });
 window.addEventListener('hashchange', () => { highlightCodeLines(true); });
 window.addEventListener('keydown', (event) => {
@@ -1076,7 +1077,7 @@ window.addEventListener('keydown', (event) => {
   }
   if ((event.key === '/' || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k'))) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') { event.preventDefault(); sidebarToggle.click(); }
-  if (event.key === 'Escape') { sidebar.classList.remove('open'); outline.classList.remove('open'); document.querySelector<HTMLElement>('#diagram-overlay')!.hidden = true; }
+  if (event.key === 'Escape') { sidebar.classList.remove('open'); outline.classList.remove('open'); diagramOverlay.close(); }
 });
 reload.addEventListener('click', manualRefresh);
 drawerToggle.addEventListener('click', () => sidebar.classList.toggle('open'));

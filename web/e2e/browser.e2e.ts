@@ -646,6 +646,69 @@ test('renders GFM, Mermaid and code, then tracks files', async ({ page }) => {
   await expect(page.getByRole('link', { name: 'new.md' })).toHaveCount(0);
 });
 
+test('expanded Mermaid diagrams fit, zoom, pan, and restore focus', async ({ page }) => {
+  const directions = ['LR', 'TB'];
+  for (const direction of directions) {
+    const diagram = `flowchart ${direction}\n${Array.from({ length: 12 }, (_, index) => `N${index}[Node ${index}] --> N${index + 1}[Node ${index + 1}]`).join('\n')}`;
+    await writeFile(join(directory, `diagram-${direction}.md`), `# Diagram\n\n\`\`\`mermaid\n${diagram}\n\`\`\`\n`);
+  }
+  for (const theme of ['light', 'dark']) {
+    await page.addInitScript((value) => localStorage.setItem('markport-theme', value), theme);
+    for (const direction of directions) {
+      await page.setViewportSize({ width: 900, height: 650 });
+      await page.goto(`http://127.0.0.1:${port}/?path=diagram-${direction}.md`);
+      const expand = page.getByRole('button', { name: 'Expand' });
+      await expect(expand).toBeVisible({ timeout: 15000 });
+      await expand.click();
+      const dialog = page.getByRole('dialog', { name: 'Expanded Mermaid diagram' });
+      await expect(dialog).toBeVisible();
+      await expect(page.locator('#overlay-close')).toBeFocused();
+      await expect(page.locator('#overlay-zoom-status')).not.toHaveText('');
+      const bounds = await page.locator('#overlay-viewport').evaluate((viewport) => {
+        const image = viewport.querySelector('#overlay-content')!.getBoundingClientRect(); const space = viewport.getBoundingClientRect();
+        return { left: image.left - space.left, top: image.top - space.top, right: space.right - image.right, bottom: space.bottom - image.bottom };
+      });
+      expect(Math.min(...Object.values(bounds))).toBeGreaterThanOrEqual(-2);
+      const sourceFill = await page.locator('.diagram-image svg .node').first().evaluate((node) => getComputedStyle(node).fill);
+      const overlayFill = await page.locator('#overlay-content svg .node').first().evaluate((node) => getComputedStyle(node).fill);
+      expect(overlayFill).toBe(sourceFill);
+      await page.getByRole('button', { name: 'Zoom in' }).click();
+      const zoomed = await page.locator('#overlay-zoom-status').textContent();
+      await page.getByRole('button', { name: '100%' }).click();
+      await expect(page.locator('#overlay-zoom-status')).toHaveText('100%');
+      await page.getByRole('button', { name: 'Fit diagram' }).click();
+      await expect(page.locator('#overlay-zoom-status')).not.toHaveText(zoomed ?? '');
+      if (theme === 'light' && direction === 'LR') {
+        const fitted = await page.locator('#overlay-zoom-status').textContent();
+        const center = (await page.locator('#overlay-viewport').boundingBox())!;
+        await page.mouse.move(center.x + center.width / 2, center.y + center.height / 2);
+        await page.keyboard.down('Control'); await page.mouse.wheel(0, -180); await page.keyboard.up('Control');
+        await expect(page.locator('#overlay-zoom-status')).not.toHaveText(fitted ?? '');
+        const client = await page.context().newCDPSession(page);
+        const x = center.x + center.width / 2; const y = center.y + center.height / 2;
+        await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x - 20, y, id: 1 }, { x: x + 20, y, id: 2 }] });
+        const beforePinch = await page.locator('#overlay-zoom-status').textContent();
+        await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x - 45, y, id: 1 }, { x: x + 45, y, id: 2 }] });
+        await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await expect(page.locator('#overlay-zoom-status')).not.toHaveText(beforePinch ?? '');
+        await client.detach();
+      }
+      const before = await page.locator('#overlay-content').evaluate((element) => getComputedStyle(element).transform);
+      const viewport = page.locator('#overlay-viewport');
+      const box = (await viewport.boundingBox())!;
+      await page.mouse.move(box.x + 100, box.y + 100);
+      await page.mouse.down(); await page.mouse.move(box.x + 140, box.y + 130); await page.mouse.up();
+      const after = await page.locator('#overlay-content').evaluate((element) => getComputedStyle(element).transform);
+      expect(after).not.toBe(before);
+      await page.keyboard.press('Tab');
+      expect(await page.evaluate(() => document.activeElement?.closest('dialog')?.id)).toBe('diagram-overlay');
+      await page.keyboard.press('Escape');
+      await expect(dialog).toBeHidden();
+      await expect(expand).toBeFocused();
+    }
+  }
+});
+
 test('previews SVG and PNG files and refreshes a changed image', async ({ page }) => {
   await page.goto(`http://127.0.0.1:${port}/?path=image.svg`);
   const preview = page.locator('article img.image-preview');
