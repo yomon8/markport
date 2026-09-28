@@ -912,11 +912,14 @@ async function refreshRight(): Promise<void> {
         const img = document.createElement('img'); img.className = 'image-preview'; img.alt = path.split('/').at(-1) ?? path;
         img.src = file.assetUrl; img.addEventListener('error', () => { if (img.isConnected) rightContent.textContent = 'Cannot display image.'; }); rightContent.replaceChildren(img);
       } else { rightContent.innerHTML = file.html; decorateContent(rightContent, path); }
-      rightPane.scrollTop = scroll; rightShownKey = key;
+      rightShownKey = key;
       updateRightOutline();
       void drawMermaid(rightContent, () => request === rightRequest && path === rightSelected());
+      showRightTitle(path, file.type);
+      rightPane.scrollTop = scroll;
+    } else {
+      showRightTitle(path, file.type);
     }
-    showRightTitle(path, file.type);
     rightKind.hidden = false; rightDownload.hidden = false; rightOpenPDF.hidden = file.type !== 'pdf';
     rightInteractive.hidden = file.type !== 'html';
     rightInteractive.textContent = interactivePaths.has(path) ? 'Disable JavaScript' : 'Enable JavaScript';
@@ -1001,7 +1004,6 @@ async function refreshLoop(): Promise<void> {
             } else { content.innerHTML = file.html; decorateContent(); }
             displayedHTML = displayKey; displayedSource = source;
             updateOutline(); showTitle(path, file.type);
-            if (!pathChanged && oldScroll > 0) main.scrollTop = oldScroll;
             if (location.hash && file.type !== 'html' && !highlightCodeLines(pathChanged)) {
               try { if (pathChanged) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ }
             }
@@ -1009,6 +1011,7 @@ async function refreshLoop(): Promise<void> {
               title.classList.add('updated'); const note = document.createElement('span'); note.className = 'update-note'; note.textContent = 'Updated'; title.querySelector('.title-actions')?.prepend(note);
               clearTimeout(updatedTimer); updatedTimer = setTimeout(() => { title.classList.remove('updated'); note.remove(); }, 3500);
             }
+            if (!pathChanged && oldScroll > 0) main.scrollTop = oldScroll;
             void drawMermaid(content, () => path === selected() && source === sourceMode);
           }
           if (pathChanged) view.reveal(path);

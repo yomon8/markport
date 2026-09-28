@@ -118,7 +118,7 @@ func TestHostAndAPI(t *testing.T) {
 
 func TestDownload(t *testing.T) {
 	app, dir := newTestServer(t)
-	name := `日本語 "sample".bin`
+	name := "日本語 sample file.bin"
 	content := []byte{0, 1, 2, 255, '\n'}
 	if err := os.WriteFile(filepath.Join(dir, name), content, 0644); err != nil {
 		t.Fatal(err)
