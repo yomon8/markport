@@ -163,6 +163,80 @@ func TestDownloadLargeFile(t *testing.T) {
 	}
 }
 
+func TestPDFPreview(t *testing.T) {
+	app, dir := newTestServer(t)
+	name := "sample 文書.PDF"
+	content := []byte("%PDF-1.4\nPDF preview fixture\n")
+	if err := os.WriteFile(filepath.Join(dir, name), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	metadata := request(app, "localhost:3000", "/api/file?path="+url.QueryEscape(name))
+	var file map[string]string
+	if metadata.Code != http.StatusOK || json.Unmarshal(metadata.Body.Bytes(), &file) != nil || file["type"] != "pdf" || !strings.HasPrefix(file["previewUrl"], "/api/pdf?path=") {
+		t.Fatalf("PDF metadata: %d %s", metadata.Code, metadata.Body.String())
+	}
+	conditional := httptest.NewRequest(http.MethodGet, "/api/file?path="+url.QueryEscape(name), nil)
+	conditional.Host = "localhost:3000"
+	conditional.Header.Set("If-None-Match", metadata.Header().Get("ETag"))
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, conditional)
+	if w.Code != http.StatusNotModified {
+		t.Fatalf("PDF metadata revalidation: %d", w.Code)
+	}
+	preview := request(app, "localhost:3000", file["previewUrl"])
+	if preview.Code != http.StatusOK || preview.Body.String() != string(content) || preview.Header().Get("Content-Type") != "application/pdf" || preview.Header().Get("Cache-Control") != "no-store" || preview.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("PDF response: %d %v %s", preview.Code, preview.Header(), preview.Body.String())
+	}
+	mediaType, params, err := mime.ParseMediaType(preview.Header().Get("Content-Disposition"))
+	if err != nil || mediaType != "inline" || params["filename"] != name {
+		t.Fatalf("PDF disposition: %q %v", preview.Header().Get("Content-Disposition"), err)
+	}
+	rangeRequest := httptest.NewRequest(http.MethodGet, file["previewUrl"], nil)
+	rangeRequest.Host = "localhost:3000"
+	rangeRequest.Header.Set("Range", "bytes=0-7")
+	rangeResponse := httptest.NewRecorder()
+	app.ServeHTTP(rangeResponse, rangeRequest)
+	if rangeResponse.Code != http.StatusPartialContent || rangeResponse.Body.String() != "%PDF-1.4" || rangeResponse.Header().Get("Content-Range") != "bytes 0-7/29" {
+		t.Fatalf("PDF range: %d %v %q", rangeResponse.Code, rangeResponse.Header(), rangeResponse.Body.String())
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fake.pdf"), []byte("<html>wrong content</html>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, endpoint := range []string{"/api/file?path=fake.pdf", "/api/pdf?path=fake.pdf"} {
+		response := request(app, "localhost:3000", endpoint)
+		if response.Code != http.StatusUnsupportedMediaType || !strings.Contains(response.Body.String(), `"invalid_pdf"`) {
+			t.Errorf("invalid PDF accepted by %s: %d %s", endpoint, response.Code, response.Body.String())
+		}
+	}
+	for _, endpoint := range []string{"/api/pdf?path=readme.md", "/api/pdf?path=..%2Fsecret.pdf", "/api/pdf?path=missing.pdf"} {
+		if got := request(app, "localhost:3000", endpoint).Code; got < 400 {
+			t.Errorf("invalid PDF path accepted by %s: %d", endpoint, got)
+		}
+	}
+	if err := os.Symlink(filepath.Join(dir, name), filepath.Join(dir, "linked.pdf")); err == nil {
+		if got := request(app, "localhost:3000", "/api/pdf?path=linked.pdf").Code; got < 400 {
+			t.Fatalf("PDF symlink accepted: %d", got)
+		}
+	}
+	large := filepath.Join(dir, "large.pdf")
+	f, err := os.Create(large)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("%PDF-1.4")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(maxAssetSize + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := request(app, "localhost:3000", "/api/file?path=large.pdf").Code; got != http.StatusOK {
+		t.Fatalf("large PDF metadata: %d", got)
+	}
+}
+
 type countingResponseWriter struct {
 	header http.Header
 	status int

@@ -11,6 +11,7 @@ const icons = {
   markdown: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.5h7l3 3v10H3zM10 1.5v3h3" fill="none" stroke="currentColor"/><path d="M5 8h6M5 10h5M5 12h4" stroke="currentColor"/></svg>',
   code: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5.5 4-4 4 4 4m5-8 4 4-4 4M9 2 7 14" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
   image: '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2" width="13" height="12" rx="1" fill="none" stroke="currentColor"/><circle cx="5" cy="5" r="1"/><path d="m2 12 4-4 2 2 2-2 4 4" fill="none" stroke="currentColor"/></svg>',
+  pdf: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.5h7l3 3v10H3zM10 1.5v3h3" fill="none" stroke="currentColor"/><path d="M5 8h6M5 10h5M5 12h4" fill="none" stroke="currentColor"/></svg>',
   other: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.5h7l3 3v10H3zM10 1.5v3h3" fill="none" stroke="currentColor"/></svg>',
 };
 const storageKey = 'markport-open-folders-v2';
@@ -27,6 +28,7 @@ function icon(name: string, directory = false): string {
   if (directory) return icons.directory;
   if (/\.md|\.markdown$/i.test(name)) return icons.markdown;
   if (/\.(png|jpe?g|gif|webp|svg)$/i.test(name)) return icons.image;
+  if (/\.pdf$/i.test(name)) return icons.pdf;
   if (/\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html?|json|ya?ml)$/i.test(name)) return icons.code;
   return icons.other;
 }
@@ -104,7 +106,7 @@ function fileLink(node: Node, selected: string, positions?: number[]): DocumentF
   const link = document.createElement('a');
   link.href = `/?path=${encodeURIComponent(node.path)}`;
   link.title = node.path;
-  link.className = `file file-${/\.(md|markdown)$/i.test(node.name) ? 'markdown' : /\.(png|jpe?g|gif|webp|svg)$/i.test(node.name) ? 'image' : /\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html?|json|ya?ml)$/i.test(node.name) ? 'code' : 'other'}`;
+  link.className = `file file-${/\.(md|markdown)$/i.test(node.name) ? 'markdown' : /\.(png|jpe?g|gif|webp|svg)$/i.test(node.name) ? 'image' : /\.pdf$/i.test(node.name) ? 'pdf' : /\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html?|json|ya?ml)$/i.test(node.name) ? 'code' : 'other'}`;
   link.innerHTML = icon(node.name);
   const label = document.createElement('span'); label.className = 'node-label';
   if (positions) {

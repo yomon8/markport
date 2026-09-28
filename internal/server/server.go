@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -147,6 +148,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.asset(w, r)
 	case "/api/download":
 		s.download(w, r)
+	case "/api/pdf":
+		s.pdf(w, r)
 	case "/api/events":
 		s.events(w, r)
 	case "/api/git/changes":
@@ -471,6 +474,23 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 		apiError(w, err)
 		return
 	}
+	if strings.EqualFold(path.Ext(name), ".pdf") {
+		f, info, err := s.openPDF(name)
+		if err != nil {
+			pdfError(w, err)
+			return
+		}
+		_ = f.Close()
+		version := fileVersion(info, false)
+		w.Header().Set("ETag", version)
+		if r.Header.Get("If-None-Match") == version {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		previewURL := "/api/pdf?path=" + url.QueryEscape(name) + "&v=" + strconv.FormatInt(info.ModTime().UnixNano(), 10) + "-" + strconv.FormatInt(info.Size(), 10)
+		jsonReply(w, http.StatusOK, map[string]string{"path": name, "type": "pdf", "previewUrl": previewURL})
+		return
+	}
 	if _, ok := imageContentType(name); ok {
 		f, err := s.Files.Open(name)
 		if err != nil {
@@ -606,6 +626,61 @@ func (s *Server) download(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": path.Base(name)}))
+	http.ServeContent(w, r, path.Base(name), info.ModTime(), f)
+}
+
+func (s *Server) openPDF(name string) (*os.File, fs.FileInfo, error) {
+	f, err := s.Files.Open(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = f.Close()
+		return nil, nil, files.ErrType
+	}
+	var header [5]byte
+	if _, err := f.ReadAt(header[:], 0); err != nil || string(header[:]) != "%PDF-" {
+		_ = f.Close()
+		return nil, nil, errInvalidPDF
+	}
+	return f, info, nil
+}
+
+var errInvalidPDF = errors.New("invalid PDF header")
+
+func pdfError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errInvalidPDF) {
+		jsonReply(w, http.StatusUnsupportedMediaType, map[string]string{"error": "invalid_pdf", "message": err.Error()})
+		return
+	}
+	apiError(w, err)
+}
+
+func (s *Server) pdf(w http.ResponseWriter, r *http.Request) {
+	name, err := queryPath(r)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	if !strings.EqualFold(path.Ext(name), ".pdf") {
+		jsonReply(w, http.StatusUnsupportedMediaType, map[string]string{"error": "unsupported_asset"})
+		return
+	}
+	f, info, err := s.openPDF(name)
+	if err != nil {
+		pdfError(w, err)
+		return
+	}
+	defer f.Close()
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": path.Base(name)}))
 	http.ServeContent(w, r, path.Base(name), info.ModTime(), f)
 }
 

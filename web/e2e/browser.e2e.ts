@@ -9,6 +9,28 @@ let directory: string;
 let port: number;
 let serverProcess: ChildProcess;
 
+function pdfFixture(label: string): Buffer {
+  const stream = `BT /F1 24 Tf 72 720 Td (${label}) Tj ET`;
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+  ];
+  let body = '%PDF-1.4\n';
+  const offsets = [0];
+  for (const [index, object] of objects.entries()) {
+    offsets.push(Buffer.byteLength(body));
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(body);
+  body += `xref\n0 ${offsets.length}\n0000000000 65535 f \n`;
+  body += offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  body += `trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(body);
+}
+
 async function freePort(): Promise<number> {
   return new Promise((resolvePort, reject) => {
     const server = createServer();
@@ -40,11 +62,12 @@ async function stopServer(): Promise<void> {
 test.beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), 'markport-e2e-'));
   port = await freePort();
-  await writeFile(join(directory, 'README.md'), '# Demo\n\n[Jump](#section)\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n\n[Python](sample.py)\n\n![Image](image.svg)\n\n## Section\n\n```mermaid\nflowchart LR\n  A --> B\n```\n');
+  await writeFile(join(directory, 'README.md'), '# Demo\n\n[Jump](#section)\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n\n[Python](sample.py)\n\n[PDF](docs/sample.pdf)\n\n![Image](image.svg)\n\n## Section\n\n```mermaid\nflowchart LR\n  A --> B\n```\n');
   await writeFile(join(directory, 'sample.py'), 'print("first")\n');
   await writeFile(join(directory, 'image.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><rect width="40" height="30" fill="blue"/></svg>');
   await writeFile(join(directory, 'image.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/c4sAAAAASUVORK5CYII=', 'base64'));
   await mkdir(join(directory, 'docs'));
+  await writeFile(join(directory, 'docs', 'sample.pdf'), pdfFixture('First PDF'));
   await writeFile(join(directory, 'docs', 'style.css'), 'h1 { color: rgb(10, 20, 30) }');
   await writeFile(join(directory, 'docs', 'first.html'), '<!doctype html><html><head><link rel="stylesheet" href="style.css"><link rel="stylesheet" href="https://cdn.example.test/external.css"></head><body><h1>HTML preview</h1><img src="../image.png"><img src="https://cdn.example.test/external.png"><script>window.previewScriptRan = true</script><a href="second.htm">Next HTML</a></body></html>');
   await writeFile(join(directory, 'docs', 'second.htm'), '<!doctype html><html><body><h1>Second HTML</h1></body></html>');
@@ -810,6 +833,39 @@ test('previews SVG and PNG files and refreshes a changed image', async ({ page }
   await expect(page).toHaveURL(/path=image.png/);
   await expect(preview).toBeVisible();
   await expect.poll(() => preview.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBe(1);
+});
+
+test('opens and refreshes PDF previews in both panes', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await page.getByRole('link', { name: 'PDF', exact: true }).click();
+  await expect(page).toHaveURL(/path=docs%2Fsample.pdf/);
+  const preview = page.locator('#content .pdf-preview');
+  await expect(preview).toBeVisible();
+  await expect(preview).not.toHaveAttribute('sandbox');
+  await expect(page.locator('#file-title .kind-badge')).toHaveText('PDF');
+  await expect(page.locator('#file-title .view-segment').getByRole('button', { name: 'Source' })).toHaveCount(0);
+  const firstURL = await preview.getAttribute('src');
+  expect(firstURL).toContain('/api/pdf?path=docs%2Fsample.pdf');
+  const response = await page.request.get(`http://127.0.0.1:${port}${firstURL}`);
+  expect(response.headers()['content-type']).toBe('application/pdf');
+  expect((await response.body()).subarray(0, 8).toString()).toBe('%PDF-1.4');
+  await page.getByRole('button', { name: 'Open docs/sample.pdf on right' }).click();
+  const rightPreview = page.locator('#right-content .pdf-preview');
+  await expect(rightPreview).toBeVisible();
+  const rightFirstURL = await rightPreview.getAttribute('src');
+  await expect(page.locator('#right-views')).toBeHidden();
+  await writeFile(join(directory, 'docs', 'sample.pdf'), pdfFixture('Updated PDF with more text'));
+  await expect.poll(() => preview.getAttribute('src'), { timeout: 15000 }).not.toBe(firstURL);
+  await expect.poll(() => rightPreview.getAttribute('src'), { timeout: 15000 }).not.toBe(rightFirstURL);
+  const popup = page.waitForEvent('popup');
+  await page.locator('#file-title').getByRole('button', { name: 'Open PDF in new tab' }).click();
+  const opened = await popup;
+  // Headless Chromium opens native PDFs through a blank popup, so navigation is covered by the unit test.
+  expect(opened).toBeTruthy();
+  await opened.close();
+  const download = page.waitForEvent('download');
+  await page.locator('#file-title').getByRole('button', { name: 'Download' }).click();
+  expect((await download).suggestedFilename()).toBe('sample.pdf');
 });
 
 test('tracks imported descendants and an in-root directory move', async ({ page }) => {

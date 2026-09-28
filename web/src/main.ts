@@ -14,7 +14,7 @@ import symbolDark from '../../logo/markport-symbol-dark.svg';
 import favicon from '../../logo/markport-favicon.svg';
 
 type FileReply = { path: string; type: 'image'; assetUrl: string }
-  | { path: string; type: 'html'; previewUrl: string }
+  | { path: string; type: 'html' | 'pdf'; previewUrl: string }
   | { path: string; type: 'html' | 'markdown' | 'code'; html: string };
 type ApiError = { error?: string; message?: string };
 class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
@@ -71,6 +71,10 @@ const rightDownload = document.createElement('button');
 rightDownload.type = 'button'; rightDownload.className = 'title-icon'; rightDownload.textContent = '↓';
 rightDownload.setAttribute('aria-label', 'Download'); rightDownload.title = 'Download';
 document.querySelector('#right-copy')!.before(rightDownload);
+const rightOpenPDF = document.createElement('button');
+rightOpenPDF.type = 'button'; rightOpenPDF.className = 'title-icon'; rightOpenPDF.textContent = '↗';
+rightOpenPDF.setAttribute('aria-label', 'Open PDF in new tab'); rightOpenPDF.title = 'Open PDF in new tab'; rightOpenPDF.hidden = true;
+rightDownload.before(rightOpenPDF);
 let rightShownPath = ''; let rightShownKey = ''; let rightSourceMode = false; let rightRequest = 0;
 let pendingRightScroll: number | undefined;
 let rightTag = ''; let rightTagCheckedAt = 0;
@@ -131,6 +135,8 @@ function downloadFile(path: string): void {
   link.download = path.split('/').at(-1) ?? path;
   document.body.append(link); link.click(); link.remove();
 }
+function pdfFileURL(path: string): string { return `/api/pdf?path=${encodeURIComponent(path)}`; }
+function openPDF(path: string): void { window.open(pdfFileURL(path), '_blank', 'noopener,noreferrer'); }
 function previewStorageKey(): string { return `markport-interactive-preview:${previewInstance}`; }
 function syncPreviewInstance(instance: string): void {
   if (!instance || instance === previewInstance) return;
@@ -159,6 +165,16 @@ function createPreviewFrame(url: string, path: string, pane: 'left' | 'right'): 
   frame.referrerPolicy = 'no-referrer'; attachPreviewNavigation(frame, path, pane);
   frame.src = previewURL(url, path);
   return frame;
+}
+function createPDFFrame(url: string, path: string): HTMLIFrameElement {
+  const frame = document.createElement('iframe'); frame.className = 'pdf-preview'; frame.title = `PDF preview of ${path}`;
+  frame.referrerPolicy = 'no-referrer'; frame.src = `${url}&reload=${previewReload}`;
+  return frame;
+}
+function filePreviewKey(file: FileReply, path: string): string {
+  if ('assetUrl' in file) return file.assetUrl;
+  if ('previewUrl' in file) return file.type === 'pdf' ? `${file.previewUrl}&reload=${previewReload}` : previewURL(file.previewUrl, path);
+  return file.html;
 }
 function selectedMode(): 'file' | 'diff' | 'changes' | 'paste' {
   const view = new URL(location.href).searchParams.get('view');
@@ -483,6 +499,7 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
     const mobile = document.createElement('button'); mobile.type = 'button'; mobile.setAttribute('role', 'menuitem'); mobile.textContent = label; mobile.addEventListener('click', () => { action(mobile); closeMenu(); }); menu.append(mobile);
   };
   addAux('Open on right', '◫', () => openRight(path), selectedMode() === 'file');
+  addAux('Open PDF in new tab', '↗', () => openPDF(path), kind === 'pdf');
   addAux('Download', '↓', () => downloadFile(path), canDownload && !missing && (selectedMode() !== 'diff' || currentChanges?.changes.find((change) => change.path === path)?.status !== 'deleted'));
   addAux('Copy path', '⧉', (button) => copyWithFeedback(button, path, button.classList.contains('title-icon') ? '⧉' : 'Copy path'));
   addAux('Contents', '☷', () => outline.classList.toggle('open'), !outline.hidden);
@@ -641,6 +658,7 @@ function showError(error: unknown, path: string): void {
     not_found: ['File not found', 'This file was deleted or moved.'],
     too_large: ['File too large', 'This file exceeds the size limit.'],
     invalid_asset: ['Cannot display image', 'The image could not be loaded. Check the file and try again.'],
+    invalid_pdf: ['Cannot display PDF', 'This file is not a valid PDF.'],
     binary: ['Cannot display file', 'Binary files cannot be displayed.'],
     unreadable: ['Cannot read file', 'This file cannot be read.'],
     not_regular: ['Cannot read file', 'This file cannot be read.'],
@@ -656,7 +674,7 @@ function showError(error: unknown, path: string): void {
   const size = code === 'too_large' && error instanceof RequestError ? error.message.match(/(\d+ MiB) limit \(actual (\d+(?:\.\d+)? MiB)\)/) : undefined;
   p.textContent = size ? `This file exceeds the ${size[1]} limit (${size[2]}).` : description;
   const button = document.createElement('button'); button.type = 'button'; button.textContent = code === 'not_found' ? 'Back to root' : 'Try again'; button.addEventListener('click', () => code === 'not_found' ? navigate('/') : manualRefresh());
-  box.append(icon, h, p, button); content.append(box); outline.hidden = true; showTitle(path, '', code === 'not_found', ['binary', 'too_large', 'invalid_asset'].includes(code));
+  box.append(icon, h, p, button); content.append(box); outline.hidden = true; showTitle(path, '', code === 'not_found', ['binary', 'too_large', 'invalid_asset', 'invalid_pdf'].includes(code));
 }
 function decorateContent(target = content, path = displayedPath): void {
   function setWrap(frame: HTMLElement, enabled: boolean): void {
@@ -868,8 +886,8 @@ window.addEventListener('message', (event: MessageEvent) => {
 async function refreshRight(): Promise<void> {
   const path = rightSelected(); const request = ++rightRequest;
   rightPane.hidden = !path; layout.classList.toggle('split', Boolean(path));
-  if (!path) { rightShownPath = ''; rightShownKey = ''; rightDownload.hidden = true; return; }
-  if (path !== rightShownPath) { rightPane.scrollTop = 0; rightShownKey = ''; rightTag = ''; rightDownload.hidden = true; }
+  if (!path) { rightShownPath = ''; rightShownKey = ''; rightDownload.hidden = true; rightOpenPDF.hidden = true; return; }
+  if (path !== rightShownPath) { rightPane.scrollTop = 0; rightShownKey = ''; rightTag = ''; rightDownload.hidden = true; rightOpenPDF.hidden = true; }
   rightContent.setAttribute('aria-busy', 'true');
   try {
     const headers: Record<string, string> = {};
@@ -882,11 +900,13 @@ async function refreshRight(): Promise<void> {
     const file = await response.json() as FileReply & ApiError;
     if (!response.ok) throw new RequestError(file.error ?? 'network', file.message ?? `HTTP ${response.status}`);
     if (request !== rightRequest || path !== rightSelected()) return;
-    const key = `${rightSourceMode}\n${'assetUrl' in file ? file.assetUrl : 'previewUrl' in file ? previewURL(file.previewUrl, path) : file.html}`;
+    const key = `${rightSourceMode}\n${filePreviewKey(file, path)}`;
     if (rightShownPath !== path || rightShownKey !== key) {
       const scroll = rightShownPath === path ? rightPane.scrollTop : 0;
-      rightContent.dataset.kind = file.type === 'image' ? 'image' : rightSourceMode ? 'code' : file.type;
-      if ('previewUrl' in file) {
+      rightContent.dataset.kind = file.type === 'image' || file.type === 'pdf' ? file.type : rightSourceMode ? 'code' : file.type;
+      if (file.type === 'pdf') {
+        rightContent.replaceChildren(createPDFFrame(file.previewUrl, path));
+      } else if ('previewUrl' in file) {
         rightContent.replaceChildren(createPreviewFrame(file.previewUrl, path, 'right'));
       } else if (file.type === 'image') {
         const img = document.createElement('img'); img.className = 'image-preview'; img.alt = path.split('/').at(-1) ?? path;
@@ -897,7 +917,7 @@ async function refreshRight(): Promise<void> {
       void drawMermaid(rightContent, () => request === rightRequest && path === rightSelected());
     }
     showRightTitle(path, file.type);
-    rightKind.hidden = false; rightDownload.hidden = false;
+    rightKind.hidden = false; rightDownload.hidden = false; rightOpenPDF.hidden = file.type !== 'pdf';
     rightInteractive.hidden = file.type !== 'html';
     rightInteractive.textContent = interactivePaths.has(path) ? 'Disable JavaScript' : 'Enable JavaScript';
     rightInteractive.setAttribute('aria-pressed', String(interactivePaths.has(path)));
@@ -906,7 +926,8 @@ async function refreshRight(): Promise<void> {
   } catch (error) {
     if (request !== rightRequest || path !== rightSelected()) return;
     showRightTitle(path, 'code'); rightKind.hidden = true;
-    rightDownload.hidden = !(error instanceof RequestError && ['binary', 'too_large', 'invalid_asset'].includes(error.code));
+    rightDownload.hidden = !(error instanceof RequestError && ['binary', 'too_large', 'invalid_asset', 'invalid_pdf'].includes(error.code));
+    rightOpenPDF.hidden = true;
     rightContent.replaceChildren(); const message = document.createElement('div'); message.className = 'file-error'; message.setAttribute('role', 'alert');
     message.textContent = error instanceof RequestError && error.code === 'not_found' ? 'File not found.' : 'Cannot display file. Please try again.'; rightContent.append(message);
     rightInteractive.hidden = true; rightViews.hidden = true; rightOutline.hidden = true; rightContents.hidden = true;
@@ -964,12 +985,14 @@ async function refreshLoop(): Promise<void> {
         if (fileReply && 'value' in fileReply) {
           const file = fileReply.value as FileReply | null;
           if (!file) { status('Checking every few seconds', 'ok'); continue; }
-          const displayKey = 'assetUrl' in file ? file.assetUrl : 'previewUrl' in file ? previewURL(file.previewUrl, path) : file.html;
+          const displayKey = filePreviewKey(file, path);
           const changed = displayedHTML !== displayKey || displayedSource !== source;
           if (changed) {
             const oldScroll = main.scrollTop;
-            content.dataset.kind = file.type === 'image' ? 'image' : source ? 'code' : file.type;
-            if ('previewUrl' in file) {
+            content.dataset.kind = file.type === 'image' || file.type === 'pdf' ? file.type : source ? 'code' : file.type;
+            if (file.type === 'pdf') {
+              content.replaceChildren(createPDFFrame(file.previewUrl, path));
+            } else if ('previewUrl' in file) {
               content.replaceChildren(createPreviewFrame(file.previewUrl, path, 'left'));
             } else if (file.type === 'image') {
               const img = document.createElement('img'); img.className = 'image-preview'; img.alt = path.split('/').at(-1) ?? path;
@@ -1080,6 +1103,7 @@ rightRendered.addEventListener('click', () => { rightSourceMode = false; rightSh
 rightContents.addEventListener('click', () => rightOutline.classList.toggle('open'));
 document.querySelector('#right-copy')!.addEventListener('click', (event) => { const path = rightSelected(); if (path) copyWithFeedback(event.currentTarget as HTMLButtonElement, path, '⧉'); });
 rightDownload.addEventListener('click', () => { const path = rightSelected(); if (path) downloadFile(path); });
+rightOpenPDF.addEventListener('click', () => { const path = rightSelected(); if (path) openPDF(path); });
 document.querySelector('#right-swap')!.addEventListener('click', swapPanes);
 document.querySelector('#right-only')!.addEventListener('click', showRightOnly);
 rightInteractive.addEventListener('click', () => { const path = rightSelected(); if (path) setInteractive(path, !interactivePaths.has(path)); });

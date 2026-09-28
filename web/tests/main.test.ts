@@ -217,6 +217,33 @@ describe('lazy browsing and refresh', () => {
     expect(document.querySelector<HTMLIFrameElement>('.html-preview')?.src).toContain('/api/preview/page.html?v=1&reload=1');
   });
 
+  it('previews PDF in both panes and reloads it without HTML controls', async () => {
+    history.replaceState(null, '', '/?path=sample.pdf&right=sample.pdf');
+    const fetch = vi.fn(async (url: string) => {
+      if (url === '/api/tree') return reply(page([entry('sample.pdf')]));
+      return reply({ path: 'sample.pdf', type: 'pdf', previewUrl: '/api/pdf?path=sample.pdf&v=1' });
+    });
+    const open = vi.fn(); vi.stubGlobal('open', open);
+    vi.stubGlobal('fetch', fetch);
+    await import('../src/main'); await flush(); await flush();
+    const left = document.querySelector<HTMLIFrameElement>('#content .pdf-preview');
+    const right = document.querySelector<HTMLIFrameElement>('#right-content .pdf-preview');
+    expect(left?.src).toContain('/api/pdf?path=sample.pdf&v=1&reload=0');
+    expect(right?.src).toContain('/api/pdf?path=sample.pdf&v=1&reload=0');
+    expect(left?.hasAttribute('sandbox')).toBe(false);
+    expect(right?.hasAttribute('sandbox')).toBe(false);
+    expect(document.querySelector('#file-title .kind-badge')?.textContent).toBe('PDF');
+    expect([...document.querySelectorAll('#file-title .view-segment button')].some((button) => button.textContent === 'Source')).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>('#right-views')?.hidden).toBe(true);
+    document.querySelector<HTMLButtonElement>('#file-title [aria-label="Open PDF in new tab"]')!.click();
+    document.querySelector<HTMLButtonElement>('#right-title [aria-label="Open PDF in new tab"]')!.click();
+    expect(open).toHaveBeenCalledTimes(2);
+    expect(open).toHaveBeenCalledWith('/api/pdf?path=sample.pdf', '_blank', 'noopener,noreferrer');
+    document.querySelector<HTMLButtonElement>('#reload')!.click(); await flush();
+    expect(document.querySelector<HTMLIFrameElement>('#content .pdf-preview')?.src).toContain('&reload=1');
+    expect(document.querySelector<HTMLIFrameElement>('#right-content .pdf-preview')?.src).toContain('&reload=1');
+  });
+
   it('loads only root and selected ancestors for a deep URL', async () => {
     history.replaceState(null, '', '/?path=docs%2Fdeep%2Fa.md');
     const fetch = vi.fn(async (url: string) => {
