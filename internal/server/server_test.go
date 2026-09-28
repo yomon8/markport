@@ -6,8 +6,10 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"mime"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -111,6 +113,100 @@ func TestHostAndAPI(t *testing.T) {
 	}
 	if file["type"] != "markdown" || !strings.Contains(file["html"], "/?path=code.py") {
 		t.Fatalf("file: %+v", file)
+	}
+}
+
+func TestDownload(t *testing.T) {
+	app, dir := newTestServer(t)
+	name := `日本語 "sample".bin`
+	content := []byte{0, 1, 2, 255, '\n'}
+	if err := os.WriteFile(filepath.Join(dir, name), content, 0644); err != nil {
+		t.Fatal(err)
+	}
+	response := request(app, "localhost:3000", "/api/download?path="+url.QueryEscape(name))
+	if response.Code != http.StatusOK || string(response.Body.Bytes()) != string(content) {
+		t.Fatalf("download: %d %v", response.Code, response.Body.Bytes())
+	}
+	if response.Header().Get("Content-Type") != "application/octet-stream" || response.Header().Get("X-Content-Type-Options") != "nosniff" || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("download headers: %v", response.Header())
+	}
+	mediaType, params, err := mime.ParseMediaType(response.Header().Get("Content-Disposition"))
+	if err != nil || mediaType != "attachment" || params["filename"] != name {
+		t.Fatalf("content disposition: %q %v", response.Header().Get("Content-Disposition"), err)
+	}
+	if got := request(app, "localhost:3000", "/api/download?path=readme.md"); got.Code != http.StatusOK || got.Body.String() != "# Hello\n\n[code](code.py)" {
+		t.Fatalf("text download: %d %s", got.Code, got.Body.String())
+	}
+}
+
+func TestDownloadLargeFile(t *testing.T) {
+	app, dir := newTestServer(t)
+	name := filepath.Join(dir, "large.bin")
+	f, err := os.Create(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const size = 33 << 20
+	if err := f.Truncate(size); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w := &countingResponseWriter{header: make(http.Header)}
+	r := httptest.NewRequest(http.MethodGet, "/api/download?path=large.bin", nil)
+	r.Host = "localhost:3000"
+	app.ServeHTTP(w, r)
+	if w.status != http.StatusOK || w.bytes != size {
+		t.Fatalf("large download: status %d, bytes %d", w.status, w.bytes)
+	}
+}
+
+type countingResponseWriter struct {
+	header http.Header
+	status int
+	bytes  int64
+}
+
+func (w *countingResponseWriter) Header() http.Header    { return w.header }
+func (w *countingResponseWriter) WriteHeader(status int) { w.status = status }
+func (w *countingResponseWriter) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	w.bytes += int64(len(data))
+	return len(data), nil
+}
+
+func TestDownloadRejectsUnsafePaths(t *testing.T) {
+	app, dir := newTestServer(t)
+	if err := os.Mkdir(filepath.Join(dir, "docs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("secret"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{
+		"/api/download", "/api/download?path=", "/api/download?path=readme.md&path=code.py",
+		"/api/download?path=..%2Fsecret", "/api/download?path=%2Fetc%2Fpasswd",
+		"/api/download?path=.git%2Fconfig", "/api/download?path=docs", "/api/download?path=missing.bin",
+	} {
+		if got := request(app, "localhost:3000", target); got.Code < 400 {
+			t.Errorf("accepted %s: %d", target, got.Code)
+		}
+	}
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(dir, "link.txt")); err == nil {
+		if got := request(app, "localhost:3000", "/api/download?path=link.txt"); got.Code < 400 || got.Body.String() == "secret" {
+			t.Fatalf("accepted symlink: %d %s", got.Code, got.Body.String())
+		}
 	}
 }
 

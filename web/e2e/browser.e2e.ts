@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, mkdir, rename, writeFile, unlink, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rename, writeFile, unlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
@@ -212,6 +212,69 @@ test('title controls show active views and keep auxiliary actions reachable on m
   await more.click();
   await title.getByRole('menuitem', { name: 'Open on right' }).click();
   await expect(page.locator('#right-pane')).toBeVisible();
+});
+
+test('downloads original files from both panes and the mobile menu', async ({ page }) => {
+  const binaryPath = join(directory, 'download.bin');
+  const largePath = join(directory, 'large-download.txt');
+  const binary = Buffer.from([0, 1, 255, 10]);
+  await writeFile(binaryPath, binary);
+  await writeFile(largePath, Buffer.alloc((10 << 20) + 1, 65));
+  try {
+    await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+    const markdownPromise = page.waitForEvent('download');
+    await page.locator('#file-title').getByRole('button', { name: 'Download' }).click();
+    const markdown = await markdownPromise;
+    expect(markdown.suggestedFilename()).toBe('README.md');
+    expect((await readFile(await markdown.path())).toString()).toContain('# Demo');
+
+    await page.goto(`http://127.0.0.1:${port}/?path=download.bin`);
+    await expect(page.getByRole('heading', { name: 'Cannot display file' })).toBeVisible();
+    const binaryPromise = page.waitForEvent('download');
+    await page.locator('#file-title').getByRole('button', { name: 'Download' }).click();
+    const binaryDownload = await binaryPromise;
+    expect(binaryDownload.suggestedFilename()).toBe('download.bin');
+    expect(await readFile(await binaryDownload.path())).toEqual(binary);
+
+    await page.goto(`http://127.0.0.1:${port}/?path=large-download.txt`);
+    await expect(page.getByRole('heading', { name: 'File too large' })).toBeVisible();
+    const largePromise = page.waitForEvent('download');
+    await page.locator('#file-title').getByRole('button', { name: 'Download' }).click();
+    const large = await largePromise;
+    expect((await readFile(await large.path())).length).toBe((10 << 20) + 1);
+
+    await page.goto(`http://127.0.0.1:${port}/?path=README.md&right=sample.py`);
+    await expect(page.locator('#right-content')).toContainText('print');
+    const rightPromise = page.waitForEvent('download');
+    await page.locator('#right-title').getByRole('button', { name: 'Download' }).click();
+    const right = await rightPromise;
+    expect(right.suggestedFilename()).toBe('sample.py');
+    expect((await readFile(await right.path())).toString()).toBe('print("first")\n');
+
+    await page.goto(`http://127.0.0.1:${port}/?path=README.md&right=download.bin`);
+    await expect(page.locator('#right-content')).toContainText('Cannot display file');
+    const rightBinaryPromise = page.waitForEvent('download');
+    await page.locator('#right-title').getByRole('button', { name: 'Download' }).click();
+    expect(await readFile(await (await rightBinaryPromise).path())).toEqual(binary);
+
+    await page.setViewportSize({ width: 390, height: 720 });
+    await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+    await page.locator('#file-title').getByRole('button', { name: 'More actions' }).click();
+    const mobilePromise = page.waitForEvent('download');
+    await page.locator('#file-title').getByRole('menuitem', { name: 'Download' }).click();
+    expect((await mobilePromise).suggestedFilename()).toBe('README.md');
+
+    await unlink(binaryPath);
+    await page.goto(`http://127.0.0.1:${port}/?path=download.bin`);
+    await expect(page.getByRole('heading', { name: 'File not found' })).toBeVisible();
+    await expect(page.locator('#file-title').getByRole('button', { name: 'Download' })).toHaveCount(0);
+    await page.goto(`http://127.0.0.1:${port}/?path=README.md&right=download.bin`);
+    await expect(page.locator('#right-content')).toContainText('File not found');
+    await expect(page.locator('#right-title').getByRole('button', { name: 'Download' })).toBeHidden();
+  } finally {
+    await rm(binaryPath, { force: true });
+    await rm(largePath, { force: true });
+  }
 });
 
 test('mobile title stays one row and keeps reading actions close', async ({ page }, testInfo) => {

@@ -67,6 +67,10 @@ const rightInteractive = document.querySelector<HTMLButtonElement>('#right-inter
 const rightSource = document.querySelector<HTMLButtonElement>('#right-source')!;
 const rightOutline = document.querySelector<HTMLElement>('#right-outline')!;
 const rightContents = document.querySelector<HTMLButtonElement>('#right-contents')!;
+const rightDownload = document.createElement('button');
+rightDownload.type = 'button'; rightDownload.className = 'title-icon'; rightDownload.textContent = '↓';
+rightDownload.setAttribute('aria-label', 'Download'); rightDownload.title = 'Download';
+document.querySelector('#right-copy')!.before(rightDownload);
 let rightShownPath = ''; let rightShownKey = ''; let rightSourceMode = false; let rightRequest = 0;
 let pendingRightScroll: number | undefined;
 let rightTag = ''; let rightTagCheckedAt = 0;
@@ -121,6 +125,12 @@ if (savedWidth >= 200 && savedWidth <= 480) document.documentElement.style.setPr
 
 function selected(): string { return new URL(location.href).searchParams.get('path') ?? ''; }
 function fileURL(path: string): string { return `/?path=${encodeURIComponent(path)}`; }
+function downloadFile(path: string): void {
+  const link = document.createElement('a');
+  link.href = `/api/download?path=${encodeURIComponent(path)}`;
+  link.download = path.split('/').at(-1) ?? path;
+  document.body.append(link); link.click(); link.remove();
+}
 function previewStorageKey(): string { return `markport-interactive-preview:${previewInstance}`; }
 function syncPreviewInstance(instance: string): void {
   if (!instance || instance === previewInstance) return;
@@ -383,7 +393,7 @@ async function refreshDirectories(path: string, expectedRevision: number): Promi
   for (const key of pageTags.keys()) if (!view.has(key)) pageTags.delete(key);
   void loadOpenDirectories(expectedRevision).catch(() => status('Refresh failed. Please try again.', 'error'));
 }
-function showTitle(path: string, kind = '', missing = false): void {
+function showTitle(path: string, kind = '', missing = false, canDownload = true): void {
   title.replaceChildren();
   if (selectedMode() === 'changes') {
     const heading = document.createElement('strong'); heading.textContent = 'Git changes'; title.append(heading); document.title = 'Git changes — markport'; return;
@@ -473,6 +483,7 @@ function showTitle(path: string, kind = '', missing = false): void {
     const mobile = document.createElement('button'); mobile.type = 'button'; mobile.setAttribute('role', 'menuitem'); mobile.textContent = label; mobile.addEventListener('click', () => { action(mobile); closeMenu(); }); menu.append(mobile);
   };
   addAux('Open on right', '◫', () => openRight(path), selectedMode() === 'file');
+  addAux('Download', '↓', () => downloadFile(path), canDownload && !missing && (selectedMode() !== 'diff' || currentChanges?.changes.find((change) => change.path === path)?.status !== 'deleted'));
   addAux('Copy path', '⧉', (button) => copyWithFeedback(button, path, button.classList.contains('title-icon') ? '⧉' : 'Copy path'));
   addAux('Contents', '☷', () => outline.classList.toggle('open'), !outline.hidden);
   const mobileChoices = [...actions.querySelectorAll<HTMLButtonElement>('.view-segment button, .review-toggle, .diff-navigation button, .interactive-toggle')].map((control) => {
@@ -645,7 +656,7 @@ function showError(error: unknown, path: string): void {
   const size = code === 'too_large' && error instanceof RequestError ? error.message.match(/(\d+ MiB) limit \(actual (\d+(?:\.\d+)? MiB)\)/) : undefined;
   p.textContent = size ? `This file exceeds the ${size[1]} limit (${size[2]}).` : description;
   const button = document.createElement('button'); button.type = 'button'; button.textContent = code === 'not_found' ? 'Back to root' : 'Try again'; button.addEventListener('click', () => code === 'not_found' ? navigate('/') : manualRefresh());
-  box.append(icon, h, p, button); content.append(box); outline.hidden = true; showTitle(path, '', code === 'not_found');
+  box.append(icon, h, p, button); content.append(box); outline.hidden = true; showTitle(path, '', code === 'not_found', ['binary', 'too_large', 'invalid_asset'].includes(code));
 }
 function decorateContent(target = content, path = displayedPath): void {
   function setWrap(frame: HTMLElement, enabled: boolean): void {
@@ -857,8 +868,8 @@ window.addEventListener('message', (event: MessageEvent) => {
 async function refreshRight(): Promise<void> {
   const path = rightSelected(); const request = ++rightRequest;
   rightPane.hidden = !path; layout.classList.toggle('split', Boolean(path));
-  if (!path) { rightShownPath = ''; rightShownKey = ''; return; }
-  if (path !== rightShownPath) { rightPane.scrollTop = 0; rightShownKey = ''; rightTag = ''; }
+  if (!path) { rightShownPath = ''; rightShownKey = ''; rightDownload.hidden = true; return; }
+  if (path !== rightShownPath) { rightPane.scrollTop = 0; rightShownKey = ''; rightTag = ''; rightDownload.hidden = true; }
   rightContent.setAttribute('aria-busy', 'true');
   try {
     const headers: Record<string, string> = {};
@@ -886,6 +897,7 @@ async function refreshRight(): Promise<void> {
       void drawMermaid(rightContent, () => request === rightRequest && path === rightSelected());
     }
     showRightTitle(path, file.type);
+    rightKind.hidden = false; rightDownload.hidden = false;
     rightInteractive.hidden = file.type !== 'html';
     rightInteractive.textContent = interactivePaths.has(path) ? 'Disable JavaScript' : 'Enable JavaScript';
     rightInteractive.setAttribute('aria-pressed', String(interactivePaths.has(path)));
@@ -893,6 +905,8 @@ async function refreshRight(): Promise<void> {
     if (pendingRightScroll !== undefined) { rightPane.scrollTop = pendingRightScroll; pendingRightScroll = undefined; }
   } catch (error) {
     if (request !== rightRequest || path !== rightSelected()) return;
+    showRightTitle(path, 'code'); rightKind.hidden = true;
+    rightDownload.hidden = !(error instanceof RequestError && ['binary', 'too_large', 'invalid_asset'].includes(error.code));
     rightContent.replaceChildren(); const message = document.createElement('div'); message.className = 'file-error'; message.setAttribute('role', 'alert');
     message.textContent = error instanceof RequestError && error.code === 'not_found' ? 'File not found.' : 'Cannot display file. Please try again.'; rightContent.append(message);
     rightInteractive.hidden = true; rightViews.hidden = true; rightOutline.hidden = true; rightContents.hidden = true;
@@ -1065,6 +1079,7 @@ rightSource.addEventListener('click', () => { rightSourceMode = true; rightShown
 rightRendered.addEventListener('click', () => { rightSourceMode = false; rightShownKey = ''; rightTag = ''; void refreshRight(); });
 rightContents.addEventListener('click', () => rightOutline.classList.toggle('open'));
 document.querySelector('#right-copy')!.addEventListener('click', (event) => { const path = rightSelected(); if (path) copyWithFeedback(event.currentTarget as HTMLButtonElement, path, '⧉'); });
+rightDownload.addEventListener('click', () => { const path = rightSelected(); if (path) downloadFile(path); });
 document.querySelector('#right-swap')!.addEventListener('click', swapPanes);
 document.querySelector('#right-only')!.addEventListener('click', showRightOnly);
 rightInteractive.addEventListener('click', () => { const path = rightSelected(); if (path) setInteractive(path, !interactivePaths.has(path)); });

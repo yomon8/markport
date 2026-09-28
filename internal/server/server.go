@@ -145,6 +145,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.file(w, r)
 	case "/api/asset":
 		s.asset(w, r)
+	case "/api/download":
+		s.download(w, r)
 	case "/api/events":
 		s.events(w, r)
 	case "/api/git/changes":
@@ -578,6 +580,33 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.serveImage(w, name, typeName)
+}
+
+func (s *Server) download(w http.ResponseWriter, r *http.Request) {
+	name, err := queryPath(r)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	f, err := s.Files.Open(name)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	if !info.Mode().IsRegular() {
+		apiError(w, files.ErrType)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": path.Base(name)}))
+	http.ServeContent(w, r, path.Base(name), info.ModTime(), f)
 }
 
 func (s *Server) serveImage(w http.ResponseWriter, name, typeName string) {
