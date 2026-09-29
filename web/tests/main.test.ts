@@ -23,6 +23,32 @@ beforeEach(() => {
 afterEach(() => { window.dispatchEvent(new Event('pagehide')); vi.unstubAllGlobals(); });
 
 describe('lazy browsing and refresh', () => {
+  it.each([
+    ['docs/guide.md:123', 'docs/guide.md', '123', true],
+    ['  guide.md:0012  ', 'docs/guide.md', '12', true],
+    ['sample.py:2', 'sample.py', '2', false],
+    ['page.html:3', 'page.html', '3', true],
+    ['file:0', 'file:0', '', false],
+    ['file:-1', 'file:-1', '', false],
+    ['file:1.5', 'file:1.5', '', false],
+    ['file:9007199254740992', 'file:9007199254740992', '', false],
+  ])('searches %s and builds the matching destination', async (query, path, line, source) => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index'
+      ? reply({ paths: [path] }) : reply(page([]))));
+    await import('../src/main'); await flush();
+    const search = document.querySelector<HTMLInputElement>('#search')!;
+    search.value = query; search.dispatchEvent(new Event('input')); await flush();
+    const link = document.querySelector<HTMLAnchorElement>('#tree .search-results a')!;
+    expect(link).not.toBeNull();
+    const url = new URL(link.href);
+    expect(url.searchParams.get('path')).toBe(path);
+    expect(url.searchParams.get('source')).toBe(source ? '1' : null);
+    expect(url.hash).toBe(line ? `#L${line}` : '');
+    expect(link.getAttribute('aria-label')).toBe(line ? `${path}:${line}` : path);
+    expect(link.textContent).toContain(line ? `${path.split('/').at(-1)}:${line}` : path);
+    expect(document.querySelector<HTMLButtonElement>('#tree .open-right')?.dataset.rightLine).toBe(line || undefined);
+  });
+
   it('explains when Git history is unavailable', async () => {
     history.replaceState(null, '', '/?view=history');
     vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree'

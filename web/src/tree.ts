@@ -102,18 +102,24 @@ function highlighted(label: string, positions: number[], offset: number): Docume
   fragment.append(document.createTextNode(label.slice(index)));
   return fragment;
 }
-function fileLink(node: Node, selected: string, positions?: number[]): DocumentFragment {
+function fileLink(node: Node, selected: string, positions?: number[], line?: number): DocumentFragment {
   const row = document.createDocumentFragment();
   const link = document.createElement('a');
   link.href = `/?path=${encodeURIComponent(node.path)}`;
-  link.title = node.path;
+  const destination = line ? `${node.path}:${line}` : node.path;
+  if (line) {
+    if (/\.(md|markdown|html|htm)$/i.test(node.path)) link.href += '&source=1';
+    link.href += `#L${line}`;
+  }
+  link.title = destination;
   link.className = `file file-${/\.(md|markdown)$/i.test(node.name) ? 'markdown' : /\.(png|jpe?g|gif|webp|svg)$/i.test(node.name) ? 'image' : /\.pdf$/i.test(node.name) ? 'pdf' : /\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html?|json|ya?ml)$/i.test(node.name) ? 'code' : 'other'}`;
   link.innerHTML = icon(node.name);
   const label = document.createElement('span'); label.className = 'node-label';
   if (positions) {
-    link.setAttribute('aria-label', node.path);
+    link.setAttribute('aria-label', destination);
     const start = node.path.lastIndexOf('/') + 1;
     const name = document.createElement('span'); name.className = 'node-file-name'; name.append(highlighted(node.name, positions, start)); label.append(name);
+    if (line) name.append(document.createTextNode(`:${line}`));
     if (start) {
       const parent = document.createElement('span'); parent.className = 'node-parent-path'; parent.append(highlighted(node.path.slice(0, start - 1), positions, 0)); label.append(parent);
     }
@@ -121,7 +127,8 @@ function fileLink(node: Node, selected: string, positions?: number[]): DocumentF
   link.append(label);
   if (node.path === selected) link.setAttribute('aria-current', 'page');
   const right = document.createElement('button'); right.type = 'button'; right.className = 'open-right'; right.dataset.rightPath = node.path;
-  right.title = `Open ${node.path} on right`; right.setAttribute('aria-label', `Open ${node.path} on right`); right.textContent = '⇥';
+  if (line) right.dataset.rightLine = String(line);
+  right.title = `Open ${destination} on right`; right.setAttribute('aria-label', `Open ${destination} on right`); right.textContent = '⇥';
   row.append(link, right); return row;
 }
 export class TreeView {
@@ -286,7 +293,11 @@ export class TreeView {
     item.append(button); list.append(item);
   }
   render(): void {
-    const query = this.search.value.trim().toLocaleLowerCase();
+    const input = this.search.value.trim();
+    const suffix = /^(.+):(\d+)$/.exec(input);
+    const number = suffix ? Number(suffix[2]) : 0;
+    const line = Number.isSafeInteger(number) && number > 0 ? number : undefined;
+    const query = (line ? suffix![1] : input).toLocaleLowerCase();
     this.syncSelection();
     this.tree.replaceChildren();
     this.collapseButton.disabled = Boolean(query);
@@ -304,7 +315,7 @@ export class TreeView {
         const list = document.createElement('ul'); list.className = 'search-results';
         for (const { path, positions } of matches) {
           const item = document.createElement('li');
-          item.append(fileLink({ name: path.split('/').at(-1)!, path, type: 'file' }, this.selected(), positions)); list.append(item);
+          item.append(fileLink({ name: path.split('/').at(-1)!, path, type: 'file' }, this.selected(), positions, line)); list.append(item);
         }
         this.tree.append(list);
       }

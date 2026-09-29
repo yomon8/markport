@@ -400,6 +400,79 @@ test('keeps sidebar controls visible while file and change lists scroll', async 
   }
 });
 
+test('opens file search line targets in both panes and preserves scroll on refresh', async ({ page }) => {
+  const path = 'docs/search-lines.md';
+  await writeFile(join(directory, path), Array.from({ length: 180 }, (_, i) => `Line ${i + 1}`).join('\n'));
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  const search = page.getByRole('searchbox', { name: 'Search files' });
+  const selected = page.locator('#content .line.selected-code-line');
+  const rightSelected = page.locator('#right-content .line.selected-code-line');
+  await search.fill(`${path}:123`);
+  await expect(page.locator('#tree .search-results a')).toHaveAccessibleName(`${path}:123`);
+  await search.press('Enter');
+  await expect(page).toHaveURL(/path=docs%2Fsearch-lines\.md&source=1#L123$/);
+  await expect(selected).toHaveText('Line 123\n');
+  await expect(page.locator('#content #L123')).toBeInViewport();
+  const cached = page.waitForResponse((response) => response.url().includes('/api/file?') && response.status() === 304);
+  await search.fill(`${path}:150`);
+  await page.locator('#tree .search-results a').click();
+  await cached;
+  await expect(selected).toHaveText('Line 150\n');
+  await expect(page.locator('#content #L150')).toBeInViewport();
+  await search.fill(`${path}:100`);
+  await page.getByRole('button', { name: `Open ${path}:100 on right`, exact: true }).click();
+  await expect(rightSelected).toHaveText('Line 100\n');
+  await expect(page.locator('#right-content #L100')).toBeInViewport();
+  await search.fill(`${path}:140`);
+  await page.getByRole('button', { name: `Open ${path}:140 on right`, exact: true }).click();
+  await expect(rightSelected).toHaveText('Line 140\n');
+  await expect(page.locator('#right-content #L140')).toBeInViewport();
+  await page.locator('#right-content .code-wrap-toggle').click();
+  await expect(rightSelected).toContainText('Line 140');
+  await expect(selected).toContainText('Line 150');
+  await page.locator('#main').evaluate((pane) => { pane.scrollTop = 200; });
+  await page.locator('#right-pane').evaluate((pane) => { pane.scrollTop = 300; });
+  const refreshed = page.waitForResponse((response) => response.url().includes('/api/file?') && response.url().includes('source=1'));
+  await writeFile(join(directory, path), Array.from({ length: 180 }, (_, i) => `Line ${i + 1}`).join('\n') + '\nNew line');
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await refreshed;
+  await expect(page.locator('#content')).toContainText('New line');
+  await expect(page.locator('#right-content')).toContainText('New line');
+  expect(await page.locator('#main').evaluate((pane) => pane.scrollTop)).toBe(200);
+  expect(await page.locator('#right-pane').evaluate((pane) => pane.scrollTop)).toBe(300);
+  await page.locator('#right-rendered').click();
+  await expect(rightSelected).toHaveCount(0);
+  await search.fill(`${path}:999`);
+  await page.locator('#tree .search-results a').click();
+  await expect(page).toHaveURL(/#L999/);
+  await expect(selected).toHaveCount(0);
+});
+
+test('uses file search line targets for code and HTML and still opens visual files', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  const search = page.getByRole('searchbox', { name: 'Search files' });
+  await search.fill('sample.py:1');
+  await expect(page.locator('#tree .search-results a')).toHaveAccessibleName('sample.py:1');
+  await search.press('Enter');
+  await expect(page).toHaveURL(/path=sample\.py#L1$/);
+  await expect(page.locator('#content .line.selected-code-line')).toContainText('print("first")');
+  await search.fill('docs/first.html:1');
+  await expect(page.locator('#tree .search-results a')).toHaveAccessibleName('docs/first.html:1');
+  await search.press('Enter');
+  await expect(page).toHaveURL(/path=docs%2Ffirst\.html&source=1#L1$/);
+  await expect(page.locator('#content .line.selected-code-line')).toContainText('<!doctype html>');
+  await expect(page.locator('#content .html-preview')).toHaveCount(0);
+  await search.fill('docs/sample.pdf:123');
+  await expect(page.locator('#tree .search-results a')).toHaveAccessibleName('docs/sample.pdf:123');
+  await search.press('Enter');
+  await expect(page.locator('#content .pdf-preview')).toBeVisible();
+  await search.fill('image.png:123');
+  await expect(page.locator('#tree .search-results a')).toHaveAccessibleName('image.png:123');
+  await search.press('Enter');
+  await expect(page.locator('#content .image-preview')).toBeVisible();
+  await expect(page.locator('#content .selected-code-line')).toHaveCount(0);
+});
+
 test('searches text within a folder and opens the matching source line', async ({ page }) => {
   await mkdir(join(directory, 'content-scope'), { recursive: true });
   await writeFile(join(directory, 'content-scope', 'guide.md'), '# Guide\n\nBefore the answer\nThe auth needle is here\nAfter the answer\n');
