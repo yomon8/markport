@@ -15,6 +15,7 @@ const icons = {
   other: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 1.5h7l3 3v10H3zM10 1.5v3h3" fill="none" stroke="currentColor"/></svg>',
 };
 const storageKey = 'markport-open-folders-v2';
+const collapsedSelectionKey = 'markport-collapsed-selection';
 function savedFolders(): Set<string> {
   try { return new Set(JSON.parse(localStorage.getItem(storageKey) ?? '[]') as string[]); } catch { return new Set(); }
 }
@@ -129,9 +130,15 @@ export class TreeView {
   private loading = new Set<string>();
   private searchPaths: string[] = [];
   private searchState: SearchState = 'idle';
-  constructor(private tree: HTMLElement, private search: HTMLInputElement, private count: HTMLElement, private selected: () => string,
+  private currentSelection: string;
+  private collapsedSelection: string | null;
+  constructor(private tree: HTMLElement, private search: HTMLInputElement, private count: HTMLElement, private collapseButton: HTMLButtonElement, private selected: () => string,
     private onOpen: (path: string) => void, private onPage: (path: string, offset: number) => void,
     private onSearch: (query: string) => void) {
+    this.currentSelection = selected();
+    try { this.collapsedSelection = sessionStorage.getItem(collapsedSelectionKey); } catch { this.collapsedSelection = null; }
+    if (this.collapsedSelection !== this.currentSelection) this.clearCollapsedSelection();
+    collapseButton.addEventListener('click', () => this.collapseAll());
     tree.addEventListener('click', (event) => {
       const more = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-dir][data-offset]');
       if (more) { this.onPage(more.dataset.dir!, Number(more.dataset.offset)); return; }
@@ -166,6 +173,35 @@ export class TreeView {
       event.preventDefault(); links[Math.max(0, Math.min(links.length - 1, next))]?.focus();
     });
   }
+  private clearCollapsedSelection(): void {
+    this.collapsedSelection = null;
+    try { sessionStorage.removeItem(collapsedSelectionKey); } catch { /* Storage may be unavailable. */ }
+  }
+  private syncSelection(): string {
+    const selected = this.selected();
+    if (selected !== this.currentSelection) { this.currentSelection = selected; this.clearCollapsedSelection(); }
+    return selected;
+  }
+  shouldLoadSelectedPath(path: string): boolean { return Boolean(path) && this.syncSelection() === path && this.collapsedSelection !== path; }
+  isActive(path: string): boolean {
+    const selected = this.syncSelection();
+    return opened.has(path) || (this.collapsedSelection !== selected && selected.startsWith(`${path}/`));
+  }
+  collapseAll(): void {
+    if (this.search.value.trim()) return;
+    const moveFocus = document.activeElement === this.collapseButton;
+    const selected = this.syncSelection();
+    opened.clear();
+    this.collapsedSelection = selected || null;
+    try {
+      localStorage.setItem(storageKey, '[]');
+      if (selected) sessionStorage.setItem(collapsedSelectionKey, selected);
+      else sessionStorage.removeItem(collapsedSelectionKey);
+    } catch { /* Storage may be unavailable. */ }
+    for (const path of this.directories.keys()) if (path) this.directories.delete(path);
+    this.render();
+    if (moveFocus) this.search.focus({ preventScroll: true });
+  }
   has(path: string): boolean { return this.directories.has(path); }
   forget(path: string): void {
     for (const key of this.directories.keys()) if (key === path || key.startsWith(`${path}/`)) this.directories.delete(key);
@@ -189,6 +225,7 @@ export class TreeView {
     this.render();
   }
   setPage(path: string, page: Page): boolean {
+    if (path && !this.isActive(path)) return false;
     const previous = this.directories.get(path);
     const changed = previous?.revision !== page.revision;
     if (previous && !changed && previous.pages.has(page.offset)) return false;
@@ -202,8 +239,7 @@ export class TreeView {
     return changed;
   }
   expandedPaths(): string[] {
-    const selected = this.selected();
-    return [...this.directories.keys()].filter((path) => path === '' || selected.startsWith(`${path}/`) || opened.has(path));
+    return [...this.directories.keys()].filter((path) => path === '' || this.isActive(path));
   }
   pruneInactive(): void {
     const active = new Set(this.expandedPaths());
@@ -229,7 +265,7 @@ export class TreeView {
         const item = document.createElement('li');
         if (node.type === 'directory') {
           const details = document.createElement('details'); details.dataset.path = node.path;
-          details.open = this.selected().startsWith(`${node.path}/`) || opened.has(node.path);
+          details.open = this.isActive(node.path);
           const summary = document.createElement('summary'); summary.title = node.path;
           summary.innerHTML = `<span class="chevron" aria-hidden="true">›</span>${icon(node.name, true)}`;
           const label = document.createElement('span'); label.className = 'node-label'; label.textContent = node.name; summary.append(label);
@@ -251,7 +287,9 @@ export class TreeView {
   }
   render(): void {
     const query = this.search.value.trim().toLocaleLowerCase();
+    this.syncSelection();
     this.tree.replaceChildren();
+    this.collapseButton.disabled = Boolean(query);
     if (query) {
       if (this.searchState !== 'ready') {
         this.count.textContent = this.searchState === 'error' ? 'Search unavailable' : 'Loading file names…';
@@ -274,6 +312,7 @@ export class TreeView {
       this.count.textContent = `${this.fileCount()} ${this.fileCount() === 1 ? 'file' : 'files'} loaded from open folders`;
       if (this.has('') && !this.nodes('').length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = 'No files to display (.git, node_modules, and .venv are excluded).'; this.tree.append(empty); }
       else this.appendNodes(this.tree, '');
+      this.collapseButton.disabled = !this.tree.querySelector('details[open]');
     }
   }
   reveal(path: string): void {
@@ -282,6 +321,8 @@ export class TreeView {
     target?.scrollIntoView?.({ block: 'nearest' });
   }
   revealDirectory(path: string): void {
+    this.syncSelection();
+    this.clearCollapsedSelection();
     if (this.search.value) { this.search.value = ''; this.onSearch(''); }
     let current = '';
     for (const part of path.split('/')) {

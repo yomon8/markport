@@ -463,4 +463,38 @@ describe('lazy browsing and refresh', () => {
     document.querySelector<HTMLElement>('#tree summary')!.click(); await flush();
     expect(fetch.mock.calls.filter(([url]) => url === '/api/tree?path=docs').length).toBe(2);
   });
+
+  it('collapses every folder around the selected file and keeps them closed during refresh', async () => {
+    history.replaceState(null, '', '/?path=docs%2Fdeep%2Fa.md');
+    const fetch = vi.fn(async (url: string) => {
+      if (url === '/api/tree') return reply(page([entry('docs', 'directory'), entry('other', 'directory')]));
+      if (url.startsWith('/api/tree?path=docs%2Fdeep')) return reply(page([entry('a.md', 'file', 'docs/deep')]));
+      if (url.startsWith('/api/tree?path=docs')) return reply(page([entry('deep', 'directory', 'docs')]));
+      if (url.startsWith('/api/tree?path=other')) return reply(page([entry('b.md', 'file', 'other')]));
+      return reply({ path: 'docs/deep/a.md', type: 'markdown', html: '<h1>A</h1>' });
+    });
+    vi.stubGlobal('fetch', fetch);
+    await import('../src/main'); await flush(); await flush();
+    document.querySelector<HTMLElement>('details[data-path="other"] > summary')!.click(); await flush();
+    const collapse = document.querySelector<HTMLButtonElement>('#collapse-all')!;
+    expect(collapse.disabled).toBe(false);
+    collapse.click();
+    expect(document.querySelector<HTMLDetailsElement>('details[data-path="docs"]')?.open).toBe(false);
+    expect(document.querySelector<HTMLDetailsElement>('details[data-path="other"]')?.open).toBe(false);
+    expect(document.querySelector('details[data-path="docs/deep"]')).toBeNull();
+    expect(document.querySelector('#content h1')?.textContent).toBe('A');
+    expect(localStorage.getItem('markport-open-folders-v2')).toBe('[]');
+    expect(sessionStorage.getItem('markport-collapsed-selection')).toBe('docs/deep/a.md');
+    expect(collapse.disabled).toBe(true);
+    const childRequests = fetch.mock.calls.filter(([url]) => url.startsWith('/api/tree?path=')).length;
+    document.querySelector<HTMLButtonElement>('#reload')!.click(); await flush();
+    expect(fetch.mock.calls.filter(([url]) => url.startsWith('/api/tree?path=')).length).toBe(childRequests);
+    const search = document.querySelector<HTMLInputElement>('#search')!;
+    search.value = 'a'; search.dispatchEvent(new Event('input'));
+    expect(collapse.disabled).toBe(true);
+    search.value = ''; search.dispatchEvent(new Event('input'));
+    document.querySelector<HTMLButtonElement>('.crumb')!.click(); await flush();
+    expect(document.querySelector<HTMLDetailsElement>('details[data-path="docs"]')?.open).toBe(true);
+    expect(sessionStorage.getItem('markport-collapsed-selection')).toBeNull();
+  });
 });

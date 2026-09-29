@@ -1152,6 +1152,35 @@ test('starts folders collapsed and sorts folders and numbered files naturally', 
   await expect(page.locator('details[data-path="sort10"]')).not.toHaveAttribute('open');
 });
 
+test('collapses all file folders on desktop and mobile without losing the selected file', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=docs%2Fstyle.css`);
+  const docs = page.locator('details[data-path="docs"]');
+  const collapse = page.getByRole('button', { name: 'Collapse all folders' });
+  await expect(docs).toHaveAttribute('open');
+  await expect(collapse).toBeEnabled();
+  await collapse.focus();
+  await page.keyboard.press('Enter');
+  await expect(docs).not.toHaveAttribute('open');
+  await expect(page.getByRole('searchbox', { name: 'Search files' })).toBeFocused();
+  await expect(collapse).toBeDisabled();
+  await expect(page.locator('#content')).toContainText('color');
+  await page.reload();
+  await expect(docs).not.toHaveAttribute('open');
+  await expect(collapse).toBeDisabled();
+
+  await page.locator('#file-title .crumb').click();
+  await expect(docs).toHaveAttribute('open');
+  await page.getByRole('searchbox', { name: 'Search files' }).fill('style');
+  await expect(collapse).toBeDisabled();
+  await page.getByRole('searchbox', { name: 'Search files' }).fill('');
+  await page.setViewportSize({ width: 390, height: 720 });
+  await page.getByRole('button', { name: 'Open file list' }).click();
+  await expect(collapse).toBeVisible();
+  await collapse.click();
+  await expect(docs).not.toHaveAttribute('open');
+  await expect(page.locator('#content')).toContainText('color');
+});
+
 test('shows Git changes and refreshes a file diff', async ({ page }) => {
   const git = (...args: string[]): void => { execFileSync('git', ['-C', directory, ...args]); };
   git('init', '-q');
