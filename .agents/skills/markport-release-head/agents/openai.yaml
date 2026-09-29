@@ -1,0 +1,3 @@
+interface:
+  display_name: "Release Markport HEAD"
+  short_description: "Publish the latest committed Markport revision"
