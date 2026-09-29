@@ -3,6 +3,7 @@ import { drawMermaid } from './mermaid';
 import { TreeView, type Page } from './tree';
 import { effectiveTheme, initTheme } from './theme';
 import { renderChanges, renderDiff, diffURL, orderedChanges, reviewButton, type Change, type ChangesReply, type DiffReply } from './diff';
+import { historyURL, renderCommit, renderCommitDiff, renderHistoryList, type CommitDetail, type HistoryPage } from './history';
 import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
 import { copyText } from './clipboard';
@@ -20,7 +21,7 @@ type ApiError = { error?: string; message?: string };
 class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
-app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><div id="header-extras"><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button></div><button id="header-more" type="button" aria-label="More header actions" aria-expanded="false" aria-controls="header-extras">⋯</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><div class="files-search-heading"><label for="search">Search files</label><button id="collapse-all" type="button" aria-label="Collapse all folders" title="Collapse all folders" disabled>Collapse all</button></div><input id="search" type="search" placeholder="Path or file name /"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><div id="right-path" class="breadcrumbs"></div><div class="right-actions"><span id="right-kind" class="kind-badge"></span><div id="right-views" class="view-segment" role="group" aria-label="Rendered view or Source"><button id="right-rendered" type="button" aria-pressed="true">Rendered view</button><button id="right-source" type="button" aria-pressed="false">Source</button></div><button id="right-interactive" type="button" hidden>Enable JavaScript</button><button id="right-copy" type="button" class="title-icon" aria-label="Copy path" title="Copy path">⧉</button><button id="right-contents" type="button" class="title-icon" aria-label="Contents" title="Contents" hidden>☷</button><button id="right-swap" type="button" class="title-icon" aria-label="Swap panes" title="Swap panes">⇄</button><button id="right-only" type="button" class="title-icon" aria-label="Show this file only" title="Show this file only">▣</button><button id="right-close" type="button" class="title-icon" aria-label="Close split view" title="Close split view">×</button></div></div><article id="right-content" aria-busy="false"></article><nav id="right-outline" aria-label="Right table of contents" hidden></nav></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
+app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><div id="header-extras"><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button></div><button id="header-more" type="button" aria-label="More header actions" aria-expanded="false" aria-controls="header-extras">⋯</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button><button id="history-tab" type="button" role="tab" aria-controls="history-tree">History</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><div class="files-search-heading"><label for="search">Search files</label><button id="collapse-all" type="button" aria-label="Collapse all folders" title="Collapse all folders" disabled>Collapse all</button></div><input id="search" type="search" placeholder="Path or file name /"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav><nav id="history-tree" role="tabpanel" aria-labelledby="history-tab" aria-label="Commit history" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><div id="right-path" class="breadcrumbs"></div><div class="right-actions"><span id="right-kind" class="kind-badge"></span><div id="right-views" class="view-segment" role="group" aria-label="Rendered view or Source"><button id="right-rendered" type="button" aria-pressed="true">Rendered view</button><button id="right-source" type="button" aria-pressed="false">Source</button></div><button id="right-interactive" type="button" hidden>Enable JavaScript</button><button id="right-copy" type="button" class="title-icon" aria-label="Copy path" title="Copy path">⧉</button><button id="right-contents" type="button" class="title-icon" aria-label="Contents" title="Contents" hidden>☷</button><button id="right-swap" type="button" class="title-icon" aria-label="Swap panes" title="Swap panes">⇄</button><button id="right-only" type="button" class="title-icon" aria-label="Show this file only" title="Show this file only">▣</button><button id="right-close" type="button" class="title-icon" aria-label="Close split view" title="Close split view">×</button></div></div><article id="right-content" aria-busy="false"></article><nav id="right-outline" aria-label="Right table of contents" hidden></nav></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
 const diagramOverlay = createDiagramOverlay();
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
@@ -31,6 +32,7 @@ function updateBrand(): void {
 }
 const tree = document.querySelector<HTMLElement>('#tree')!;
 const changesTree = document.querySelector<HTMLElement>('#changes-tree')!;
+const historyTree = document.querySelector<HTMLElement>('#history-tree')!;
 const filesPanel = document.querySelector<HTMLElement>('#files-panel')!;
 const contentSearch = document.createElement('details');
 contentSearch.id = 'content-search';
@@ -41,6 +43,7 @@ filesList.append(contentSearch, tree);
 initContentSearch(contentSearch, navigate);
 const filesTab = document.querySelector<HTMLButtonElement>('#files-tab')!;
 const changesTab = document.querySelector<HTMLButtonElement>('#changes-tab')!;
+const historyTab = document.querySelector<HTMLButtonElement>('#history-tab')!;
 const content = document.querySelector<HTMLElement>('#content')!;
 const title = document.querySelector<HTMLElement>('#file-title')!;
 const search = document.querySelector<HTMLInputElement>('#search')!;
@@ -95,10 +98,14 @@ const view = new TreeView(tree, search, count, collapseAll, selected,
   onSearchChange);
 let revision = 0; let pending = false; let pendingForeground = false; let activeForeground = false; let running = false;
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = new URL(location.href).searchParams.get('source') === '1';
-let displayedMode: 'file' | 'diff' | 'changes' | 'paste' = 'file'; let lastFilePath = '';
-let sidebarPanel: 'file' | 'changes' = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file';
+let displayedMode: 'file' | 'diff' | 'changes' | 'paste' | 'history' = 'file'; let lastFilePath = '';
+let sidebarPanel: 'file' | 'changes' | 'history' = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file';
 let keepTabFocus = false;
 let currentChanges: ChangesReply | undefined;
+let historyPage: HistoryPage | undefined;
+let displayedHistoryList = '';
+let cachedCommit: CommitDetail | undefined;
+let cachedHistoricalDiff: { id: string; path: string; value: DiffReply } | undefined;
 let displayedChanges = '';
 const review = new ReviewState();
 let reviewVersion = 0;
@@ -180,15 +187,15 @@ function filePreviewKey(file: FileReply, path: string): string {
   if ('previewUrl' in file) return file.type === 'pdf' ? `${file.previewUrl}&reload=${previewReload}` : previewURL(file.previewUrl, path);
   return file.html;
 }
-function selectedMode(): 'file' | 'diff' | 'changes' | 'paste' {
+function selectedMode(): 'file' | 'diff' | 'changes' | 'paste' | 'history' {
   const view = new URL(location.href).searchParams.get('view');
-  return view === 'paste' ? 'paste' : view === 'changes' ? 'changes' : view === 'diff' && selected() ? 'diff' : 'file';
+  return view === 'history' ? 'history' : view === 'paste' ? 'paste' : view === 'changes' ? 'changes' : view === 'diff' && selected() ? 'diff' : 'file';
 }
-function showSidebar(mode: 'file' | 'changes'): void {
-  const git = mode === 'changes';
-  filesPanel.hidden = git; changesTree.hidden = !git;
-  filesTab.setAttribute('aria-selected', String(!git)); changesTab.setAttribute('aria-selected', String(git));
-  filesTab.tabIndex = git ? -1 : 0; changesTab.tabIndex = git ? 0 : -1;
+function showSidebar(mode: 'file' | 'changes' | 'history'): void {
+  filesPanel.hidden = mode !== 'file'; changesTree.hidden = mode !== 'changes'; historyTree.hidden = mode !== 'history';
+  for (const [tab, value] of [[filesTab, 'file'], [changesTab, 'changes'], [historyTab, 'history']] as const) {
+    tab.setAttribute('aria-selected', String(mode === value)); tab.tabIndex = mode === value ? 0 : -1;
+  }
 }
 function saveScroll(): void { history.replaceState({ scroll: main.scrollTop }, '', location.href); }
 function navigate(url: string): void {
@@ -196,7 +203,7 @@ function navigate(url: string): void {
   const right = new URL(location.href).searchParams.get('right');
   if (right && target.searchParams.has('path') && !target.searchParams.has('view')) target.searchParams.set('right', right);
   if (target.href === location.href) return;
-  saveScroll(); pasteVersion++; lineRangeAnchor = 0; history.pushState({ scroll: 0 }, '', target); sidebarPanel = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = target.searchParams.get('source') === '1'; sidebar.classList.remove('open'); requestRefresh();
+  saveScroll(); pasteVersion++; lineRangeAnchor = 0; history.pushState({ scroll: 0 }, '', target); sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = target.searchParams.get('source') === '1'; sidebar.classList.remove('open'); requestRefresh();
 }
 function rightSelected(): string { return selectedMode() === 'file' ? new URL(location.href).searchParams.get('right') ?? '' : ''; }
 function openRight(path: string): void {
@@ -415,6 +422,10 @@ async function refreshDirectories(path: string, expectedRevision: number): Promi
 }
 function showTitle(path: string, kind = '', missing = false, canDownload = true): void {
   title.replaceChildren();
+  if (selectedMode() === 'history') {
+    const heading = document.createElement('strong'); heading.textContent = `Git history${new URL(location.href).searchParams.get('commit') ? ` · ${new URL(location.href).searchParams.get('commit')!.slice(0, 7)}` : ''}`;
+    title.append(heading); document.title = 'Git history — markport'; return;
+  }
   if (selectedMode() === 'changes') {
     const heading = document.createElement('strong'); heading.textContent = 'Git changes'; title.append(heading); document.title = 'Git changes — markport'; return;
   }
@@ -603,6 +614,29 @@ function updateChangeViews(): void {
     renderChanges(content, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter, treeChanges, setTreeChanges, collapsedChangeFolders, toggleChangeFolder);
     displayedHTML = key;
     outline.hidden = true; showTitle('');
+  }
+}
+function updateHistoryViews(): void {
+  if (!historyPage) return;
+  const key = JSON.stringify([historyPage, new URL(location.href).searchParams.get('commit')]);
+  if (key === displayedHistoryList) return;
+  const scroll = historyTree.scrollTop;
+  renderHistoryList(historyTree, historyPage, new URL(location.href).searchParams.get('commit') ?? '', () => { void loadOlderHistory(); });
+  historyTree.scrollTop = scroll;
+  displayedHistoryList = key;
+}
+async function loadOlderHistory(): Promise<void> {
+  const current = historyPage;
+  if (!current?.head || current.nextOffset === null) return;
+  const button = historyTree.querySelector<HTMLButtonElement>('.history-more');
+  if (button) button.disabled = true;
+  try {
+    const older = await getGit<HistoryPage>(`/api/git/history?head=${encodeURIComponent(current.head)}&offset=${current.nextOffset}`);
+    if (historyPage !== current || selectedMode() !== 'history') return;
+    historyPage = { ...current, commits: [...current.commits, ...older.commits], nextOffset: older.nextOffset };
+    updateHistoryViews();
+  } catch {
+    if (button) { button.disabled = false; button.textContent = 'Try loading again'; }
   }
 }
 function showEmpty(): void {
@@ -969,27 +1003,66 @@ async function refreshLoop(): Promise<void> {
   try {
     while (pending) {
       pending = false; const foreground = pendingForeground; pendingForeground = false;
-      const current = revision; const path = selected(); const source = sourceMode; const mode = selectedMode(); const preserveTabFocus = keepTabFocus; keepTabFocus = false;
+      const current = revision; const path = selected(); const source = sourceMode; const mode = selectedMode(); const commitID = new URL(location.href).searchParams.get('commit') ?? ''; const knownHistoryHead = historyPage?.head; const preserveTabFocus = keepTabFocus; keepTabFocus = false;
       void refreshRight();
       showSidebar(sidebarPanel);
       if (path !== displayedPath || mode !== displayedMode) displayedTag = '';
       if (foreground) { activeForeground = true; beginLoading(); }
-      const treePromise = refreshDirectories(mode === 'changes' || mode === 'paste' ? '' : path, current);
+      const treePromise = refreshDirectories(mode === 'changes' || mode === 'paste' || mode === 'history' ? '' : path, current);
       const gitPromise = mode === 'changes' || mode === 'diff' ? getGit<ChangesReply>('/api/git/changes') : Promise.resolve(undefined);
+      const historyPromise = mode === 'history' ? getGit<HistoryPage>('/api/git/history') : Promise.resolve(undefined);
+      const commitPromise = mode === 'history' && commitID ? cachedCommit?.id === commitID && knownHistoryHead ? Promise.resolve(cachedCommit) : getGit<CommitDetail>(`/api/git/commit?id=${encodeURIComponent(commitID)}`) : Promise.resolve(undefined);
+      const historicalDiffPromise = mode === 'history' && commitID && path ? cachedHistoricalDiff?.id === commitID && cachedHistoricalDiff.path === path && knownHistoryHead ? Promise.resolve(cachedHistoricalDiff.value) : getGit<DiffReply>(`/api/git/commit-diff?id=${encodeURIComponent(commitID)}&path=${encodeURIComponent(path)}`) : Promise.resolve(undefined);
       const filePromise = mode === 'diff' ? getGit<DiffReply>(`/api/git/diff?path=${encodeURIComponent(path)}`).then((value) => ({ value }), (error: unknown) => ({ error }))
         : mode === 'file' && path ? getFile(path, source, current).then((value) => ({ value }), (error: unknown) => ({ error })) : Promise.resolve(null);
       try {
-        const [, fileReply, changesReply] = await Promise.all([treePromise, filePromise, gitPromise]);
-        if (current !== revision || path !== selected() || mode !== selectedMode()) { pending = true; continue; }
+        const [, fileReply, changesReply, firstHistory, commitReply, historyDiffReply] = await Promise.all([treePromise, filePromise, gitPromise, historyPromise, commitPromise, historicalDiffPromise]);
+        if (current !== revision || path !== selected() || mode !== selectedMode() || commitID !== (new URL(location.href).searchParams.get('commit') ?? '')) { pending = true; continue; }
         if (mode === 'file' && !path && view.firstReadme()) { history.replaceState({ scroll: 0 }, '', fileURL(view.firstReadme()!)); pending = true; pendingForeground ||= foreground; revision++; continue; }
         const pathChanged = path !== displayedPath || mode !== displayedMode;
         if (pathChanged) { main.scrollTop = history.state?.scroll ?? 0; displayedHTML = ''; view.pruneInactive(); }
         displayedPath = path; displayedMode = mode;
-        if (path) lastFilePath = path;
+        if (path && mode !== 'history') lastFilePath = path;
         if (changesReply) {
           currentChanges = changesReply;
           if (review.sync(changesReply)) reviewVersion++;
           updateChangeViews();
+        }
+        if (firstHistory) {
+          if (knownHistoryHead && firstHistory.head !== knownHistoryHead) {
+            historyPage = firstHistory; cachedCommit = undefined; cachedHistoricalDiff = undefined; displayedHistoryList = '';
+            revision++; pending = true; continue;
+          }
+          const previous = historyPage;
+          historyPage = previous?.head && previous.head === firstHistory.head && firstHistory.available
+            ? { ...firstHistory, commits: [...firstHistory.commits, ...previous.commits.slice(firstHistory.commits.length)], nextOffset: previous.nextOffset }
+            : firstHistory;
+          updateHistoryViews();
+        }
+        if (mode === 'history') {
+          if (!commitID && historyPage?.commits.length) {
+            history.replaceState(history.state, '', historyURL(historyPage.commits[0].id));
+            revision++; pending = true; continue;
+          }
+          if (!historyPage?.available || !historyPage.commits.length && !commitID) {
+            if (pathChanged || content.dataset.kind !== 'history-empty') {
+              content.dataset.kind = 'history-empty'; content.replaceChildren();
+              const hint = document.createElement('p'); hint.className = 'hint';
+              hint.textContent = historyPage?.available ? 'No commits to display.' : historyPage?.reason === 'git_unavailable' ? 'Git was not found. Git is required to show history.' : 'This directory is not a Git repository.';
+              content.append(hint); displayedHTML = hint.textContent; outline.hidden = true; showTitle('');
+            }
+          } else if (commitReply) {
+            cachedCommit = commitReply;
+            if (historyDiffReply) cachedHistoricalDiff = { id: commitID, path, value: historyDiffReply };
+            const key = historyDiffReply ? JSON.stringify([commitReply.id, path, historyDiffReply]) : JSON.stringify(commitReply);
+            if (pathChanged || displayedHTML !== key) {
+              content.dataset.kind = historyDiffReply ? 'diff' : 'history';
+              if (historyDiffReply) renderCommitDiff(content, commitReply, historyDiffReply);
+              else renderCommit(content, commitReply);
+              displayedHTML = key; outline.hidden = true; showTitle('');
+            }
+          }
+          status('Checking every few seconds', 'ok'); continue;
         }
         if (mode === 'changes') {
           status('Checking every few seconds', 'ok'); continue;
@@ -1066,20 +1139,26 @@ changesTree.addEventListener('click', (event) => {
   if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
   event.preventDefault(); navigate(link.href);
 });
-function selectSidebarTab(mode: 'file' | 'changes'): void {
-  const target = mode === 'file' ? lastFilePath ? fileURL(lastFilePath) : '/' : '/?view=changes';
+historyTree.addEventListener('click', (event) => {
+  const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
+  if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
+  event.preventDefault(); navigate(link.href);
+});
+function selectSidebarTab(mode: 'file' | 'changes' | 'history'): void {
+  const target = mode === 'file' ? lastFilePath ? fileURL(lastFilePath) : '/' : mode === 'changes' ? '/?view=changes' : historyURL();
   keepTabFocus = new URL(target, location.href).href !== location.href;
   sidebarPanel = mode; showSidebar(mode);
   navigate(target);
   if (window.innerWidth <= 700) sidebar.classList.add('open');
-  (mode === 'file' ? filesTab : changesTab).focus();
+  (mode === 'file' ? filesTab : mode === 'changes' ? changesTab : historyTab).focus();
 }
 filesTab.addEventListener('click', () => selectSidebarTab('file'));
 changesTab.addEventListener('click', () => selectSidebarTab('changes'));
+historyTab.addEventListener('click', () => selectSidebarTab('history'));
 document.querySelector<HTMLElement>('.sidebar-tabs')!.addEventListener('keydown', (event) => {
   if (!matchesShortcut(event, 'tabSwitch') && !matchesShortcut(event, 'tabFirst') && !matchesShortcut(event, 'tabLast')) return;
   event.preventDefault();
-  const mode = matchesShortcut(event, 'tabFirst') ? 'file' : matchesShortcut(event, 'tabLast') ? 'changes' : document.activeElement === filesTab ? 'changes' : 'file';
+  const mode = matchesShortcut(event, 'tabFirst') ? 'file' : matchesShortcut(event, 'tabLast') ? 'history' : document.activeElement === filesTab ? 'changes' : document.activeElement === changesTab ? 'history' : 'file';
   selectSidebarTab(mode);
 });
 pasteToggle.addEventListener('click', () => { headerExtras.classList.remove('open'); headerMore.setAttribute('aria-expanded', 'false'); navigate('/?view=paste'); });
@@ -1121,9 +1200,9 @@ function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
     return;
   }
   const link = target.closest<HTMLAnchorElement>('a[href]');
-  if (!link || event.metaKey || event.ctrlKey || event.shiftKey || link.origin !== location.origin || link.pathname !== '/' || !new URL(link.href).searchParams.has('path')) return;
+  if (!link || event.metaKey || event.ctrlKey || event.shiftKey || link.origin !== location.origin || link.pathname !== '/' || !(new URL(link.href).searchParams.has('path') || new URL(link.href).searchParams.get('view') === 'history')) return;
   if (link.pathname === location.pathname && link.search === location.search && link.hash) return;
-  event.preventDefault(); if (pane === 'right') openRight(new URL(link.href).searchParams.get('path')!); else navigate(link.href);
+  event.preventDefault(); if (pane === 'right' && new URL(link.href).searchParams.has('path')) openRight(new URL(link.href).searchParams.get('path')!); else navigate(link.href);
 }
 content.addEventListener('click', (event) => onContentClick(event, 'left'));
 rightContent.addEventListener('click', (event) => onContentClick(event, 'right'));
@@ -1137,7 +1216,7 @@ rightOpenPDF.addEventListener('click', () => { const path = rightSelected(); if 
 document.querySelector('#right-swap')!.addEventListener('click', swapPanes);
 document.querySelector('#right-only')!.addEventListener('click', showRightOnly);
 rightInteractive.addEventListener('click', () => { const path = rightSelected(); if (path) setInteractive(path, !interactivePaths.has(path)); });
-window.addEventListener('popstate', () => { pasteVersion++; sidebarPanel = selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); });
+window.addEventListener('popstate', () => { pasteVersion++; sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); });
 window.addEventListener('hashchange', () => { highlightCodeLines(true); });
 window.addEventListener('keydown', (event) => {
   if (event.isComposing || event.keyCode === 229) return;

@@ -65,6 +65,17 @@ article[data-kind=changes],article[data-kind=diff]{max-width:none}.diff-frame{ma
 .diff-navigation{display:flex;gap:4px;flex-wrap:wrap}.diff-navigation button{font-size:12px}.diff-navigation button:disabled{cursor:default}
 .change-lines{flex:none;margin-left:auto;font:11px var(--mono);color:var(--text-muted);white-space:nowrap}
 .change-list.compact .change-lines{font-size:10px}
+#history-tree{flex:1;min-height:0;overflow:auto}
+.history-list,.history-files{list-style:none;padding:0;margin:0}
+.history-list li+li,.history-files li+li{border-top:1px solid var(--border)}
+.history-list a{display:grid;gap:3px;padding:9px 5px;border-radius:5px;text-decoration:none;color:var(--text);overflow-wrap:anywhere}
+.history-list a:hover,.history-list a[aria-current=page],.history-files a:hover,.history-files a[aria-current=page]{background:var(--accent-soft)}
+.history-list a strong{font-size:12px;line-height:1.35}.history-list a span,.history-meta{font-size:11px;color:var(--text-muted)}
+.history-more{width:100%;margin-top:10px;font-size:12px}
+article[data-kind=history],article[data-kind=history-empty]{max-width:none}
+.history-message{white-space:pre-wrap;overflow-wrap:anywhere}
+.history-files a{display:flex;align-items:center;gap:10px;padding:9px 7px;text-decoration:none;overflow-wrap:anywhere}
+.history-back{display:inline-block;margin-bottom:12px}
 .change-list li.change-folder{display:block;margin-top:0}.change-folder>details>summary{display:flex;align-items:center;gap:6px;min-height:32px;padding:4px 8px;border-radius:5px;color:var(--text-muted);cursor:pointer;list-style:none}.change-folder>details>summary::-webkit-details-marker{display:none}.change-folder>details>summary:hover{background:var(--hover)}.change-folder>details>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}.change-folder>details>summary .chevron{flex:none}.change-folder>details[open]>summary .chevron{transform:rotate(90deg)}.change-folder>details>.change-list{margin-left:13px;padding-left:10px;border-left:1px solid var(--border)}.change-list.compact .change-folder>details>summary{min-height:28px;padding:3px}
 
 .code-toolbar-actions{display:flex;gap:4px;align-items:center;flex-wrap:wrap}.code-wrap-toggle[aria-pressed=true]{background:var(--accent-soft);color:var(--accent)}

@@ -156,6 +156,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.gitChanges(w, r)
 	case "/api/git/diff":
 		s.gitDiff(w, r)
+	case "/api/git/history":
+		s.gitHistory(w, r)
+	case "/api/git/commit":
+		s.gitCommit(w, r)
+	case "/api/git/commit-diff":
+		s.gitCommitDiff(w, r)
 	case "/":
 		s.static.ServeHTTP(w, r)
 	default:
@@ -275,6 +281,10 @@ func queryPath(r *http.Request) (string, error) {
 }
 
 func gitError(w http.ResponseWriter, err error) {
+	if errors.Is(err, gitdiff.ErrCommitNotFound) {
+		jsonReply(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": err.Error()})
+		return
+	}
 	if errors.Is(err, gitdiff.ErrNoChange) {
 		jsonReply(w, http.StatusNotFound, map[string]string{"error": "no_change", "message": err.Error()})
 		return
@@ -329,6 +339,47 @@ func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	diff, err := gitdiff.File(r.Context(), s.Files, name)
+	if err != nil {
+		gitError(w, err)
+		return
+	}
+	gitReply(w, r, diff)
+}
+
+func (s *Server) gitHistory(w http.ResponseWriter, r *http.Request) {
+	offset := 0
+	if value := r.URL.Query().Get("offset"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 0 || parsed > 100000 {
+			jsonReply(w, http.StatusBadRequest, map[string]string{"error": "invalid_offset"})
+			return
+		}
+		offset = parsed
+	}
+	page, err := gitdiff.History(r.Context(), s.Files, r.URL.Query().Get("head"), offset)
+	if err != nil {
+		gitError(w, err)
+		return
+	}
+	gitReply(w, r, page)
+}
+
+func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
+	detail, err := gitdiff.CommitInfo(r.Context(), s.Files, r.URL.Query().Get("id"))
+	if err != nil {
+		gitError(w, err)
+		return
+	}
+	gitReply(w, r, detail)
+}
+
+func (s *Server) gitCommitDiff(w http.ResponseWriter, r *http.Request) {
+	name, err := queryPath(r)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	diff, err := gitdiff.CommitFile(r.Context(), s.Files, r.URL.Query().Get("id"), name)
 	if err != nil {
 		gitError(w, err)
 		return

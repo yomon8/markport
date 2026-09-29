@@ -261,6 +261,11 @@ func TestGitUnavailable(t *testing.T) {
 	if result := request(app, "localhost:3000", "/api/git/diff?path=a.md"); result.Code != 503 {
 		t.Fatalf("no repository diff: %d", result.Code)
 	}
+	result = request(app, "localhost:3000", "/api/git/history")
+	var history gitdiff.HistoryPage
+	if result.Code != 200 || json.Unmarshal(result.Body.Bytes(), &history) != nil || history.Available || history.Reason != "not_repository" {
+		t.Fatalf("no repository history: %d %s", result.Code, result.Body.String())
+	}
 }
 
 func TestGitUnbornAndSymlink(t *testing.T) {
@@ -284,6 +289,11 @@ func TestGitUnbornAndSymlink(t *testing.T) {
 		t.Logf("symlink unavailable: %v", err)
 	}
 	app := gitServer(t, dir)
+	historyResult := request(app, "localhost:3000", "/api/git/history")
+	var history gitdiff.HistoryPage
+	if historyResult.Code != 200 || json.Unmarshal(historyResult.Body.Bytes(), &history) != nil || !history.Available || len(history.Commits) != 0 {
+		t.Fatalf("unborn history: %d %s", historyResult.Code, historyResult.Body.String())
+	}
 	result := request(app, "localhost:3000", "/api/git/changes")
 	var listing gitdiff.Listing
 	if result.Code != 200 || json.Unmarshal(result.Body.Bytes(), &listing) != nil || len(listing.Changes) != 2 {
@@ -299,5 +309,42 @@ func TestGitUnbornAndSymlink(t *testing.T) {
 	}
 	if result := request(app, "localhost:3000", "/api/git/diff?path=link.md"); result.Code != 404 {
 		t.Errorf("symlink diff: %d", result.Code)
+	}
+}
+
+func TestGitHistoryAPI(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("Git is unavailable")
+	}
+	dir := t.TempDir()
+	gitCommand(t, dir, "init", "-q")
+	gitCommand(t, dir, "config", "user.email", "test@example.com")
+	gitCommand(t, dir, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte("hello\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	gitCommand(t, dir, "add", ".")
+	gitCommand(t, dir, "commit", "-qm", "initial")
+	app := gitServer(t, dir)
+	result := request(app, "localhost:3000", "/api/git/history")
+	var page gitdiff.HistoryPage
+	if result.Code != 200 || json.Unmarshal(result.Body.Bytes(), &page) != nil || len(page.Commits) != 1 {
+		t.Fatalf("history: %d %s", result.Code, result.Body.String())
+	}
+	id := page.Commits[0].ID
+	result = request(app, "localhost:3000", "/api/git/commit?id="+id)
+	var detail gitdiff.CommitDetail
+	if result.Code != 200 || json.Unmarshal(result.Body.Bytes(), &detail) != nil || len(detail.Files) != 1 {
+		t.Fatalf("commit: %d %s", result.Code, result.Body.String())
+	}
+	result = request(app, "localhost:3000", "/api/git/commit-diff?id="+id+"&path=a.md")
+	if result.Code != 200 || !strings.Contains(result.Body.String(), "+hello") {
+		t.Fatalf("commit diff: %d %s", result.Code, result.Body.String())
+	}
+	for _, path := range []string{"/api/git/history?offset=-1", "/api/git/history?head=not-a-hash", "/api/git/commit?id=not-a-hash", "/api/git/commit-diff?id=" + id + "&path=..%2Fa.md"} {
+		result = request(app, "localhost:3000", path)
+		if result.Code < 400 {
+			t.Errorf("unsafe history request %s: %d", path, result.Code)
+		}
 	}
 }

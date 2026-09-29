@@ -23,6 +23,42 @@ beforeEach(() => {
 afterEach(() => { window.dispatchEvent(new Event('pagehide')); vi.unstubAllGlobals(); });
 
 describe('lazy browsing and refresh', () => {
+  it('explains when Git history is unavailable', async () => {
+    history.replaceState(null, '', '/?view=history');
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree'
+      ? reply(page([]))
+      : reply({ available: false, reason: 'not_repository', commits: [], nextOffset: null })));
+    await import('../src/main'); await flush();
+    expect(document.querySelector('#history-tree')?.textContent).toContain('not a Git repository');
+    expect(document.querySelector('#content')?.textContent).toContain('not a Git repository');
+  });
+  it('opens commit history, a historical file diff, and older commits', async () => {
+    const firstID = 'a'.repeat(40); const olderID = 'b'.repeat(40);
+    const fetch = vi.fn(async (url: string) => {
+      if (url === '/api/tree') return reply(page([]));
+      if (url === '/api/git/history') return reply({ available: true, head: firstID, commits: [{ id: firstID, subject: '<new>', author: 'A', date: '2026-01-02T00:00:00Z' }], nextOffset: 50 });
+      if (url === `/api/git/history?head=${firstID}&offset=50`) return reply({ available: true, head: firstID, commits: [{ id: olderID, subject: 'old', author: 'B', date: '2026-01-01T00:00:00Z' }], nextOffset: null });
+      if (url === `/api/git/commit?id=${firstID}`) return reply({ id: firstID, subject: '<new>', author: 'A', date: '2026-01-02T00:00:00Z', message: '<new>', files: [{ path: 'docs/a.md', status: 'modified' }] });
+      if (url === `/api/git/commit-diff?id=${firstID}&path=docs%2Fa.md`) return reply({ path: 'docs/a.md', kind: 'text', patch: '@@ -1 +1 @@\n-old\n+<script>alert(1)</script>\n' });
+      return reply({ error: 'not_found' }, 404);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await import('../src/main'); await flush();
+    document.querySelector<HTMLButtonElement>('#history-tab')!.click();
+    await flush(); await flush(); await flush();
+    expect(location.search).toContain(`commit=${firstID}`);
+    expect(document.querySelector('#history-tree')?.textContent).toContain('<new>');
+    expect(document.querySelector('#content h1')?.textContent).toBe('<new>');
+    expect(document.querySelector('#content script')).toBeNull();
+    document.querySelector<HTMLButtonElement>('.history-more')!.click(); await flush();
+    expect(document.querySelectorAll('#history-tree .history-list li')).toHaveLength(2);
+    document.querySelector<HTMLAnchorElement>('.history-files a')!.click(); await flush();
+    expect(location.search).toContain('path=docs%2Fa.md');
+    expect(document.querySelector('#content .diff-frame')?.textContent).toContain('<script>alert(1)</script>');
+    expect(document.querySelector('#content script')).toBeNull();
+    document.querySelector<HTMLAnchorElement>('.history-back')!.click(); await flush();
+    expect(document.querySelector('#content .history-files')).not.toBeNull();
+  });
   it('revalidates the right pane without replacing its DOM on 304', async () => {
     history.replaceState(null, '', '/?path=a.md&right=b.md');
     let rightVersion = 1;

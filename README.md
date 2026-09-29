@@ -17,6 +17,7 @@ Markport opens a folder in your browser so you can read and review Markdown, HTM
 - **Compare two files:** use the arrow beside a file in the sidebar to open it on the right. Each pane scrolls and refreshes independently; **Close split** returns to one file. On narrow screens the panes stack vertically.
 - **Find what you need:** search by file name or path, or search text inside files and jump to matching lines.
 - **Review Git changes:** see changed files and their diffs, mark each revision as reviewed, and filter to unreviewed files. Review marks are kept in this browser.
+- **Browse Git history:** open the History tab to inspect commits that changed the selected folder, then view each commit's files and per-file diff.
 - **Check fresh output:** open files refresh automatically as they change. Paste Markdown from your clipboard for a quick preview without creating a file.
 
 [See the Git review screen](docs/screenshots/reviewed-changes.png) · [See the pasted Markdown preview](docs/screenshots/pasted-markdown.png)

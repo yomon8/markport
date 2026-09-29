@@ -1188,6 +1188,7 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   git('config', 'user.name', 'Test');
   git('add', '.');
   git('commit', '-qm', 'initial');
+  const committedSample = (await readFile(join(directory, 'sample.py'), 'utf8')).trim();
   await writeFile(join(directory, 'sample.py'), 'print("changed")\n');
   await writeFile(join(directory, 'new-diff.md'), `<script>alert(1)</script>${'x'.repeat(200)}END\n`);
   await page.goto(`http://127.0.0.1:${port}/?view=changes`);
@@ -1247,6 +1248,13 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.locator('#files-panel')).toBeVisible();
   await expect(page.locator('.diff-added .diff-code')).toContainText('color: red');
+  await page.getByRole('tab', { name: 'History' }).click();
+  await expect(page.locator('#history-tree .history-list a')).toContainText('initial');
+  await expect(page.locator('#content .history-files')).toBeVisible();
+  await page.locator('#content .history-files a[href*="sample.py"]').click();
+  await expect(page.locator('#content .diff-added .diff-code')).toContainText(committedSample);
+  await page.locator('#content .history-back').click();
+  await expect(page.locator('#content .history-files')).toBeVisible();
 });
 
 test('reviews changed files in order with counts and a folder tree', async ({ page }) => {
