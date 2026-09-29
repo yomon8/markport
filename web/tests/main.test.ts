@@ -59,6 +59,52 @@ describe('lazy browsing and refresh', () => {
     document.querySelector<HTMLAnchorElement>('.history-back')!.click(); await flush();
     expect(document.querySelector('#content .history-files')).not.toBeNull();
   });
+  it('compares a selected commit with current files and keeps the base across diff navigation', async () => {
+    const base = 'a'.repeat(40);
+    const fetch = vi.fn(async (url: string) => {
+      if (url === '/api/tree') return reply(page([]));
+      if (url === '/api/git/history') return reply({ available: true, head: base, commits: [{ id: base, subject: 'Initial', author: 'A', date: '2026-01-01T00:00:00Z' }], nextOffset: null });
+      if (url === `/api/git/commit?id=${base}`) return reply({ id: base, subject: 'Initial', author: 'A', date: '2026-01-01T00:00:00Z', message: 'Initial', files: [{ path: 'a.md', status: 'added' }] });
+      if (url === `/api/git/changes?base=${base}`) return reply({ available: true, rootId: 'root-base', base, changes: [{ path: 'a.md', status: 'modified', revision: 'a1' }, { path: 'b.md', status: 'added', revision: 'b1' }] });
+      if (url === `/api/git/diff?path=a.md&base=${base}`) return reply({ path: 'a.md', kind: 'text', patch: '@@ -1 +1 @@\n-old\n+new\n' });
+      if (url === `/api/git/diff?path=b.md&base=${base}`) return reply({ path: 'b.md', kind: 'text', patch: '@@ -0,0 +1 @@\n+added\n' });
+      if (url === '/api/git/changes') return reply({ available: true, rootId: 'root', changes: [] });
+      return reply({ error: 'not_found' }, 404);
+    });
+    vi.stubGlobal('fetch', fetch);
+    history.replaceState(null, '', '/?view=history');
+    await import('../src/main'); await flush(); await flush();
+    document.querySelector<HTMLAnchorElement>('#history-tree .history-compare')!.click(); await flush();
+    expect(location.search).toContain(`base=${base}`);
+    expect(document.querySelector('#content .change-path')?.textContent).toBe('a.md');
+    expect(document.querySelector<HTMLInputElement>('#comparison-base')?.value).toBe(base);
+    document.querySelector<HTMLAnchorElement>('#content a[href*="path=a.md"]')!.click(); await flush();
+    expect(location.search).toContain(`base=${base}`);
+    expect(document.querySelector('#content .diff-added')?.textContent).toContain('+new');
+    document.querySelector<HTMLButtonElement>('#file-title .diff-navigation button:nth-child(2)')!.click(); await flush();
+    expect(location.search).toContain('path=b.md');
+    expect(location.search).toContain(`base=${base}`);
+    document.querySelector<HTMLButtonElement>('.comparison-controls > button')!.click(); await flush();
+    expect(location.search).toBe('?view=changes');
+    expect(document.querySelector('#content .hint')?.textContent).toBe('No changes.');
+  });
+  it('shows an invalid comparison ID without leaving the previous change list active', async () => {
+    history.replaceState(null, '', '/?view=changes');
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === '/api/tree') return reply(page([]));
+      if (url === '/api/git/changes') return reply({ available: true, rootId: 'root', changes: [{ path: 'a.md', status: 'modified', revision: 'v1' }] });
+      if (url === '/api/git/changes?base=deadbee') return reply({ error: 'not_found' }, 404);
+      return reply({ error: 'not_found' }, 404);
+    }));
+    await import('../src/main'); await flush();
+    expect(document.querySelector('#changes-tree .change-path')?.textContent).toBe('a.md');
+    const input = document.querySelector<HTMLInputElement>('#comparison-base')!;
+    input.value = 'deadbee'; input.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); await flush();
+    expect(document.querySelector('#content .file-error')?.textContent).toContain('Commit not found');
+    expect(document.querySelector('#changes-tree .change-path')).toBeNull();
+    document.querySelector<HTMLButtonElement>('.comparison-controls > button')!.click(); await flush();
+    expect(document.querySelector('#changes-tree .change-path')?.textContent).toBe('a.md');
+  });
   it('revalidates the right pane without replacing its DOM on 304', async () => {
     history.replaceState(null, '', '/?path=a.md&right=b.md');
     let rightVersion = 1;

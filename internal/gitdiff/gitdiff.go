@@ -48,6 +48,7 @@ type Listing struct {
 	Available bool     `json:"available"`
 	Reason    string   `json:"reason,omitempty"`
 	RootID    string   `json:"rootId,omitempty"`
+	Base      string   `json:"base,omitempty"`
 	Changes   []Change `json:"changes"`
 }
 
@@ -144,6 +145,38 @@ func discover(ctx context.Context, store *files.Store) (repository, string, erro
 }
 
 func (repo repository) path(name string) string { return repo.prefix + name }
+func resolveBase(ctx context.Context, repo repository, base string) (repository, string, error) {
+	if base == "" {
+		return repo, "", nil
+	}
+	if repo.unborn || len(base) < 7 || len(base) > 64 {
+		return repository{}, "", ErrCommitNotFound
+	}
+	for _, c := range base {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return repository{}, "", ErrCommitNotFound
+		}
+	}
+	resolved, err := run(ctx, repo.root, "rev-parse", "--verify", base+"^{commit}")
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, ErrTooLarge) {
+			return repository{}, "", err
+		}
+		return repository{}, "", ErrCommitNotFound
+	}
+	id := strings.TrimSpace(string(resolved))
+	if !validCommitID(id) {
+		return repository{}, "", ErrCommitNotFound
+	}
+	if _, err := run(ctx, repo.root, "merge-base", "--is-ancestor", id, repo.head); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) || errors.Is(err, ErrTooLarge) {
+			return repository{}, "", err
+		}
+		return repository{}, "", ErrCommitNotFound
+	}
+	repo.head = id
+	return repo, id, nil
+}
 func (repo repository) scope() string {
 	if repo.prefix == "" {
 		return "."
@@ -288,6 +321,10 @@ func fingerprint(ctx context.Context, store *files.Store, repo repository, chang
 }
 
 func List(ctx context.Context, store *files.Store) (Listing, error) {
+	return ListAt(ctx, store, "")
+}
+
+func ListAt(ctx context.Context, store *files.Store, base string) (Listing, error) {
 	repo, reason, err := discover(ctx, store)
 	if err != nil {
 		return Listing{}, err
@@ -295,12 +332,24 @@ func List(ctx context.Context, store *files.Store) (Listing, error) {
 	if reason != "" {
 		return Listing{Available: false, Reason: reason, Changes: []Change{}}, nil
 	}
+	repo, base, err = resolveBase(ctx, repo, base)
+	if err != nil {
+		return Listing{}, err
+	}
 	changes, err := collect(ctx, store, repo, true)
-	rootID := sha256.Sum256([]byte(store.Path))
-	return Listing{Available: true, RootID: hex.EncodeToString(rootID[:]), Changes: changes}, err
+	identity := store.Path
+	if base != "" {
+		identity += "\x00" + base
+	}
+	rootID := sha256.Sum256([]byte(identity))
+	return Listing{Available: true, RootID: hex.EncodeToString(rootID[:]), Base: base, Changes: changes}, err
 }
 
 func File(ctx context.Context, store *files.Store, name string) (Diff, error) {
+	return FileAt(ctx, store, "", name)
+}
+
+func FileAt(ctx context.Context, store *files.Store, base, name string) (Diff, error) {
 	if _, err := files.Parts(name); err != nil {
 		return Diff{}, err
 	}
@@ -310,6 +359,10 @@ func File(ctx context.Context, store *files.Store, name string) (Diff, error) {
 	}
 	if reason != "" {
 		return Diff{}, ErrUnavailable
+	}
+	repo, _, err = resolveBase(ctx, repo, base)
+	if err != nil {
+		return Diff{}, err
 	}
 	changes, err := collect(ctx, store, repo, false)
 	if err != nil {

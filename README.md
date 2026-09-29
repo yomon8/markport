@@ -16,7 +16,7 @@ Markport opens a folder in your browser so you can read and review Markdown, HTM
 - **Read files in context:** browse folders, follow relative links and images, and preview Markdown, HTML, PDF, SVG, PNG, JPEG, GIF, and WebP. Markdown supports tables, task lists, code highlighting, and Mermaid diagrams. Switch to source view for Markdown or HTML. PDFs use your browser's built-in viewer and can also be opened in a new tab or downloaded.
 - **Compare two files:** use the arrow beside a file in the sidebar to open it on the right. Each pane scrolls and refreshes independently; **Close split** returns to one file. On narrow screens the panes stack vertically.
 - **Find what you need:** search by file name or path, or search text inside files and jump to matching lines.
-- **Review Git changes:** see changed files and their diffs, mark each revision as reviewed, and filter to unreviewed files. Review marks are kept in this browser.
+- **Review Git changes:** see changed files and their diffs, compare current files with HEAD or a selected commit, mark each revision as reviewed, and filter to unreviewed files. Review marks are kept in this browser.
 - **Browse Git history:** open the History tab to inspect commits that changed the selected folder, then view each commit's files and per-file diff.
 - **Check fresh output:** open files refresh automatically as they change. Paste Markdown from your clipboard for a quick preview without creating a file.
 

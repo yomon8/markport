@@ -3,7 +3,7 @@ import { drawMermaid } from './mermaid';
 import { TreeView, type Page } from './tree';
 import { effectiveTheme, initTheme } from './theme';
 import { renderChanges, renderDiff, diffURL, orderedChanges, reviewButton, type Change, type ChangesReply, type DiffReply } from './diff';
-import { historyURL, renderCommit, renderCommitDiff, renderHistoryList, type CommitDetail, type HistoryPage } from './history';
+import { comparisonURL, historyURL, renderCommit, renderCommitDiff, renderHistoryList, type CommitDetail, type HistoryPage } from './history';
 import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
 import { copyText } from './clipboard';
@@ -46,6 +46,14 @@ const changesTab = document.querySelector<HTMLButtonElement>('#changes-tab')!;
 const historyTab = document.querySelector<HTMLButtonElement>('#history-tab')!;
 const content = document.querySelector<HTMLElement>('#content')!;
 const title = document.querySelector<HTMLElement>('#file-title')!;
+const comparisonControls = document.createElement('div'); comparisonControls.className = 'comparison-controls'; comparisonControls.hidden = true;
+const comparisonForm = document.createElement('form'); comparisonForm.className = 'comparison-form';
+const comparisonLabel = document.createElement('label'); comparisonLabel.htmlFor = 'comparison-base'; comparisonLabel.textContent = 'Compare with current from';
+const comparisonInput = document.createElement('input'); comparisonInput.id = 'comparison-base'; comparisonInput.type = 'text'; comparisonInput.placeholder = 'Commit ID or HEAD'; comparisonInput.autocomplete = 'off'; comparisonInput.spellcheck = false;
+const comparisonSubmit = document.createElement('button'); comparisonSubmit.type = 'submit'; comparisonSubmit.textContent = 'Compare';
+const comparisonReset = document.createElement('button'); comparisonReset.type = 'button'; comparisonReset.textContent = 'Use HEAD';
+const comparisonCurrent = document.createElement('span'); comparisonCurrent.className = 'comparison-current';
+comparisonForm.append(comparisonLabel, comparisonInput, comparisonSubmit); comparisonControls.append(comparisonForm, comparisonReset, comparisonCurrent); title.after(comparisonControls);
 const search = document.querySelector<HTMLInputElement>('#search')!;
 const count = document.querySelector<HTMLElement>('#result-count')!;
 const collapseAll = document.querySelector<HTMLButtonElement>('#collapse-all')!;
@@ -113,6 +121,8 @@ let onlyUnreviewed = false;
 let treeChanges = true;
 const collapsedChangeFolders = new Set<string>();
 let changeRootId = '';
+let rememberedBase = new URL(location.href).searchParams.get('base') ?? '';
+let shownBase: string | undefined;
 let lastRevealedDiff = '';
 let previewReload = 0;
 let previewInstance = '';
@@ -139,6 +149,18 @@ const savedWidth = Number(localStorage.getItem('markport-sidebar-width'));
 if (savedWidth >= 200 && savedWidth <= 480) document.documentElement.style.setProperty('--sidebar-width', `${savedWidth}px`);
 
 function selected(): string { return new URL(location.href).searchParams.get('path') ?? ''; }
+function selectedBase(): string { return new URL(location.href).searchParams.get('base') ?? ''; }
+function syncComparisonControls(): void {
+  const mode = selectedMode(); const active = mode === 'changes' || mode === 'diff';
+  comparisonControls.hidden = !active;
+  if (!active) return;
+  const base = selectedBase();
+  if (shownBase !== base) { comparisonInput.value = base; shownBase = base; }
+  comparisonCurrent.textContent = `Base: ${base ? base.slice(0, 12) : 'HEAD'} → current working files`;
+  comparisonReset.hidden = !base;
+}
+comparisonForm.addEventListener('submit', (event) => { event.preventDefault(); navigate(comparisonURL(comparisonInput.value.trim())); });
+comparisonReset.addEventListener('click', () => navigate(comparisonURL()));
 function fileURL(path: string): string { return `/?path=${encodeURIComponent(path)}`; }
 function downloadFile(path: string): void {
   const link = document.createElement('a');
@@ -203,6 +225,7 @@ function navigate(url: string): void {
   const right = new URL(location.href).searchParams.get('right');
   if (right && target.searchParams.has('path') && !target.searchParams.has('view')) target.searchParams.set('right', right);
   if (target.href === location.href) return;
+  if (target.searchParams.get('view') === 'changes' || target.searchParams.get('view') === 'diff') rememberedBase = target.searchParams.get('base') ?? '';
   saveScroll(); pasteVersion++; lineRangeAnchor = 0; history.pushState({ scroll: 0 }, '', target); sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = target.searchParams.get('source') === '1'; sidebar.classList.remove('open'); requestRefresh();
 }
 function rightSelected(): string { return selectedMode() === 'file' ? new URL(location.href).searchParams.get('right') ?? '' : ''; }
@@ -472,7 +495,7 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
       const addNavigation = (label: string, target: Change | undefined): void => {
         const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
         button.disabled = !target; button.title = target ? `${label}: ${target.path}` : `No ${label.toLowerCase()} file`;
-        button.addEventListener('click', () => { if (target) navigate(diffURL(target.path)); }); navigation.append(button);
+        button.addEventListener('click', () => { if (target) navigate(diffURL(target.path, selectedBase())); }); navigation.append(button);
       };
       addNavigation(`Previous (${shortcutText('previousChange')})`, previous);
       addNavigation(`Next (${shortcutText('nextChange')})`, next);
@@ -483,7 +506,7 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
     const deleted = currentChanges?.changes.find((change) => change.path === path)?.status === 'deleted';
     segment([{ label: 'File', selected: false, disabled: deleted, select: () => navigate(fileURL(path)) }, { label: 'Diff', selected: true, select: () => {} }]);
   } else {
-    segment([{ label: 'File', selected: true, select: () => {} }, { label: 'Diff', selected: false, select: () => navigate(diffURL(path)) }]);
+    segment([{ label: 'File', selected: true, select: () => {} }, { label: 'Diff', selected: false, select: () => navigate(diffURL(path, rememberedBase)) }]);
   }
   if (kind === 'markdown' || kind === 'html') {
     const rendered = kind === 'html' ? 'Preview' : 'Rendered view';
@@ -561,7 +584,7 @@ function markReviewedAndNext(): void {
   review.set(change.path, change.revision, true); reviewVersion++;
   const next = diffNeighbor(path, 1, true);
   updateChangeViews();
-  if (next) navigate(diffURL(next.path)); else showTitle(path, 'diff');
+  if (next) navigate(diffURL(next.path, selectedBase())); else showTitle(path, 'diff');
 }
 function setReviewFilter(value: boolean): void {
   onlyUnreviewed = value;
@@ -602,7 +625,7 @@ function updateChangeViews(): void {
     displayedChanges = key;
   }
   changesTree.querySelector<HTMLAnchorElement>('a[aria-current="page"]')?.removeAttribute('aria-current');
-  const active = [...changesTree.querySelectorAll<HTMLAnchorElement>('a[href]')].find((link) => selectedMode() === 'diff' && link.getAttribute('href') === diffURL(path));
+  const active = [...changesTree.querySelectorAll<HTMLAnchorElement>('a[href]')].find((link) => selectedMode() === 'diff' && link.getAttribute('href') === diffURL(path, selectedBase()));
   active?.setAttribute('aria-current', 'page');
   if (selectedMode() === 'diff' && displayedMode === 'diff' && displayedPath === path) {
     const change = currentChanges.changes.find((item) => item.path === path);
@@ -713,6 +736,7 @@ function showPaste(): void {
 }
 function showError(error: unknown, path: string): void {
   const code = error instanceof RequestError ? error.code : 'network';
+  const comparison = (selectedMode() === 'changes' || selectedMode() === 'diff') && Boolean(selectedBase());
   const errorKey = JSON.stringify([path, code, error instanceof Error ? error.message : '']);
   if (content.querySelector('.file-error')?.getAttribute('data-error-key') === errorKey) return;
   const messages: Record<string, [string, string]> = {
@@ -728,13 +752,15 @@ function showError(error: unknown, path: string): void {
     git_unavailable: ['Cannot display Git diff', 'Check that Git is available for this repository.'],
     git_failure: ['Cannot load Git diff', 'Please try again.'],
   };
-  const [heading, description] = messages[code] ?? ['Cannot display file', 'Please try again.'];
+  const [heading, description] = comparison && code === 'not_found' ? ['Commit not found', 'Enter a commit from the current history and try again.']
+    : comparison && code === 'no_change' ? ['No diff', 'This file has no changes since the selected commit.']
+      : messages[code] ?? ['Cannot display file', 'Please try again.'];
   content.replaceChildren(); const box = document.createElement('div'); box.className = 'file-error'; box.dataset.errorKey = errorKey; box.setAttribute('role', 'alert');
   const icon = document.createElement('span'); icon.textContent = '⚠'; icon.setAttribute('aria-hidden', 'true');
   const h = document.createElement('h2'); h.textContent = heading; const p = document.createElement('p');
   const size = code === 'too_large' && error instanceof RequestError ? error.message.match(/(\d+ MiB) limit \(actual (\d+(?:\.\d+)? MiB)\)/) : undefined;
   p.textContent = size ? `This file exceeds the ${size[1]} limit (${size[2]}).` : description;
-  const button = document.createElement('button'); button.type = 'button'; button.textContent = code === 'not_found' ? 'Back to root' : 'Try again'; button.addEventListener('click', () => code === 'not_found' ? navigate('/') : manualRefresh());
+  const button = document.createElement('button'); button.type = 'button'; button.textContent = code === 'not_found' && !comparison ? 'Back to root' : 'Try again'; button.addEventListener('click', () => code === 'not_found' && !comparison ? navigate('/') : manualRefresh());
   box.append(icon, h, p, button); content.append(box); outline.hidden = true; showTitle(path, '', code === 'not_found', ['binary', 'too_large', 'invalid_asset', 'invalid_pdf'].includes(code));
 }
 function decorateContent(target = content, path = displayedPath): void {
@@ -1003,21 +1029,27 @@ async function refreshLoop(): Promise<void> {
   try {
     while (pending) {
       pending = false; const foreground = pendingForeground; pendingForeground = false;
-      const current = revision; const path = selected(); const source = sourceMode; const mode = selectedMode(); const commitID = new URL(location.href).searchParams.get('commit') ?? ''; const knownHistoryHead = historyPage?.head; const preserveTabFocus = keepTabFocus; keepTabFocus = false;
+      const current = revision; const path = selected(); const source = sourceMode; const mode = selectedMode(); const commitID = new URL(location.href).searchParams.get('commit') ?? ''; const base = selectedBase(); const knownHistoryHead = historyPage?.head; const preserveTabFocus = keepTabFocus; keepTabFocus = false;
+      if (mode === 'changes' || mode === 'diff') rememberedBase = base;
       void refreshRight();
       showSidebar(sidebarPanel);
+      syncComparisonControls();
       if (path !== displayedPath || mode !== displayedMode) displayedTag = '';
       if (foreground) { activeForeground = true; beginLoading(); }
       const treePromise = refreshDirectories(mode === 'changes' || mode === 'paste' || mode === 'history' ? '' : path, current);
-      const gitPromise = mode === 'changes' || mode === 'diff' ? getGit<ChangesReply>('/api/git/changes') : Promise.resolve(undefined);
+      const gitPromise = mode === 'changes' || mode === 'diff' ? getGit<ChangesReply>(`/api/git/changes${base ? `?base=${encodeURIComponent(base)}` : ''}`) : Promise.resolve(undefined);
       const historyPromise = mode === 'history' ? getGit<HistoryPage>('/api/git/history') : Promise.resolve(undefined);
       const commitPromise = mode === 'history' && commitID ? cachedCommit?.id === commitID && knownHistoryHead ? Promise.resolve(cachedCommit) : getGit<CommitDetail>(`/api/git/commit?id=${encodeURIComponent(commitID)}`) : Promise.resolve(undefined);
       const historicalDiffPromise = mode === 'history' && commitID && path ? cachedHistoricalDiff?.id === commitID && cachedHistoricalDiff.path === path && knownHistoryHead ? Promise.resolve(cachedHistoricalDiff.value) : getGit<DiffReply>(`/api/git/commit-diff?id=${encodeURIComponent(commitID)}&path=${encodeURIComponent(path)}`) : Promise.resolve(undefined);
-      const filePromise = mode === 'diff' ? getGit<DiffReply>(`/api/git/diff?path=${encodeURIComponent(path)}`).then((value) => ({ value }), (error: unknown) => ({ error }))
+      const filePromise = mode === 'diff' ? getGit<DiffReply>(`/api/git/diff?path=${encodeURIComponent(path)}${base ? `&base=${encodeURIComponent(base)}` : ''}`).then((value) => ({ value }), (error: unknown) => ({ error }))
         : mode === 'file' && path ? getFile(path, source, current).then((value) => ({ value }), (error: unknown) => ({ error })) : Promise.resolve(null);
       try {
         const [, fileReply, changesReply, firstHistory, commitReply, historyDiffReply] = await Promise.all([treePromise, filePromise, gitPromise, historyPromise, commitPromise, historicalDiffPromise]);
-        if (current !== revision || path !== selected() || mode !== selectedMode() || commitID !== (new URL(location.href).searchParams.get('commit') ?? '')) { pending = true; continue; }
+        if (current !== revision || path !== selected() || mode !== selectedMode() || commitID !== (new URL(location.href).searchParams.get('commit') ?? '') || base !== selectedBase()) { pending = true; continue; }
+        if (changesReply?.base && changesReply.base !== base) {
+          const canonical = new URL(location.href); canonical.searchParams.set('base', changesReply.base);
+          history.replaceState(history.state, '', canonical); rememberedBase = changesReply.base; syncComparisonControls();
+        }
         if (mode === 'file' && !path && view.firstReadme()) { history.replaceState({ scroll: 0 }, '', fileURL(view.firstReadme()!)); pending = true; pendingForeground ||= foreground; revision++; continue; }
         const pathChanged = path !== displayedPath || mode !== displayedMode;
         if (pathChanged) { main.scrollTop = history.state?.scroll ?? 0; displayedHTML = ''; view.pruneInactive(); }
@@ -1120,6 +1152,11 @@ async function refreshLoop(): Promise<void> {
         status('Checking every few seconds', 'ok');
       } catch (error) {
         if (current !== revision) { pending = true; continue; }
+        if ((mode === 'changes' || mode === 'diff') && base !== (currentChanges?.base ?? '')) {
+          currentChanges = undefined; displayedChanges = '';
+          const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = 'Cannot load this comparison.';
+          changesTree.replaceChildren(hint);
+        }
         if (foreground || path !== displayedPath || mode !== displayedMode || !(error instanceof RequestError && error.code === 'network')) showError(error, path);
         status('Refresh failed. Please try again.', 'error');
       } finally { if (foreground) { activeForeground = false; endLoading(); } }
@@ -1145,7 +1182,7 @@ historyTree.addEventListener('click', (event) => {
   event.preventDefault(); navigate(link.href);
 });
 function selectSidebarTab(mode: 'file' | 'changes' | 'history'): void {
-  const target = mode === 'file' ? lastFilePath ? fileURL(lastFilePath) : '/' : mode === 'changes' ? '/?view=changes' : historyURL();
+  const target = mode === 'file' ? lastFilePath ? fileURL(lastFilePath) : '/' : mode === 'changes' ? comparisonURL(rememberedBase) : historyURL();
   keepTabFocus = new URL(target, location.href).href !== location.href;
   sidebarPanel = mode; showSidebar(mode);
   navigate(target);
@@ -1200,7 +1237,7 @@ function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
     return;
   }
   const link = target.closest<HTMLAnchorElement>('a[href]');
-  if (!link || event.metaKey || event.ctrlKey || event.shiftKey || link.origin !== location.origin || link.pathname !== '/' || !(new URL(link.href).searchParams.has('path') || new URL(link.href).searchParams.get('view') === 'history')) return;
+  if (!link || event.metaKey || event.ctrlKey || event.shiftKey || link.origin !== location.origin || link.pathname !== '/' || !(new URL(link.href).searchParams.has('path') || ['history', 'changes'].includes(new URL(link.href).searchParams.get('view') ?? ''))) return;
   if (link.pathname === location.pathname && link.search === location.search && link.hash) return;
   event.preventDefault(); if (pane === 'right' && new URL(link.href).searchParams.has('path')) openRight(new URL(link.href).searchParams.get('path')!); else navigate(link.href);
 }
@@ -1224,7 +1261,7 @@ window.addEventListener('keydown', (event) => {
   if (selectedMode() === 'diff' && !event.ctrlKey && !event.metaKey && !event.altKey) {
     if (matchesShortcut(event, 'nextChange') || matchesShortcut(event, 'previousChange')) {
       const next = diffNeighbor(selected(), matchesShortcut(event, 'nextChange') ? 1 : -1, onlyUnreviewed);
-      if (next) { event.preventDefault(); navigate(diffURL(next.path)); }
+      if (next) { event.preventDefault(); navigate(diffURL(next.path, selectedBase())); }
       return;
     }
     if (matchesShortcut(event, 'reviewNext')) { event.preventDefault(); markReviewedAndNext(); return; }

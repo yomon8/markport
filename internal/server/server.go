@@ -324,7 +324,7 @@ func gitReply(w http.ResponseWriter, r *http.Request, value any) {
 }
 
 func (s *Server) gitChanges(w http.ResponseWriter, r *http.Request) {
-	listing, err := gitdiff.List(r.Context(), s.Files)
+	listing, err := gitdiff.ListAt(r.Context(), s.Files, r.URL.Query().Get("base"))
 	if err != nil {
 		gitError(w, err)
 		return
@@ -338,7 +338,7 @@ func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
 		apiError(w, err)
 		return
 	}
-	diff, err := gitdiff.File(r.Context(), s.Files, name)
+	diff, err := gitdiff.FileAt(r.Context(), s.Files, r.URL.Query().Get("base"), name)
 	if err != nil {
 		gitError(w, err)
 		return

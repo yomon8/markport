@@ -1249,12 +1249,24 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   await expect(page.locator('#files-panel')).toBeVisible();
   await expect(page.locator('.diff-added .diff-code')).toContainText('color: red');
   await page.getByRole('tab', { name: 'History' }).click();
-  await expect(page.locator('#history-tree .history-list a')).toContainText('initial');
+  await expect(page.locator('#history-tree .history-list a[href*="view=history"]')).toContainText('initial');
   await expect(page.locator('#content .history-files')).toBeVisible();
   await page.locator('#content .history-files a[href*="sample.py"]').click();
   await expect(page.locator('#content .diff-added .diff-code')).toContainText(committedSample);
   await page.locator('#content .history-back').click();
   await expect(page.locator('#content .history-files')).toBeVisible();
+  const initialID = execFileSync('git', ['-C', directory, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  await page.locator('#history-tree .history-compare').first().click();
+  await expect(page).toHaveURL(new RegExp(`view=changes&base=${initialID}`));
+  await expect(page.locator('#content .change-path', { hasText: 'sample.py' })).toBeVisible();
+  await page.locator('#content a[href*="sample.py"]').click();
+  await expect(page.locator('.diff-added .diff-code')).toContainText('changed again');
+  await expect(page.locator('.comparison-current')).toContainText(initialID.slice(0, 12));
+  await page.getByRole('button', { name: 'Use HEAD' }).click();
+  await expect(page).toHaveURL(/\?view=changes$/);
+  await page.getByLabel('Compare with current from').fill(initialID.slice(0, 9));
+  await page.getByRole('button', { name: 'Compare', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`view=changes&base=${initialID}`));
 });
 
 test('reviews changed files in order with counts and a folder tree', async ({ page }) => {

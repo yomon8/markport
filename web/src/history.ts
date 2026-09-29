@@ -12,6 +12,10 @@ export function historyURL(id = '', path = ''): string {
   return `/?${query}`;
 }
 
+export function comparisonURL(base = ''): string {
+  return `/?view=changes${base ? `&base=${encodeURIComponent(base)}` : ''}`;
+}
+
 function dateText(value: string): string {
   const time = Date.parse(value);
   return Number.isNaN(time) ? value : new Date(time).toLocaleString();
@@ -34,7 +38,9 @@ export function renderHistoryList(target: HTMLElement, page: HistoryPage, select
     if (selected === commit.id) link.setAttribute('aria-current', 'page');
     const subject = document.createElement('strong'); subject.textContent = commit.subject;
     const meta = document.createElement('span'); meta.textContent = `${commit.id.slice(0, 7)} · ${commit.author} · ${dateText(commit.date)}`;
-    link.append(subject, meta); item.append(link); list.append(item);
+    const compare = document.createElement('a'); compare.href = comparisonURL(commit.id); compare.className = 'history-compare'; compare.textContent = 'Compare with current';
+    compare.setAttribute('aria-label', `Compare ${commit.id.slice(0, 7)} with current`);
+    link.append(subject, meta); item.append(link, compare); list.append(item);
   }
   target.append(list);
   if (page.nextOffset !== null) {
@@ -48,6 +54,8 @@ export function renderCommit(target: HTMLElement, detail: CommitDetail, selected
   const heading = document.createElement('h1'); heading.textContent = detail.subject;
   const meta = document.createElement('p'); meta.className = 'history-meta'; meta.textContent = `${detail.id} · ${detail.author} · ${dateText(detail.date)}`;
   target.append(heading, meta);
+  const compare = document.createElement('a'); compare.href = comparisonURL(detail.id); compare.className = 'history-compare'; compare.textContent = 'Compare with current';
+  target.append(compare);
   if (detail.message.trim() && detail.message.trim() !== detail.subject) {
     const message = document.createElement('pre'); message.className = 'history-message'; message.textContent = detail.message;
     target.append(message);

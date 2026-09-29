@@ -332,6 +332,21 @@ func TestGitHistoryAPI(t *testing.T) {
 		t.Fatalf("history: %d %s", result.Code, result.Body.String())
 	}
 	id := page.Commits[0].ID
+	if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte("working\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	comparison := request(app, "localhost:3000", "/api/git/changes?base="+id[:8])
+	var compared gitdiff.Listing
+	if comparison.Code != 200 || json.Unmarshal(comparison.Body.Bytes(), &compared) != nil || compared.Base != id || len(compared.Changes) != 1 {
+		t.Fatalf("comparison listing: %d %s", comparison.Code, comparison.Body.String())
+	}
+	comparison = request(app, "localhost:3000", "/api/git/diff?base="+id[:8]+"&path=a.md")
+	if comparison.Code != 200 || !strings.Contains(comparison.Body.String(), "+working") {
+		t.Fatalf("comparison diff: %d %s", comparison.Code, comparison.Body.String())
+	}
+	if result := request(app, "localhost:3000", "/api/git/changes?base=deadbee"); result.Code != 404 {
+		t.Fatalf("unknown comparison base: %d %s", result.Code, result.Body.String())
+	}
 	result = request(app, "localhost:3000", "/api/git/commit?id="+id)
 	var detail gitdiff.CommitDetail
 	if result.Code != 200 || json.Unmarshal(result.Body.Bytes(), &detail) != nil || len(detail.Files) != 1 {

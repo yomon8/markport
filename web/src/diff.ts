@@ -1,9 +1,9 @@
 export type Change = { path: string; status: 'added' | 'modified' | 'deleted'; revision: string; added?: number | null; deleted?: number | null };
-export type ChangesReply = { available: boolean; reason?: 'git_unavailable' | 'not_repository'; rootId?: string; changes: Change[] };
+export type ChangesReply = { available: boolean; reason?: 'git_unavailable' | 'not_repository'; rootId?: string; base?: string; changes: Change[] };
 export type DiffReply = { path: string; kind: 'text' | 'binary'; patch: string };
 
 const statusLabels: Record<Change['status'], string> = { added: 'Added', modified: 'Modified', deleted: 'Deleted' };
-export const diffURL = (path: string): string => `/?path=${encodeURIComponent(path)}&view=diff`;
+export const diffURL = (path: string, base = ''): string => `/?path=${encodeURIComponent(path)}&view=diff${base ? `&base=${encodeURIComponent(base)}` : ''}`;
 type ChangeFolder = { path: string; name: string; folders: Map<string, ChangeFolder>; files: Change[] };
 const nameCollator = new Intl.Collator('ja', { numeric: true, sensitivity: 'base' });
 function compareNames(a: string, b: string): number {
@@ -88,7 +88,7 @@ export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed
   if (!visible.length) { const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'All changes reviewed.'; target.append(message); return; }
   const fileItem = (change: Change, name: string): HTMLLIElement => {
     const item = document.createElement('li');
-    const link = document.createElement('a'); link.href = diffURL(change.path); link.title = change.path;
+    const link = document.createElement('a'); link.href = diffURL(change.path, reply.base); link.title = change.path;
     const badge = document.createElement('span'); badge.className = `change-status ${change.status}`; badge.textContent = statusLabels[change.status];
     const label = document.createElement('span'); label.className = 'change-path'; label.textContent = name;
     link.append(badge, label);
