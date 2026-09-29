@@ -63,9 +63,9 @@ article[data-kind=changes],article[data-kind=diff]{max-width:none}.diff-frame{ma
 @media(hover:hover){nav .open-right{opacity:0}nav li:hover>.open-right,nav li:focus-within>.open-right,nav li:has(>a[aria-current])>.open-right{opacity:1}}
 
 .diff-navigation{display:flex;gap:4px;flex-wrap:wrap}.diff-navigation button{font-size:12px}.diff-navigation button:disabled{cursor:default}
-.change-directory{font-size:12px;color:var(--text-muted);margin:14px 0 5px;overflow-wrap:anywhere}
 .change-lines{flex:none;margin-left:auto;font:11px var(--mono);color:var(--text-muted);white-space:nowrap}
 .change-list.compact .change-lines{font-size:10px}
+.change-list li.change-folder{display:block;margin-top:0}.change-folder>details>summary{display:flex;align-items:center;gap:6px;min-height:32px;padding:4px 8px;border-radius:5px;color:var(--text-muted);cursor:pointer;list-style:none}.change-folder>details>summary::-webkit-details-marker{display:none}.change-folder>details>summary:hover{background:var(--hover)}.change-folder>details>summary:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}.change-folder>details>summary .chevron{flex:none}.change-folder>details[open]>summary .chevron{transform:rotate(90deg)}.change-folder>details>.change-list{margin-left:13px;padding-left:10px;border-left:1px solid var(--border)}.change-list.compact .change-folder>details>summary{min-height:28px;padding:3px}
 
 .code-toolbar-actions{display:flex;gap:4px;align-items:center;flex-wrap:wrap}.code-wrap-toggle[aria-pressed=true]{background:var(--accent-soft);color:var(--accent)}
 .chroma .selected-code-line{background:var(--line-highlight-bg)}.chroma .lnt[id^=L]{scroll-margin-top:calc(var(--titlebar-h) + 16px)}

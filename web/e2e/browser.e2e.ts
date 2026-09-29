@@ -638,7 +638,7 @@ test('directory breadcrumbs reveal the folder in the sidebar', async ({ page }) 
   await page.locator('.crumb', { hasText: 'docs' }).click();
   await expect(page.locator('#sidebar')).toBeVisible();
   await expect(page.locator('details[data-path="docs"]')).toHaveAttribute('open');
-  await expect(page.locator('details[data-path="docs"] > summary')).toBeFocused();
+  await expect(page.locator('#tree details[data-path="docs"] > summary')).toBeFocused();
   expect(page.url()).toBe(url);
 
   await page.setViewportSize({ width: 390, height: 800 });
@@ -1243,13 +1243,13 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
   await expect(page.locator('.diff-added .diff-code')).toContainText('color: red');
   await page.locator('.crumb', { hasText: 'docs' }).click();
   await expect(page.locator('#files-panel')).toBeVisible();
-  await expect(page.locator('details[data-path="docs"] > summary')).toBeFocused();
+  await expect(page.locator('#tree details[data-path="docs"] > summary')).toBeFocused();
   await page.getByRole('button', { name: 'Refresh' }).click();
   await expect(page.locator('#files-panel')).toBeVisible();
   await expect(page.locator('.diff-added .diff-code')).toContainText('color: red');
 });
 
-test('reviews changed files in order with counts and directory groups', async ({ page }) => {
+test('reviews changed files in order with counts and a folder tree', async ({ page }) => {
   const changes = [
     { path: 'a.md', status: 'modified', revision: 'a1', added: 1, deleted: 2 },
     { path: 'b.md', status: 'added', revision: 'b1', added: 3, deleted: 0 },
@@ -1261,9 +1261,18 @@ test('reviews changed files in order with counts and directory groups', async ({
     return route.fulfill({ json: { path, kind: 'text', patch: `diff --git a/${path} b/${path}\n@@ -1 +1 @@\n-old\n+new\n` } });
   });
   await page.goto(`http://127.0.0.1:${port}/?view=changes`);
-  await expect(page.locator('#content .change-lines').first()).toContainText('+1 −2');
-  await page.locator('#content').getByLabel('Group by directory').check();
-  await expect(page.locator('#content .change-directory')).toHaveText(['Root', 'docs']);
+  await expect(page.locator('#content a[href*="a.md"] .change-lines')).toContainText('+1 −2');
+  await expect(page.locator('#content').getByLabel('Folder tree')).toBeChecked();
+  await expect(page.locator('#content .change-folder > details > summary .node-label')).toHaveText(['docs']);
+  await page.locator('#content details[data-path="docs"] > summary').click();
+  await expect(page.locator('#content details[data-path="docs"]')).not.toHaveAttribute('open');
+  await expect(page.locator('#changes-tree details[data-path="docs"]')).not.toHaveAttribute('open');
+  await page.locator('#content details[data-path="docs"] > summary').click();
+  await page.locator('#content a[href*="docs%2Fc.md"]').click();
+  await page.keyboard.press('n');
+  expect(new URL(page.url()).searchParams.get('path')).toBe('a.md');
+  await page.getByRole('tab', { name: 'Changes' }).click();
+  await page.locator('#content').getByLabel('Folder tree').uncheck();
   await page.locator('#content a[href*="b.md"]').click();
   await expect(page.locator('#file-title .diff-navigation')).toBeVisible();
   await page.keyboard.press('n');

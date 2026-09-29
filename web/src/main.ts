@@ -2,7 +2,7 @@ import './style.css';
 import { drawMermaid } from './mermaid';
 import { TreeView, type Page } from './tree';
 import { effectiveTheme, initTheme } from './theme';
-import { renderChanges, renderDiff, diffURL, reviewButton, type Change, type ChangesReply, type DiffReply } from './diff';
+import { renderChanges, renderDiff, diffURL, orderedChanges, reviewButton, type Change, type ChangesReply, type DiffReply } from './diff';
 import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
 import { copyText } from './clipboard';
@@ -103,7 +103,10 @@ let displayedChanges = '';
 const review = new ReviewState();
 let reviewVersion = 0;
 let onlyUnreviewed = false;
-let groupChanges = false;
+let treeChanges = true;
+const collapsedChangeFolders = new Set<string>();
+let changeRootId = '';
+let lastRevealedDiff = '';
 let previewReload = 0;
 let previewInstance = '';
 const interactivePaths = new Set<string>();
@@ -531,7 +534,7 @@ function toggleReview(change: Change): void {
   if (selectedMode() === 'diff' && selected() === change.path) showTitle(change.path, 'diff');
 }
 function diffNeighbor(path: string, direction: -1 | 1, unreviewedOnly: boolean): Change | undefined {
-  const changes = currentChanges?.changes ?? [];
+  const changes = orderedChanges(currentChanges?.changes ?? [], treeChanges);
   const index = changes.findIndex((change) => change.path === path);
   if (index < 0) return undefined;
   for (let next = index + direction; next >= 0 && next < changes.length; next += direction) {
@@ -555,16 +558,39 @@ function setReviewFilter(value: boolean): void {
   updateChangeViews();
   if (selectedMode() === 'diff') showTitle(selected(), 'diff');
 }
-function setGroupChanges(value: boolean): void { groupChanges = value; reviewVersion++; updateChangeViews(); }
+function setTreeChanges(value: boolean): void { treeChanges = value; reviewVersion++; updateChangeViews(); }
+function toggleChangeFolder(path: string, open: boolean): void {
+  if (open) collapsedChangeFolders.delete(path); else collapsedChangeFolders.add(path);
+  for (const details of document.querySelectorAll<HTMLDetailsElement>('#changes-tree details[data-path], #content[data-kind="changes"] details[data-path]')) {
+    if (details.dataset.path === path && details.open !== open) details.open = open;
+  }
+}
 function updateChangeViews(): void {
   if (!currentChanges) return;
+  const rootId = currentChanges.rootId ?? '';
+  if (changeRootId !== rootId) {
+    changeRootId = rootId;
+    collapsedChangeFolders.clear();
+    lastRevealedDiff = '';
+  }
+  const path = selected();
+  if (selectedMode() !== 'diff') lastRevealedDiff = '';
+  if (selectedMode() === 'diff' && path !== lastRevealedDiff) {
+    let folder = path.slice(0, path.lastIndexOf('/'));
+    while (folder) {
+      collapsedChangeFolders.delete(folder);
+      folder = folder.slice(0, folder.lastIndexOf('/'));
+    }
+    lastRevealedDiff = path;
+    reviewVersion++;
+  }
   const key = `${JSON.stringify(currentChanges)}:${reviewVersion}`;
   const isReviewed = (change: Change): boolean => review.has(change.path, change.revision);
   if (displayedChanges !== key) {
-    renderChanges(changesTree, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter, groupChanges, setGroupChanges, true);
+    renderChanges(changesTree, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter, treeChanges, setTreeChanges, collapsedChangeFolders, toggleChangeFolder, true);
     displayedChanges = key;
   }
-  const path = selected();
+  changesTree.querySelector<HTMLAnchorElement>('a[aria-current="page"]')?.removeAttribute('aria-current');
   const active = [...changesTree.querySelectorAll<HTMLAnchorElement>('a[href]')].find((link) => selectedMode() === 'diff' && link.getAttribute('href') === diffURL(path));
   active?.setAttribute('aria-current', 'page');
   if (selectedMode() === 'diff' && displayedMode === 'diff' && displayedPath === path) {
@@ -574,7 +600,7 @@ function updateChangeViews(): void {
   }
   if (selectedMode() === 'changes' && displayedHTML !== key) {
     content.dataset.kind = 'changes';
-    renderChanges(content, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter, groupChanges, setGroupChanges);
+    renderChanges(content, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter, treeChanges, setTreeChanges, collapsedChangeFolders, toggleChangeFolder);
     displayedHTML = key;
     outline.hidden = true; showTitle('');
   }

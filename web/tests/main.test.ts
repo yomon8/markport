@@ -188,6 +188,44 @@ describe('lazy browsing and refresh', () => {
     expect([...document.querySelectorAll('#content .change-path')].map((item) => item.textContent)).toEqual(['a.md', 'b.md']);
   });
 
+  it('shows nested Git changes in both trees and follows their visual order', async () => {
+    history.replaceState(null, '', '/?view=changes');
+    const changes = [
+      { path: 'z.md', status: 'modified', revision: 'z' },
+      { path: 'docs/b.md', status: 'added', revision: 'b' },
+      { path: 'docs/nested/a.md', status: 'deleted', revision: 'a' },
+    ];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === '/api/tree') return reply(page([]));
+      if (url === '/api/git/changes') return reply({ available: true, rootId: 'root', changes });
+      return reply({ path: new URL(url, location.href).searchParams.get('path'), kind: 'text', patch: '+changed\n' });
+    }));
+    await import('../src/main'); await flush();
+    expect([...document.querySelectorAll('#content .change-path')].map((item) => item.textContent)).toEqual(['a.md', 'b.md', 'z.md']);
+    const folder = document.querySelector<HTMLDetailsElement>('#content details[data-path="docs"]')!;
+    expect(folder.open).toBe(true);
+    expect(document.querySelector<HTMLDetailsElement>('#changes-tree details[data-path="docs/nested"]')?.open).toBe(true);
+    folder.querySelector('summary')!.click(); await flush();
+    expect(folder.open).toBe(false);
+    expect(document.querySelector<HTMLDetailsElement>('#changes-tree details[data-path="docs"]')?.open).toBe(false);
+    document.dispatchEvent(new Event('visibilitychange')); await flush();
+    expect(document.querySelector<HTMLDetailsElement>('#content details[data-path="docs"]')?.open).toBe(false);
+    const { orderedChanges } = await import('../src/diff');
+    expect(orderedChanges(changes as Parameters<typeof orderedChanges>[0], true).map((change) => change.path)).toEqual(['docs/nested/a.md', 'docs/b.md', 'z.md']);
+    document.querySelector<HTMLAnchorElement>('#changes-tree a[href*="docs%2Fb.md"]')!.click(); await flush();
+    expect(new URL(location.href).searchParams.get('path')).toBe('docs/b.md');
+    expect(document.querySelector<HTMLDetailsElement>('#changes-tree details[data-path="docs"]')?.open).toBe(true);
+    document.querySelector<HTMLInputElement>('#changes-tree .review-filter:last-child input')!.click();
+    expect([...document.querySelectorAll('#changes-tree .change-path')].map((item) => item.textContent)).toEqual(['z.md', 'docs/b.md', 'docs/nested/a.md']);
+    document.querySelector<HTMLInputElement>('#changes-tree .review-filter:last-child input')!.click();
+    for (const path of ['docs%2Fb.md', 'docs%2Fnested%2Fa.md']) {
+      document.querySelector<HTMLAnchorElement>(`#changes-tree a[href*="${path}"]`)!.parentElement!.querySelector<HTMLButtonElement>('.review-toggle')!.click();
+    }
+    document.querySelectorAll<HTMLInputElement>('#changes-tree .review-filter input')[0].click();
+    expect(document.querySelector('#changes-tree details[data-path="docs"]')).toBeNull();
+    expect([...document.querySelectorAll('#changes-tree .change-path')].map((item) => item.textContent)).toEqual(['z.md']);
+  });
+
   it('explains when the selected directory is not a Git repository', async () => {
     history.replaceState(null, '', '/?view=changes');
     vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree' ? reply(page([])) : reply({ available: false, reason: 'not_repository', changes: [] })));

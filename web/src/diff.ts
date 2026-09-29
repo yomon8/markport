@@ -4,6 +4,44 @@ export type DiffReply = { path: string; kind: 'text' | 'binary'; patch: string }
 
 const statusLabels: Record<Change['status'], string> = { added: 'Added', modified: 'Modified', deleted: 'Deleted' };
 export const diffURL = (path: string): string => `/?path=${encodeURIComponent(path)}&view=diff`;
+type ChangeFolder = { path: string; name: string; folders: Map<string, ChangeFolder>; files: Change[] };
+const nameCollator = new Intl.Collator('ja', { numeric: true, sensitivity: 'base' });
+function compareNames(a: string, b: string): number {
+  return nameCollator.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
+}
+function changeTree(changes: Change[]): ChangeFolder {
+  const root: ChangeFolder = { path: '', name: '', folders: new Map(), files: [] };
+  for (const change of changes) {
+    const parts = change.path.split('/');
+    let folder = root;
+    for (const name of parts.slice(0, -1)) {
+      let child = folder.folders.get(name);
+      if (!child) {
+        child = { path: folder.path ? `${folder.path}/${name}` : name, name, folders: new Map(), files: [] };
+        folder.folders.set(name, child);
+      }
+      folder = child;
+    }
+    folder.files.push(change);
+  }
+  return root;
+}
+function sortedFolders(folder: ChangeFolder): ChangeFolder[] {
+  return [...folder.folders.values()].sort((a, b) => compareNames(a.name, b.name));
+}
+function sortedFiles(folder: ChangeFolder): Change[] {
+  return [...folder.files].sort((a, b) => compareNames(a.path.split('/').at(-1)!, b.path.split('/').at(-1)!));
+}
+export function orderedChanges(changes: Change[], treeView: boolean): Change[] {
+  if (!treeView) return changes;
+  const result: Change[] = [];
+  const visit = (folder: ChangeFolder): void => {
+    for (const child of sortedFolders(folder)) visit(child);
+    result.push(...sortedFiles(folder));
+  };
+  visit(changeTree(changes));
+  return result;
+}
 
 export function reviewButton(change: Change, isReviewed: boolean, toggle: () => void): HTMLButtonElement {
   const button = document.createElement('button'); button.type = 'button'; button.className = 'review-toggle';
@@ -24,7 +62,7 @@ export function reviewButton(change: Change, isReviewed: boolean, toggle: () => 
   return button;
 }
 
-export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed: (change: Change) => boolean, toggle: (change: Change) => void, onlyUnreviewed: boolean, setFilter: (value: boolean) => void, groupByDirectory: boolean, setGroup: (value: boolean) => void, compact = false): void {
+export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed: (change: Change) => boolean, toggle: (change: Change) => void, onlyUnreviewed: boolean, setFilter: (value: boolean) => void, treeView: boolean, setTreeView: (value: boolean) => void, collapsed: Set<string>, toggleFolder: (path: string, open: boolean) => void, compact = false): void {
   target.replaceChildren();
   if (!reply.available) {
     const message = document.createElement('p'); message.className = 'hint';
@@ -38,36 +76,51 @@ export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed
   const input = document.createElement('input'); input.type = 'checkbox'; input.checked = onlyUnreviewed;
   input.addEventListener('change', () => setFilter(input.checked));
   filter.append(input, document.createTextNode(' Unreviewed only'));
-  const group = document.createElement('label'); group.className = 'review-filter';
-  const groupInput = document.createElement('input'); groupInput.type = 'checkbox'; groupInput.checked = groupByDirectory;
-  groupInput.addEventListener('change', () => setGroup(groupInput.checked));
-  group.append(groupInput, document.createTextNode(' Group by directory'));
-  controls.append(count, filter, group); target.append(controls);
+  const tree = document.createElement('label'); tree.className = 'review-filter';
+  const treeInput = document.createElement('input'); treeInput.type = 'checkbox'; treeInput.checked = treeView;
+  treeInput.addEventListener('change', () => setTreeView(treeInput.checked));
+  tree.append(treeInput, document.createTextNode(' Folder tree'));
+  controls.append(count, filter, tree); target.append(controls);
   if (!reply.changes.length) {
     const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'No changes.'; target.append(message); return;
   }
-  const lists = new Map<string, HTMLUListElement>();
-  for (const change of reply.changes.filter((item) => !onlyUnreviewed || !reviewed(item))) {
-    const directory = groupByDirectory ? change.path.includes('/') ? change.path.slice(0, change.path.lastIndexOf('/')) : 'Root' : '';
-    let list = lists.get(directory);
-    if (!list) {
-      if (groupByDirectory) { const heading = document.createElement('h3'); heading.className = 'change-directory'; heading.textContent = directory; target.append(heading); }
-      list = document.createElement('ul'); list.className = compact ? 'change-list compact' : 'change-list';
-      lists.set(directory, list); target.append(list);
-    }
+  const visible = reply.changes.filter((item) => !onlyUnreviewed || !reviewed(item));
+  if (!visible.length) { const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'All changes reviewed.'; target.append(message); return; }
+  const fileItem = (change: Change, name: string): HTMLLIElement => {
     const item = document.createElement('li');
     const link = document.createElement('a'); link.href = diffURL(change.path); link.title = change.path;
     const badge = document.createElement('span'); badge.className = `change-status ${change.status}`; badge.textContent = statusLabels[change.status];
-    const label = document.createElement('span'); label.className = 'change-path'; label.textContent = groupByDirectory ? change.path.split('/').at(-1)! : change.path;
+    const label = document.createElement('span'); label.className = 'change-path'; label.textContent = name;
     link.append(badge, label);
     const lines = document.createElement('span'); lines.className = 'change-lines';
     lines.setAttribute('aria-label', `Added ${change.added ?? 'unknown'} lines, deleted ${change.deleted ?? 'unknown'} lines`);
     lines.textContent = change.added === null || change.deleted === null || change.added === undefined || change.deleted === undefined ? 'Binary' : `+${change.added} −${change.deleted}`;
     link.append(lines);
     const button = reviewButton(change, reviewed(change), () => toggle(change));
-    item.append(link, button); list.append(item);
+    item.append(link, button); return item;
+  };
+  const list = document.createElement('ul'); list.className = compact ? 'change-list compact' : 'change-list';
+  if (!treeView) {
+    for (const change of visible) list.append(fileItem(change, change.path));
+  } else {
+    const appendFolder = (parent: HTMLUListElement, folder: ChangeFolder): void => {
+      for (const child of sortedFolders(folder)) {
+        const item = document.createElement('li'); item.className = 'change-folder';
+        const details = document.createElement('details'); details.dataset.path = child.path;
+        details.open = !collapsed.has(child.path);
+        details.addEventListener('toggle', () => toggleFolder(child.path, details.open));
+        const summary = document.createElement('summary'); summary.title = child.path;
+        const chevron = document.createElement('span'); chevron.className = 'chevron'; chevron.setAttribute('aria-hidden', 'true'); chevron.textContent = '›';
+        const label = document.createElement('span'); label.className = 'node-label'; label.textContent = child.name;
+        summary.append(chevron, label); details.append(summary);
+        const children = document.createElement('ul'); children.className = 'change-list';
+        appendFolder(children, child); details.append(children); item.append(details); parent.append(item);
+      }
+      for (const change of sortedFiles(folder)) parent.append(fileItem(change, change.path.split('/').at(-1)!));
+    };
+    appendFolder(list, changeTree(visible));
   }
-  if (!lists.size) { const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'All changes reviewed.'; target.append(message); }
+  target.append(list);
 }
 
 export function renderDiff(target: HTMLElement, reply: DiffReply): void {
