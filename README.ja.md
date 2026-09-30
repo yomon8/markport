@@ -18,7 +18,7 @@ Markport は、指定したフォルダの Markdown・HTML・コード・画像�
 - **Git の履歴をたどる：** サイドバーの **History** タブから、指定したフォルダ内を変更したコミットを確認できます。各コミットの変更ファイル一覧とファイルごとの差分も表示できます。
 - **更新や貼り付けをすぐに確認する：** 表示中のファイルは変更を自動反映します。Markdown を貼り付けて、ファイルを作らずにプレビューすることもできます。
 
-[Git の変更確認画面](docs/screenshots/reviewed-changes.png) · [貼り付けた Markdown のプレビュー](docs/screenshots/pasted-markdown.png)
+[Git の変更確認画面](docs/screenshots/reviewed-changes.png) · [分割表示](docs/screenshots/split-view.png) · [貼り付けた Markdown のプレビュー](docs/screenshots/pasted-markdown.png) · [ダークテーマ](docs/screenshots/content-search-dark.png) · [モバイル表示](docs/screenshots/mobile.png)
 
 HTML プレビューでは、指定したフォルダ内の相対パスの CSS・画像と外部 URL の CSS・画像を読み込みます。JavaScript は初期状態では実行しません。信頼する HTML で **Enable JavaScript** を押すと、インラインとローカルのスクリプトによる操作や印刷を利用できます。設定はそのファイルについて現在のタブ内で保持され、**Disable JavaScript** を押すかタブを閉じるか Markport を再起動すると解除されます。スクリプトは隔離されたプレビュー内で動き、外部スクリプト、fetch・WebSocket、フォーム送信、Markport 画面へのアクセスは許可しません。
 
@@ -124,6 +124,7 @@ make run DIR=./testdata PORT=3000
 make run DIR=./testdata HOST=0.0.0.0 PORT=3000  # LAN からアクセス
 make test                  # Go と画面のテスト
 make test-e2e             # Chromium の画面受け入れテスト（Playwright のブラウザ導入が必要）
+make screenshots            # README のスクリーンショットを再生成（Playwright ブラウザが必要）
 make lint                  # go vet、TypeScript、ESLint
 make dist VERSION=v0.2.7  # 6 種類と SHA-256 チェックサム
 ```

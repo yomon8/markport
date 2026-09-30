@@ -20,7 +20,7 @@ Markport opens a folder in your browser so you can read and review Markdown, HTM
 - **Browse Git history:** open the History tab to inspect commits that changed the selected folder, then view each commit's files and per-file diff.
 - **Check fresh output:** open files refresh automatically as they change. Paste Markdown from your clipboard for a quick preview without creating a file.
 
-[See the Git review screen](docs/screenshots/reviewed-changes.png) · [See the pasted Markdown preview](docs/screenshots/pasted-markdown.png)
+[See the Git review screen](docs/screenshots/reviewed-changes.png) · [See the split view](docs/screenshots/split-view.png) · [See the pasted Markdown preview](docs/screenshots/pasted-markdown.png) · [See the dark theme](docs/screenshots/content-search-dark.png) · [See the mobile layout](docs/screenshots/mobile.png)
 
 HTML previews can load relative CSS and images from the selected directory, plus external CSS and images. JavaScript is off by default. For an HTML file you trust, click **Enable JavaScript** to run inline and local scripts, including interactive controls and printing. The choice applies to that file in the current browser tab until you disable it, close the tab, or restart Markport. Scripts run in an isolated preview; external scripts, fetch and WebSocket calls, forms, and access to the Markport UI remain blocked.
 
@@ -126,6 +126,7 @@ make run DIR=./testdata PORT=3000
 make run DIR=./testdata HOST=0.0.0.0 PORT=3000  # Allow LAN access
 make test                  # Run Go and UI tests
 make test-e2e             # Run Chromium browser tests (requires Playwright browser setup)
+make screenshots            # Regenerate the README screenshots (requires Playwright browser setup)
 make lint                  # Run go vet, TypeScript checks, and ESLint
 make dist VERSION=v0.2.7  # Build six executables and SHA-256 checksums
 ```

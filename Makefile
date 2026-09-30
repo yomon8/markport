@@ -6,7 +6,7 @@ PORT ?= 3000
 HOST ?= 127.0.0.1
 BIN := dist/markport$(if $(filter windows,$(shell $(GO) env GOOS)),.exe,)
 
-.PHONY: setup web-build dev build run test test-e2e lint dist
+.PHONY: setup web-build dev build run test test-e2e screenshots lint dist
 
 setup:
 	$(GO) mod download
@@ -33,6 +33,9 @@ test: web-build
 
 test-e2e: build
 	cd web && $(NPM) run test:e2e
+
+screenshots: build
+	cd web && $(NPM) run screenshots
 
 lint: web-build
 	$(GO) vet ./...
