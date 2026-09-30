@@ -192,3 +192,13 @@ header #reload .reload-icon{display:grid;place-items:center;font-size:0;line-hei
 }
 header button>.icon{display:block;margin:auto}
 header #theme-toggle{min-width:32px}
+
+/* Sidebar type scale: headings < tree rows, with compact rows on precise pointers. */
+:root{--fs-sm:13px;--fs-md:14px;--fs-lg:15px}
+.files-search-heading label,.sidebar-tabs button{font-size:var(--fs-sm)}
+#tree,#changes-tree,#history-tree{font-size:var(--fs-lg)}
+#tree nav a,#tree nav summary,nav#tree a,nav#tree summary{font-size:var(--fs-lg)}
+nav a,nav summary{min-height:28px}
+nav a[aria-current]{font-weight:600}
+.change-list.compact a,.history-list a strong{font-size:var(--fs-md)}
+@media(pointer:coarse),(max-width:700px){nav a,nav summary{min-height:40px}}

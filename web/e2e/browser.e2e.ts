@@ -450,6 +450,23 @@ test('separates app settings from file actions on mobile', async ({ page }) => {
   await expect(fileActions).toBeFocused();
 });
 
+test('keeps sidebar rows compact with precise pointers and touch-sized with coarse pointers', async ({ page, browser }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  const row = page.locator('#tree a.file').first();
+  const heading = page.locator('label[for=search]');
+  const box = (await row.boundingBox())!;
+  expect(box.height).toBeGreaterThanOrEqual(26);
+  expect(box.height).toBeLessThanOrEqual(32);
+  const size = (locator: typeof row) => locator.evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
+  expect(await size(heading)).toBeLessThan(await size(row));
+  const touch = await browser.newContext({ viewport: { width: 1000, height: 800 }, hasTouch: true, isMobile: true });
+  const touchPage = await touch.newPage();
+  await touchPage.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  expect((await touchPage.locator('#tree a.file').first().boundingBox())!.height).toBeGreaterThanOrEqual(40);
+  await touch.close();
+});
+
 test('keeps the file name fully visible in a narrow title bar', async ({ page }) => {
   for (const width of [900, 700, 390]) {
     await page.setViewportSize({ width, height: 800 });
