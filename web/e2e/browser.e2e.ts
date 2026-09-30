@@ -201,7 +201,7 @@ test('header controls stay aligned and theme choices work by keyboard on mobile'
       await page.screenshot({ path: testInfo.outputPath(`header-${width}-${theme}.png`) });
     }
   }
-  await page.getByRole('button', { name: 'More header actions' }).click();
+  await page.getByRole('button', { name: 'App settings' }).click();
   await page.getByRole('button', { name: 'Theme: Dark' }).click();
   await expect(page.getByRole('menuitemradio', { name: 'Dark' })).toHaveAttribute('aria-checked', 'true');
   await page.keyboard.press('Home');
@@ -224,7 +224,7 @@ test('title controls show active views and keep auxiliary actions reachable on m
   await expect(title.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true');
   await expect(title.getByRole('button', { name: 'Copy path' })).toHaveAttribute('title', 'Copy path');
   await page.setViewportSize({ width: 390, height: 720 });
-  const more = title.getByRole('button', { name: 'More actions' });
+  const more = title.getByRole('button', { name: 'File actions' });
   await more.focus(); await page.keyboard.press('Enter');
   await expect(title.getByRole('menuitemradio', { name: 'File' })).toBeFocused();
   await page.keyboard.press('ArrowDown');
@@ -282,7 +282,7 @@ test('downloads original files from both panes and the mobile menu', async ({ pa
 
     await page.setViewportSize({ width: 390, height: 720 });
     await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
-    await page.locator('#file-title').getByRole('button', { name: 'More actions' }).click();
+    await page.locator('#file-title').getByRole('button', { name: 'File actions' }).click();
     const mobilePromise = page.waitForEvent('download');
     await page.locator('#file-title').getByRole('menuitem', { name: 'Download' }).click();
     expect((await mobilePromise).suggestedFilename()).toBe('README.md');
@@ -337,7 +337,7 @@ test('mobile title stays one row and keeps reading actions close', async ({ page
   await expect(page.locator('#content h1')).toHaveText('Mobile title');
   expect((await page.locator('#file-title').boundingBox())!.height).toBeLessThanOrEqual(48);
   await page.screenshot({ path: testInfo.outputPath('mobile-title-390.png') });
-  const more = page.locator('#file-title').getByRole('button', { name: 'More actions' });
+  const more = page.locator('#file-title').getByRole('button', { name: 'File actions' });
   await more.click();
   await page.getByRole('menuitemradio', { name: 'Source' }).click();
   await expect(page.locator('#content')).toHaveAttribute('data-kind', 'code');
@@ -427,6 +427,27 @@ test('keeps sidebar controls visible while file and change lists scroll', async 
     expect((await tabs.boundingBox())!.y).toBe(tabsTop);
     await expect(page.getByRole('tab', { name: 'Files' })).toBeInViewport();
   }
+});
+
+test('separates app settings from file actions on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  const settings = page.getByRole('button', { name: 'App settings' });
+  const fileActions = page.locator('#file-title').getByRole('button', { name: 'File actions' });
+  await expect(settings).toBeVisible();
+  await expect(fileActions).toBeVisible();
+  expect(await settings.innerHTML()).not.toBe(await fileActions.innerHTML());
+  await settings.click();
+  await expect(page.getByRole('button', { name: 'Theme: Auto' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Paste Markdown' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Paste Markdown' })).toBeHidden();
+  await expect(settings).toBeFocused();
+  await fileActions.click();
+  await expect(page.getByRole('menuitem', { name: 'Copy path' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menuitem', { name: 'Copy path' })).toBeHidden();
+  await expect(fileActions).toBeFocused();
 });
 
 test('keeps the file name fully visible in a narrow title bar', async ({ page }) => {
@@ -773,7 +794,7 @@ test('directory breadcrumbs reveal the folder in the sidebar', async ({ page }) 
   expect(page.url()).toBe(url);
 
   await page.setViewportSize({ width: 390, height: 800 });
-  await page.locator('#file-title').getByRole('button', { name: 'More actions' }).click();
+  await page.locator('#file-title').getByRole('button', { name: 'File actions' }).click();
   await page.getByRole('menuitem', { name: 'Show parent folder' }).click();
   await expect(page.locator('#sidebar')).toHaveClass(/open/);
   await expect(page.locator('details[data-path="docs"] > summary')).toBeFocused();
@@ -1089,7 +1110,7 @@ test('desktop and mobile views in both themes', async ({ page }, testInfo) => {
   expect(faviconSvg).toContain('--icon-accent: #0969DA');
   await page.evaluate(() => { localStorage.setItem('markport-theme', 'light'); });
   await page.reload();
-  if (!(await page.locator('#theme-toggle').isVisible())) await page.getByRole('button', { name: 'More header actions' }).click();
+  if (!(await page.locator('#theme-toggle').isVisible())) await page.getByRole('button', { name: 'App settings' }).click();
   await page.getByRole('button', { name: 'Theme: Light' }).click();
   await page.getByRole('menuitemradio', { name: 'Dark' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');

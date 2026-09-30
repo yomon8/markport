@@ -180,3 +180,15 @@ header button{height:34px;min-height:34px;font-size:13px;line-height:1.2;padding
 .title-actions>.view-segment+.view-segment,.right-actions>.view-segment+.view-segment{margin-left:10px}
 .view-segment button{position:relative}
 .change-dot{display:inline-block;width:6px;height:6px;margin-left:5px;border-radius:50%;background:var(--warning);vertical-align:middle}
+
+/* Header: every control is a 32px icon button. */
+header button{min-width:32px;height:32px;min-height:32px;padding:0 6px}
+header #reload,header #help-toggle,header #theme-toggle,header #paste-toggle,header #header-more,header #drawer-toggle,header #sidebar-toggle{width:32px;padding:0}
+header #header-more{place-items:center}
+header #reload .reload-icon{display:grid;place-items:center;font-size:0;line-height:0}
+@media(max-width:700px){
+  #header-extras>button{width:100%;height:auto;min-height:32px;padding:5px 8px;display:flex;align-items:center;gap:8px}
+  #header-extras>button:after{content:attr(aria-label);font-size:13px}
+}
+header button>.icon{display:block;margin:auto}
+header #theme-toggle{min-width:32px}

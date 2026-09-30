@@ -513,6 +513,16 @@ describe('lazy browsing and refresh', () => {
     if (disabled) expect(diff.title).toBe('No changes against HEAD');
   });
 
+  it('keeps header controls as labelled icon buttons', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree' ? reply(page([])) : reply({ paths: [] })));
+    await import('../src/main'); await flush();
+    const reload = document.querySelector<HTMLButtonElement>('#reload')!;
+    expect(reload.getAttribute('aria-label')).toBe('Refresh'); expect(reload.title).toBe('Refresh now'); expect(reload.textContent?.trim()).toBe('');
+    const paste = document.querySelector<HTMLButtonElement>('#paste-toggle')!;
+    expect(paste.getAttribute('aria-label')).toBe('Paste Markdown'); expect(paste.textContent?.trim()).toBe('');
+    expect(document.querySelector('#header-more')?.getAttribute('aria-label')).toBe('App settings');
+  });
+
   it('groups consecutive matched characters into one mark', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: ['web/src/main.ts'] }) : reply(page([]))));
     await import('../src/main'); await flush();
