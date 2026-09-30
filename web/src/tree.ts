@@ -91,13 +91,14 @@ function searchMatches(paths: string[], query: string): { matches: SearchMatch[]
 }
 function highlighted(label: string, positions: number[], offset: number): DocumentFragment {
   const fragment = document.createDocumentFragment();
+  const inside = positions.map((position) => position - offset).filter((found) => found >= 0 && found < label.length);
   let index = 0;
-  for (const absolute of positions) {
-    const found = absolute - offset;
-    if (found < 0 || found >= label.length) continue;
-    fragment.append(document.createTextNode(label.slice(index, found)));
-    const mark = document.createElement('mark'); mark.textContent = label[found]; fragment.append(mark);
-    index = found + 1;
+  for (let at = 0; at < inside.length;) {
+    let end = at;
+    while (end + 1 < inside.length && inside[end + 1] === inside[end] + 1) end++;
+    fragment.append(document.createTextNode(label.slice(index, inside[at])));
+    const mark = document.createElement('mark'); mark.textContent = label.slice(inside[at], inside[end] + 1); fragment.append(mark);
+    index = inside[end] + 1; at = end + 1;
   }
   fragment.append(document.createTextNode(label.slice(index)));
   return fragment;

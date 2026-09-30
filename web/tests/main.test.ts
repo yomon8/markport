@@ -462,8 +462,17 @@ describe('lazy browsing and refresh', () => {
     expect(results.slice(0, 2).map((link) => link.getAttribute('aria-label'))).toEqual(['docs/server.ts', 'other/server.ts']);
     expect(results[0].querySelector('.node-file-name')?.textContent).toBe('server.ts');
     expect(results[0].querySelector('.node-parent-path')?.textContent).toBe('docs');
-    expect(results[0].querySelectorAll('.node-file-name mark')).toHaveLength(3);
+    expect([...results[0].querySelectorAll('.node-file-name mark')].map((mark) => mark.textContent)).toEqual(['s', 'rv']);
     expect(results[0].querySelectorAll('.node-parent-path mark')).toHaveLength(0);
+  });
+
+  it('groups consecutive matched characters into one mark', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: ['web/src/main.ts'] }) : reply(page([]))));
+    await import('../src/main'); await flush();
+    const search = document.querySelector<HTMLInputElement>('#search')!;
+    search.value = 'main'; search.dispatchEvent(new Event('input')); await flush();
+    const marks = [...document.querySelectorAll('#tree .node-file-name mark')];
+    expect(marks.map((mark) => mark.textContent)).toEqual(['main']);
   });
 
   it('includes a matching file even when its path is very long', async () => {

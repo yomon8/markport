@@ -59,7 +59,7 @@ article[data-kind=changes],article[data-kind=diff]{max-width:none}.diff-frame{ma
 
 .search-results a{align-items:flex-start;min-height:48px}
 .search-results .node-label{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;overflow:visible;white-space:normal}
-.search-results .node-file-name{font-size:13px;font-weight:650;color:var(--text);overflow-wrap:anywhere}
+.search-results .node-file-name{display:block;font-size:13px;font-weight:650;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .search-results .node-parent-path{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left;color:var(--text-muted);font-size:11px}
 @media(hover:hover){nav .open-right{opacity:0}nav li:hover>.open-right,nav li:focus-within>.open-right,nav li:has(>a[aria-current])>.open-right{opacity:1}}
 

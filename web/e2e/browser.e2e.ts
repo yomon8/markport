@@ -429,6 +429,20 @@ test('keeps sidebar controls visible while file and change lists scroll', async 
   }
 });
 
+test('keeps long search result names on a single line', async ({ page }) => {
+  const name = `${'very-long-file-name-'.repeat(6)}main.ts`;
+  await writeFile(join(directory, 'docs', name), 'export {};\n');
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await page.getByRole('searchbox', { name: 'Search files' }).fill('very-long-file-name');
+  const fileName = page.locator('#tree .search-results .node-file-name').first();
+  await expect(fileName).toBeVisible();
+  const lineHeight = await fileName.evaluate((element) => parseFloat(getComputedStyle(element).lineHeight) || 20);
+  expect((await fileName.boundingBox())!.height).toBeLessThan(lineHeight * 1.5);
+  await expect(page.locator('#tree .search-results a').first()).toHaveAttribute('title', `docs/${name}`);
+  await unlink(join(directory, 'docs', name));
+});
+
 test('opens file search line targets in both panes and preserves scroll on refresh', async ({ page }) => {
   const path = 'docs/search-lines.md';
   await writeFile(join(directory, path), Array.from({ length: 180 }, (_, i) => `Line ${i + 1}`).join('\n'));
@@ -1211,7 +1225,7 @@ test('filename search keeps names readable in a narrow sidebar', async ({ page }
   const rows = page.locator('#tree .search-results li');
   await expect(rows.nth(0).locator('.node-file-name')).toHaveText(name);
   await expect(rows.nth(1).locator('.node-file-name')).toHaveText(name);
-  expect(await rows.nth(0).locator('.node-file-name').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(await rows.nth(0).locator('.node-file-name').evaluate((element) => getComputedStyle(element).textOverflow === 'ellipsis' && getComputedStyle(element).whiteSpace === 'nowrap')).toBe(true);
   expect(await rows.nth(0).locator('.node-parent-path').textContent()).not.toBe(await rows.nth(1).locator('.node-parent-path').textContent());
   await page.locator('#search').press('ArrowDown');
   await expect(rows.nth(0).locator('a')).toBeFocused();
