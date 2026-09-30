@@ -149,3 +149,22 @@ header button{height:34px;min-height:34px;font-size:13px;line-height:1.2;padding
 #shortcuts-dialog dt,#shortcuts-dialog dd{margin:0;font-size:13px}
 #shortcuts-dialog kbd{display:inline-block;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--code-bg);font:12px var(--mono)}
 @media(max-width:700px){#shortcuts-dialog[open]{padding:16px}#shortcuts-dialog dl{grid-template-columns:110px 1fr}}
+
+/* Title bar: keep the file name readable and drop other controls first, based on the pane width. */
+.layout:not(.split) #file-title{container:title/inline-size}
+.layout:not(.split) #file-title .breadcrumbs{display:flex;align-items:baseline;flex:1 1 auto;min-width:min(12ch,40%)}
+.layout:not(.split) #file-title .breadcrumbs>*{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.layout:not(.split) #file-title .breadcrumbs .crumb{flex-shrink:20;min-width:2.4ch}
+.layout:not(.split) #file-title .breadcrumbs .crumb-separator{flex:none}
+.layout:not(.split) #file-title .breadcrumbs strong{flex:0 1 auto;min-width:min(12ch,40%)}
+.layout:not(.split) #file-title .title-actions{flex:none}
+@container title (max-width:760px){
+  .title-actions>.kind-badge{display:none}
+}
+@container title (max-width:640px){
+  .title-actions>.view-segment,.title-actions>.review-toggle,.title-actions>.interactive-toggle,.title-actions>.title-auxiliary,.title-actions>.diff-navigation{display:none}
+  .title-actions .title-more{display:inline-block;height:32px;min-width:34px}
+  .title-actions .title-menu:not([hidden]){position:absolute;right:0;top:calc(100% + 4px);z-index:12;display:grid;min-width:170px;max-height:calc(100vh - 120px);overflow:auto;padding:4px;background:var(--surface);border:1px solid var(--border);border-radius:7px;box-shadow:0 8px 24px #0004;white-space:normal}
+  .title-actions .title-menu button{text-align:left;border:0;background:transparent}
+  .title-actions .title-menu button:hover,.title-actions .title-menu button:focus-visible{background:var(--hover)}
+}

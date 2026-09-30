@@ -429,6 +429,21 @@ test('keeps sidebar controls visible while file and change lists scroll', async 
   }
 });
 
+test('keeps the file name fully visible in a narrow title bar', async ({ page }) => {
+  for (const width of [900, 700, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+    const name = page.locator('#file-title .breadcrumbs strong');
+    await expect(name).toHaveText('README.md');
+    expect(await name.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await expect(page.locator('#file-title .kind-badge')).toBeHidden();
+  await expect(page.locator('#file-title .title-more')).toBeVisible();
+});
+
 test('keeps long search result names on a single line', async ({ page }) => {
   const name = `${'very-long-file-name-'.repeat(6)}main.ts`;
   await writeFile(join(directory, 'docs', name), 'export {};\n');
