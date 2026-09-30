@@ -3,9 +3,10 @@ import { setIcon } from './icons';
 export type Node = { name: string; path: string; type: 'directory' | 'file' };
 export type Page = { entries: Node[]; offset: number; nextOffset: number | null; revision: string; root: string; readme?: string };
 type Directory = { pages: Map<number, Node[]>; next: Map<number, number | null>; revision: string };
-type SearchMatch = { path: string; rank: number; positions: number[] };
+type SearchMatch = { path: string; rank: number; positions: number[]; ignored: boolean };
 type SearchState = 'idle' | 'loading' | 'ready' | 'error';
 const searchResultLimit = 100;
+const ignoredPenalty = 1000;
 
 const icons = {
   directory: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4h5l1.4 1.5h6.6v7.8H1.5z" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
@@ -34,7 +35,7 @@ function icon(name: string, directory = false): string {
   if (/\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html?|json|ya?ml)$/i.test(name)) return icons.code;
   return icons.other;
 }
-function score(path: string, query: string): { rank: number; positions: number[] } | null {
+function score(path: string, query: string, ignored = false): { rank: number; positions: number[] } | null {
   const target = path.toLocaleLowerCase();
   const filenameStart = path.lastIndexOf('/') + 1;
   const find = (start: number): number[] | null => {
@@ -56,12 +57,12 @@ function score(path: string, query: string): { rank: number; positions: number[]
     if (found === filenameStart || found === 0 || '/-_.'.includes(target[found - 1])) points += 6;
   }
   if (positions.at(-1)! - positions[0] + 1 === query.length) points += 15;
-  return { rank: points - path.length / 100, positions };
+  return { rank: points - path.length / 100 - (ignored ? ignoredPenalty : 0), positions };
 }
 function better(a: SearchMatch, b: SearchMatch): boolean {
   return a.rank > b.rank || (a.rank === b.rank && compareNames(a.path, b.path) < 0);
 }
-function searchMatches(paths: string[], query: string): { matches: SearchMatch[]; count: number } {
+export function searchMatches(paths: string[], query: string, ignoredPaths: ReadonlySet<string> = new Set()): { matches: SearchMatch[]; count: number } {
   const heap: SearchMatch[] = []; let count = 0;
   const siftUp = (start: number): void => {
     let child = start;
@@ -82,9 +83,10 @@ function searchMatches(paths: string[], query: string): { matches: SearchMatch[]
     }
   };
   for (const path of paths) {
-    const result = score(path, query); if (!result) continue;
+    const ignored = ignoredPaths.has(path);
+    const result = score(path, query, ignored); if (!result) continue;
     count++;
-    const candidate = { path, ...result };
+    const candidate = { path, ...result, ignored };
     if (heap.length < searchResultLimit) { heap.push(candidate); siftUp(heap.length - 1); }
     else if (better(candidate, heap[0])) { heap[0] = candidate; siftDown(); }
   }
@@ -104,7 +106,7 @@ function highlighted(label: string, positions: number[], offset: number): Docume
   fragment.append(document.createTextNode(label.slice(index)));
   return fragment;
 }
-function fileLink(node: Node, selected: string, positions?: number[], line?: number): DocumentFragment {
+function fileLink(node: Node, selected: string, positions?: number[], line?: number, ignored = false): DocumentFragment {
   const row = document.createDocumentFragment();
   const link = document.createElement('a');
   link.href = `/?path=${encodeURIComponent(node.path)}`;
@@ -113,7 +115,8 @@ function fileLink(node: Node, selected: string, positions?: number[], line?: num
     if (/\.(md|markdown|html|htm)$/i.test(node.path)) link.href += '&source=1';
     link.href += `#L${line}`;
   }
-  link.title = destination;
+  link.title = ignored ? `${destination} (ignored by Git)` : destination;
+  if (ignored) link.dataset.ignored = 'true';
   link.className = `file file-${/\.(md|markdown)$/i.test(node.name) ? 'markdown' : /\.(png|jpe?g|gif|webp|svg)$/i.test(node.name) ? 'image' : /\.pdf$/i.test(node.name) ? 'pdf' : /\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html?|json|ya?ml)$/i.test(node.name) ? 'code' : 'other'}`;
   link.innerHTML = icon(node.name);
   const label = document.createElement('span'); label.className = 'node-label';
@@ -138,6 +141,7 @@ export class TreeView {
   private readme = '';
   private loading = new Set<string>();
   private searchPaths: string[] = [];
+  private ignoredPaths: ReadonlySet<string> = new Set();
   private searchState: SearchState = 'idle';
   private currentSelection: string;
   private collapsedSelection: string | null;
@@ -256,8 +260,8 @@ export class TreeView {
     this.render();
   }
   firstReadme(): string | undefined { return this.readme || undefined; }
-  setSearchIndex(paths: string[], state: SearchState): void {
-    this.searchPaths = paths; this.searchState = state; this.render();
+  setSearchIndex(paths: string[], state: SearchState, ignored: string[] = []): void {
+    this.searchPaths = paths; this.ignoredPaths = new Set(ignored); this.searchState = state; this.render();
   }
   private allFiles(): Node[] { return [...this.directories.keys()].flatMap((path) => this.nodes(path)).filter((node) => node.type === 'file'); }
   fileCount(): number { return this.allFiles().length; }
@@ -310,14 +314,14 @@ export class TreeView {
         hint.textContent = this.searchState === 'error' ? 'Could not load file names. Try again or refresh.' : 'Searching all files…';
         this.tree.append(hint); return;
       }
-      const { matches, count } = searchMatches(this.searchPaths, query);
+      const { matches, count } = searchMatches(this.searchPaths, query, this.ignoredPaths);
       this.count.textContent = count > searchResultLimit ? `Showing top ${searchResultLimit} of ${count} matches` : `${count} ${count === 1 ? 'match' : 'matches'}`;
       if (!count) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = 'No matching files.'; this.tree.append(empty); }
       else {
         const list = document.createElement('ul'); list.className = 'search-results';
-        for (const { path, positions } of matches) {
+        for (const { path, positions, ignored } of matches) {
           const item = document.createElement('li');
-          item.append(fileLink({ name: path.split('/').at(-1)!, path, type: 'file' }, this.selected(), positions, line)); list.append(item);
+          item.append(fileLink({ name: path.split('/').at(-1)!, path, type: 'file' }, this.selected(), positions, line, ignored)); list.append(item);
         }
         this.tree.append(list);
       }

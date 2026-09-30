@@ -83,9 +83,17 @@ func run(ctx context.Context, dir string, args ...string) ([]byte, error) {
 }
 
 func runCommand(ctx context.Context, dir string, allowDiffExit bool, args ...string) ([]byte, error) {
+	return runInput(ctx, dir, allowDiffExit, nil, args...)
+}
+
+func runInput(ctx context.Context, dir string, allowDiffExit bool, input []byte, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	arguments := append([]string{"--no-pager", "--literal-pathspecs", "-C", dir}, args...)
+	arguments := []string{"--no-pager"}
+	if args[0] != "check-ignore" { // check-ignore rejects the literal-pathspecs option
+		arguments = append(arguments, "--literal-pathspecs")
+	}
+	arguments = append(append(arguments, "-C", dir), args...)
 	cmd := exec.CommandContext(ctx, "git", arguments...)
 	cmd.Env = make([]string, 0, len(os.Environ())+1)
 	for _, value := range os.Environ() {
@@ -94,6 +102,9 @@ func runCommand(ctx context.Context, dir string, allowDiffExit bool, args ...str
 		}
 	}
 	cmd.Env = append(cmd.Env, "GIT_OPTIONAL_LOCKS=0", "GIT_TERMINAL_PROMPT=0")
+	if input != nil {
+		cmd.Stdin = bytes.NewReader(input)
+	}
 	var output limitedBuffer
 	var stderr limitedBuffer
 	cmd.Stdout, cmd.Stderr = &output, &stderr

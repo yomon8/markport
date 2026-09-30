@@ -58,6 +58,7 @@ type Server struct {
 	static        http.Handler
 	searchMu      sync.Mutex
 	searchPaths   []string
+	searchIgnored []string
 	searchExpires time.Time
 	searchFlight  chan struct{}
 	searchErr     error
@@ -388,13 +389,17 @@ func (s *Server) gitCommitDiff(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) searchIndex(w http.ResponseWriter, r *http.Request) {
 	force := r.URL.Query().Get("refresh") == "1" || r.Header.Get("Cache-Control") == "no-cache"
-	paths, err := s.cachedSearchPaths(r.Context(), force)
+	paths, ignored, err := s.cachedSearchPaths(r.Context(), force)
 	if err != nil {
 		apiError(w, err)
 		return
 	}
 	hash := sha256.New()
 	for _, name := range paths {
+		_, _ = io.WriteString(hash, name+"\x00")
+	}
+	_, _ = io.WriteString(hash, "\x01")
+	for _, name := range ignored {
 		_, _ = io.WriteString(hash, name+"\x00")
 	}
 	tag := `"` + hex.EncodeToString(hash.Sum(nil)) + `"`
@@ -404,48 +409,57 @@ func (s *Server) searchIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonReply(w, http.StatusOK, struct {
-		Paths []string `json:"paths"`
-	}{Paths: paths})
+		Paths   []string `json:"paths"`
+		Ignored []string `json:"ignored"`
+	}{Paths: paths, Ignored: ignored})
 }
 
 // A short cache bounds full-tree walks during search; a forced refresh bypasses
 // it. Concurrent requests share the same walk, including forced requests.
-func (s *Server) cachedSearchPaths(ctx context.Context, force bool) ([]string, error) {
+// Ignored names come from one batched Git call; failures leave the list empty.
+func (s *Server) cachedSearchPaths(ctx context.Context, force bool) ([]string, []string, error) {
 	for {
 		s.searchMu.Lock()
 		if !force && s.searchPaths != nil && time.Now().Before(s.searchExpires) {
-			paths := s.searchPaths
+			paths, ignored := s.searchPaths, s.searchIgnored
 			s.searchMu.Unlock()
-			return paths, nil
+			return paths, ignored, nil
 		}
 		if flight := s.searchFlight; flight != nil {
 			s.searchMu.Unlock()
 			select {
 			case <-ctx.Done():
-				return nil, ctx.Err()
+				return nil, nil, ctx.Err()
 			case <-flight:
 			}
 			s.searchMu.Lock()
-			paths, err := s.searchPaths, s.searchErr
+			paths, ignored, err := s.searchPaths, s.searchIgnored, s.searchErr
 			s.searchMu.Unlock()
-			return paths, err
+			return paths, ignored, err
 		}
 		flight := make(chan struct{})
 		s.searchFlight = flight
 		s.searchMu.Unlock()
 		walkCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		paths, err := s.Files.FilePaths(walkCtx)
+		ignored := []string{}
+		if err == nil {
+			if found, ignoreErr := gitdiff.Ignored(walkCtx, s.Files, paths); ignoreErr == nil && found != nil {
+				ignored = found
+			}
+		}
 		cancel()
 		s.searchMu.Lock()
 		if err == nil {
 			s.searchPaths = paths
+			s.searchIgnored = ignored
 			s.searchExpires = time.Now().Add(5 * time.Second)
 		}
 		s.searchErr = err
 		s.searchFlight = nil
 		close(flight)
 		s.searchMu.Unlock()
-		return paths, err
+		return paths, ignored, err
 	}
 }
 

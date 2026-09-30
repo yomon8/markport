@@ -523,6 +523,17 @@ describe('lazy browsing and refresh', () => {
     expect(document.querySelector('#header-more')?.getAttribute('aria-label')).toBe('App settings');
   });
 
+  it('shows ignored files last and marks them in search results', async () => {
+    const paths = ['dist/main.bin', 'web/src/main.ts'];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths, ignored: ['dist/main.bin'] }) : reply(page([]))));
+    await import('../src/main'); await flush();
+    const search = document.querySelector<HTMLInputElement>('#search')!;
+    search.value = 'main'; search.dispatchEvent(new Event('input')); await flush();
+    const links = [...document.querySelectorAll<HTMLAnchorElement>('#tree .search-results a')];
+    expect(links.map((link) => link.getAttribute('aria-label'))).toEqual(['web/src/main.ts', 'dist/main.bin']);
+    expect(links.map((link) => link.dataset.ignored)).toEqual([undefined, 'true']);
+  });
+
   it('groups consecutive matched characters into one mark', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: ['web/src/main.ts'] }) : reply(page([]))));
     await import('../src/main'); await flush();

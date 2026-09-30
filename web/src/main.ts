@@ -321,13 +321,13 @@ async function loadSearchIndex(force = false): Promise<void> {
     if (current !== searchIndexVersion || !search.value.trim()) return;
     searchIndexCheckedAt = Date.now();
     if (response.status === 304) return;
-    const body = await response.json() as { paths?: string[] } & ApiError;
+    const body = await response.json() as { paths?: string[]; ignored?: string[] } & ApiError;
     if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
     if (!Array.isArray(body.paths)) throw new RequestError('invalid_response', 'Invalid file list');
     if (current !== searchIndexVersion || !search.value.trim()) return;
     searchIndexTag = response.headers.get('ETag') ?? '';
     searchIndexState = 'ready';
-    view.setSearchIndex(body.paths, 'ready');
+    view.setSearchIndex(body.paths, 'ready', Array.isArray(body.ignored) ? body.ignored : []);
   } catch {
     if (current !== searchIndexVersion || !search.value.trim()) return;
     if (!hadResults) { searchIndexState = 'error'; view.setSearchIndex([], 'error'); }

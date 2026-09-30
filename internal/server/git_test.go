@@ -363,3 +363,61 @@ func TestGitHistoryAPI(t *testing.T) {
 		}
 	}
 }
+
+func searchIndexBody(t *testing.T, app *Server) (paths, ignored []string) {
+	t.Helper()
+	response := request(app, "localhost:3000", "/api/search-index?refresh=1")
+	if response.Code != http.StatusOK {
+		t.Fatalf("search index: %d %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Paths   []string `json:"paths"`
+		Ignored []string `json:"ignored"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Ignored == nil {
+		t.Fatal("ignored must be an array, not null")
+	}
+	return body.Paths, body.Ignored
+}
+
+func TestSearchIndexReportsGitIgnoredPaths(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("Git is unavailable")
+	}
+	repo := t.TempDir()
+	gitCommand(t, repo, "init", "-q")
+	dir := filepath.Join(repo, "site")
+	for name, content := range map[string]string{"main.go": "package main\n", "dist/main.bin": "x", "dist/deep/main.js": "x", "notes.tmp": "x", ":magic.tmp": "x"} {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("dist/\n*.tmp\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	paths, ignored := searchIndexBody(t, gitServer(t, dir))
+	if strings.Join(paths, ",") != ":magic.tmp,dist/deep/main.js,dist/main.bin,main.go,notes.tmp" {
+		t.Fatalf("paths: %v", paths)
+	}
+	if strings.Join(ignored, ",") != ":magic.tmp,dist/deep/main.js,dist/main.bin,notes.tmp" {
+		t.Fatalf("ignored: %v", ignored)
+	}
+}
+
+func TestSearchIndexHasNoIgnoredPathsOutsideGit(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte("a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	paths, ignored := searchIndexBody(t, gitServer(t, dir))
+	if strings.Join(paths, ",") != "a.md" || len(ignored) != 0 {
+		t.Fatalf("paths %v ignored %v", paths, ignored)
+	}
+}
