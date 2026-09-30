@@ -39,6 +39,13 @@ func fixture(t *testing.T, current string) (*Updater, string, *[]byte) {
 	if err := os.WriteFile(target, []byte("old executable"), 0755); err != nil {
 		t.Fatal(err)
 	}
+	// Match the updater's canonical path, including macOS /var aliases and
+	// Windows volume-name casing. Temporary directories may have either form.
+	var err error
+	target, err = filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatal(err)
+	}
 	binary := []byte("new executable")
 	hash := sha256.Sum256(binary)
 	metadata := releaseJSON(t, "v1.2.0")
@@ -556,4 +563,23 @@ func TestWindowsPreviousExecutableInUse(t *testing.T) {
 	if err != nil || string(data) != "new executable" {
 		t.Fatalf("new executable: %q, %v", data, err)
 	}
+}
+
+func TestUpdateWithAliasedTempDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows normalizes volume names rather than TMPDIR")
+	}
+	root := t.TempDir()
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(root, alias); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", alias)
+	t.Run("update", func(t *testing.T) {
+		u, target, _ := fixture(t, "v1.0.0")
+		r, err := u.Update(context.Background())
+		if err != nil || !r.Updated || r.Path != target {
+			t.Fatalf("aliased installation: %+v, %v", r, err)
+		}
+	})
 }
