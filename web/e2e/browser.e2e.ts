@@ -766,6 +766,61 @@ test('scrolls long code and table lines inside narrow panes', async ({ page }) =
   await scrollToEnd('#right-content .table-wrap');
 });
 
+test('scrolls large tables, wraps cells on request, and expands them into an overlay', async ({ page }) => {
+  const sentence = 'A fairly long sentence that should wrap inside its table cell';
+  const wide = `| ${Array.from({ length: 8 }, (_, index) => `Column ${index}`).join(' | ')} |\n|${'---|'.repeat(8)}\n| ${Array.from({ length: 8 }, () => sentence).join(' | ')} |\n| [Link](small.md) |${' x |'.repeat(7)}`;
+  await writeFile(join(directory, 'wide-table.md'), `# Tables\n\n| Small | Table |\n|---|---|\n| a | b |\n\n${wide}\n`);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto(`http://127.0.0.1:${port}/?path=wide-table.md`);
+  const small = page.locator('#content .table-frame').nth(0);
+  const large = page.locator('#content .table-frame').nth(1);
+  await expect(large).toHaveClass(/\bwide\b/);
+  await expect(small).not.toHaveClass(/\bwide\b/);
+  const measure = (): Promise<{ article: number; frames: number[]; mainOverflow: number; cellHeight: number; lineHeight: number }> => page.evaluate(() => {
+    const main = document.querySelector('#main')!;
+    const frames = [...document.querySelectorAll('#content .table-frame')].map((frame) => frame.getBoundingClientRect().width);
+    const cell = document.querySelector('#content .table-frame:nth-of-type(2) td')!;
+    return { article: document.querySelector('#content')!.getBoundingClientRect().width, frames, mainOverflow: main.scrollWidth - main.clientWidth, cellHeight: cell.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(cell).lineHeight) };
+  });
+  const sizes = await measure();
+  for (const width of sizes.frames) expect(Math.abs(width - sizes.article)).toBeLessThan(1);
+  expect(sizes.mainOverflow).toBeLessThanOrEqual(0);
+  expect(sizes.cellHeight).toBeLessThan(sizes.lineHeight * 2);
+
+  const wrap = large.locator('.table-wrap');
+  const wrapCells = large.getByRole('button', { name: 'Wrap cells' });
+  await expect(wrapCells).toHaveAttribute('aria-pressed', 'false');
+  await expect(large).toHaveClass(/\boverflows-right\b/);
+  await expect(wrap).toHaveAttribute('tabindex', '0');
+  await wrap.evaluate((element) => { element.scrollLeft = element.scrollWidth; });
+  await expect(large).toHaveClass(/\boverflows-left\b/);
+  await expect(large).not.toHaveClass(/\boverflows-right\b/);
+
+  const expand = large.getByRole('button', { name: 'Expand' });
+  await expand.click();
+  const overlay = page.getByRole('dialog', { name: 'Expanded table' });
+  await expect(overlay).toBeVisible();
+  await expect(overlay.locator('td').first()).toHaveCSS('white-space', 'nowrap');
+  await page.keyboard.press('Escape');
+  await expect(overlay).toBeHidden();
+  await expect(expand).toBeFocused();
+
+  await wrapCells.click();
+  await expect(wrapCells).toHaveAttribute('aria-pressed', 'true');
+  const wrapped = await measure();
+  expect(wrapped.cellHeight).toBeGreaterThan(wrapped.lineHeight * 2);
+  expect(wrapped.mainOverflow).toBeLessThanOrEqual(0);
+  await page.reload();
+  await expect(page.locator('#content .table-frame').nth(1).getByRole('button', { name: 'Wrap cells' })).toHaveAttribute('aria-pressed', 'true');
+
+  await writeFile(join(directory, 'small.md'), '# Small target');
+  await page.locator('#content .table-frame').nth(1).getByRole('button', { name: 'Expand' }).click();
+  await expect(overlay.locator('td').first()).toHaveCSS('white-space', 'normal');
+  await overlay.getByRole('link', { name: 'Link' }).click();
+  await expect(overlay).toBeHidden();
+  await expect(page.locator('#content h1')).toHaveText('Small target');
+});
+
 test('keeps the HTML preview sandbox in the right pane and works on a narrow screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 800 });
   await page.goto(`http://127.0.0.1:${port}/?path=README.md`);

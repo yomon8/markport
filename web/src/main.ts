@@ -10,6 +10,7 @@ import { initContentSearch } from './contentSearch';
 import { copyText } from './clipboard';
 import { createDiagramOverlay } from './diagramOverlay';
 import { createShortcutHelp } from './shortcutHelp';
+import { createTableOverlay } from './tableOverlay';
 import { editingShortcutTarget, matchesShortcut, shortcutText } from './shortcuts';
 import symbolLight from '../../logo/markport-symbol-light.svg';
 import symbolDark from '../../logo/markport-symbol-dark.svg';
@@ -24,6 +25,7 @@ const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
 app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">${iconSVG('menu')}</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">${iconSVG('panelLeft')}</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><div id="header-extras"><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button" aria-label="Paste Markdown" title="Paste Markdown">${iconSVG('clipboard')}</button></div><button id="header-more" type="button" aria-label="App settings" title="App settings" aria-expanded="false" aria-controls="header-extras">${iconSVG('settings')}</button><button id="reload" type="button" aria-label="Refresh" title="Refresh now"><span class="reload-icon" aria-hidden="true">${iconSVG('refresh')}</span></button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button><button id="history-tab" type="button" role="tab" aria-controls="history-tree">History</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><div class="files-search-heading"><label for="search">Search files</label><button id="collapse-all" type="button" aria-label="Collapse all folders" title="Collapse all folders" disabled>Collapse all</button></div><input id="search" type="search" placeholder="Path or file name, e.g. file.md:123"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav><nav id="history-tree" role="tabpanel" aria-labelledby="history-tab" aria-label="Commit history" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><div id="right-path" class="breadcrumbs"></div><div class="right-actions"><span id="right-kind" class="kind-badge"></span><div id="right-views" class="view-segment" role="group" aria-label="Preview or Source"><button id="right-rendered" type="button" aria-pressed="true">Preview</button><button id="right-source" type="button" aria-pressed="false">Source</button></div><button id="right-interactive" type="button" hidden>Enable JavaScript</button><button id="right-copy" type="button" class="title-icon" aria-label="Copy path" title="Copy path">${iconSVG('copy')}</button><button id="right-contents" type="button" class="title-icon" aria-label="Contents" title="Contents" hidden>${iconSVG('list')}</button><button id="right-swap" type="button" class="title-icon" aria-label="Swap panes" title="Swap panes">${iconSVG('swap')}</button><button id="right-only" type="button" class="title-icon" aria-label="Show this file only" title="Show this file only">${iconSVG('maximize')}</button><button id="right-close" type="button" class="title-icon" aria-label="Close split view" title="Close split view">${iconSVG('close')}</button></div></div><article id="right-content" aria-busy="false"></article><nav id="right-outline" aria-label="Right table of contents" hidden></nav></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
 const diagramOverlay = createDiagramOverlay();
+const tableOverlay = createTableOverlay();
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
 if (!icon.isConnected) document.head.append(icon);
@@ -95,6 +97,9 @@ let pendingRightScroll: number | undefined;
 let rightTag = ''; let rightTagCheckedAt = 0;
 let wrapCodeLines = false;
 try { wrapCodeLines = localStorage.getItem('markport-wrap-code') === 'true'; } catch { /* Storage may be unavailable. */ }
+let wrapTableCells = false;
+try { wrapTableCells = localStorage.getItem('markport-wrap-tables') === 'true'; } catch { /* Storage may be unavailable. */ }
+const tableObservers = new Map<HTMLElement, ResizeObserver>();
 let lineRangeAnchor = 0;
 let pendingLineJump = false;
 let rightLineHash = '';
@@ -910,11 +915,58 @@ function decorateContent(target = content, path = displayedPath): void {
     img.loading = 'lazy'; img.decoding = 'async';
     img.addEventListener('error', () => { const note = document.createElement('span'); note.className = 'image-error'; note.textContent = img.alt || 'Cannot load image'; img.replaceWith(note); });
   }
+  tableObservers.get(target)?.disconnect();
+  const pending = new Set<HTMLElement>();
+  const observer = typeof ResizeObserver === 'function' ? new ResizeObserver((entries) => {
+    // Defer so toggling the actions bar does not resize frames inside the observer callback.
+    if (!pending.size) requestAnimationFrame(() => { pending.forEach(updateTableLayout); pending.clear(); });
+    for (const entry of entries) pending.add(entry.target as HTMLElement);
+  }) : undefined;
+  if (observer) tableObservers.set(target, observer);
   for (const table of target.querySelectorAll('table')) {
     if (table.closest('.chroma')) continue;
-    const wrap = document.createElement('div'); wrap.className = 'table-wrap'; table.before(wrap); wrap.append(table);
+    observer?.observe(wrapTable(table));
   }
   updateTableHeaders();
+}
+function wrapTable(table: HTMLTableElement): HTMLElement {
+  const frame = document.createElement('div'); frame.className = 'table-frame'; frame.classList.toggle('table-nowrap', !wrapTableCells);
+  const actions = document.createElement('div'); actions.className = 'table-actions';
+  const wrapButton = document.createElement('button'); wrapButton.type = 'button'; wrapButton.className = 'table-wrap-toggle'; wrapButton.textContent = 'Wrap cells'; wrapButton.setAttribute('aria-pressed', String(wrapTableCells));
+  wrapButton.addEventListener('click', () => {
+    wrapTableCells = !wrapTableCells;
+    try { localStorage.setItem('markport-wrap-tables', String(wrapTableCells)); } catch { /* Storage may be unavailable. */ }
+    for (const other of document.querySelectorAll<HTMLElement>('.table-frame')) {
+      other.classList.toggle('table-nowrap', !wrapTableCells);
+      other.querySelector('.table-wrap-toggle')?.setAttribute('aria-pressed', String(wrapTableCells));
+      updateTableLayout(other);
+    }
+    updateTableHeaders();
+  });
+  const expand = document.createElement('button'); expand.type = 'button'; expand.textContent = 'Expand';
+  expand.addEventListener('click', () => tableOverlay.open(table, expand, !wrapTableCells));
+  actions.append(wrapButton, expand);
+  const scroll = document.createElement('div'); scroll.className = 'table-scroll';
+  const wrap = document.createElement('div'); wrap.className = 'table-wrap';
+  wrap.addEventListener('scroll', () => updateTableOverflow(frame));
+  table.before(frame); wrap.append(table); scroll.append(wrap); frame.append(actions, scroll);
+  return frame;
+}
+function updateTableLayout(frame: HTMLElement): void {
+  const table = frame.querySelector<HTMLTableElement>('.table-wrap table');
+  if (!table || !frame.isConnected) return;
+  table.style.width = 'max-content'; const natural = table.offsetWidth; table.style.removeProperty('width');
+  frame.classList.toggle('wide', natural > frame.clientWidth + 1);
+  updateTableOverflow(frame);
+}
+function updateTableOverflow(frame: HTMLElement): void {
+  const wrap = frame.querySelector<HTMLElement>('.table-wrap');
+  if (!wrap) return;
+  const scrollable = wrap.scrollWidth > wrap.clientWidth + 1;
+  frame.classList.toggle('overflows-left', scrollable && wrap.scrollLeft > 1);
+  frame.classList.toggle('overflows-right', scrollable && wrap.scrollLeft + wrap.clientWidth < wrap.scrollWidth - 1);
+  if (scrollable) { wrap.tabIndex = 0; wrap.setAttribute('role', 'region'); wrap.setAttribute('aria-label', 'Scrollable table'); }
+  else { wrap.removeAttribute('tabindex'); wrap.removeAttribute('role'); wrap.removeAttribute('aria-label'); }
 }
 function highlightCodeLines(scroll: boolean, pane = content, hash = location.hash): boolean {
   const match = /^#L(\d+)(?:-L(\d+))?$/.exec(hash);
@@ -1348,7 +1400,7 @@ window.addEventListener('keydown', (event) => {
   if (matchesShortcut(event, 'search')) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
   if (matchesShortcut(event, 'sidebar')) { event.preventDefault(); if (window.innerWidth <= 700) drawerToggle.click(); else sidebarToggle.click(); }
   if (matchesShortcut(event, 'help')) { event.preventDefault(); shortcutHelp.open(); }
-  if (matchesShortcut(event, 'close')) { sidebar.classList.remove('open'); outline.classList.remove('open'); diagramOverlay.close(); shortcutHelp.close(); }
+  if (matchesShortcut(event, 'close')) { sidebar.classList.remove('open'); outline.classList.remove('open'); diagramOverlay.close(); tableOverlay.close(); shortcutHelp.close(); }
 });
 reload.addEventListener('click', manualRefresh);
 drawerToggle.addEventListener('click', () => { const open = sidebar.classList.toggle('open'); drawerToggle.title = `${open ? 'Close' : 'Open'} file list (${shortcutText('sidebar')})`; drawerToggle.setAttribute('aria-label', `${open ? 'Close' : 'Open'} file list`); });
