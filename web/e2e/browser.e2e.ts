@@ -1505,6 +1505,11 @@ test('shows Git changes and refreshes a file diff', async ({ page }) => {
 });
 
 test('reviews changed files in order with counts and a folder tree', async ({ page }) => {
+  const expectDiffReady = async (path: string): Promise<void> => {
+    await expect(page).toHaveURL((url) => url.searchParams.get('path') === path);
+    await expect(page.locator('#file-title .breadcrumbs strong')).toHaveText(path.split('/').at(-1)!);
+    await expect(page.locator('#content')).toHaveAttribute('aria-busy', 'false');
+  };
   const changes = [
     { path: 'a.md', status: 'modified', revision: 'a1', added: 1, deleted: 2 },
     { path: 'b.md', status: 'added', revision: 'b1', added: 3, deleted: 0 },
@@ -1524,24 +1529,27 @@ test('reviews changed files in order with counts and a folder tree', async ({ pa
   await expect(page.locator('#changes-tree details[data-path="docs"]')).not.toHaveAttribute('open');
   await page.locator('#content details[data-path="docs"] > summary').click();
   await page.locator('#content a[href*="docs%2Fc.md"]').click();
+  await expectDiffReady('docs/c.md');
   await page.keyboard.press('n');
-  expect(new URL(page.url()).searchParams.get('path')).toBe('a.md');
+  await expectDiffReady('a.md');
   await page.getByRole('tab', { name: 'Changes' }).click();
   await page.locator('#content').getByLabel('Folder tree').uncheck();
   await page.locator('#content a[href*="b.md"]').click();
+  await expectDiffReady('b.md');
   await expect(page.locator('#file-title .diff-navigation')).toBeVisible();
   await page.keyboard.press('n');
-  expect(new URL(page.url()).searchParams.get('path')).toBe('docs/c.md');
+  await expectDiffReady('docs/c.md');
   await expect(page.getByRole('button', { name: 'Next (n)' })).toBeDisabled();
   await page.keyboard.press('p');
-  expect(new URL(page.url()).searchParams.get('path')).toBe('b.md');
+  await expectDiffReady('b.md');
   await page.keyboard.press('r');
-  expect(new URL(page.url()).searchParams.get('path')).toBe('docs/c.md');
+  await expectDiffReady('docs/c.md');
   await expect(page.locator('#changes-tree .review-count')).toContainText('1 of 3 reviewed');
   await page.locator('#changes-tree').getByLabel('Unreviewed only').check();
   await page.keyboard.press('p');
-  expect(new URL(page.url()).searchParams.get('path')).toBe('a.md');
+  await expectDiffReady('a.md');
   await page.locator('#changes-tree .review-filter input').first().focus();
+  await expect(page.locator('#changes-tree .review-filter input').first()).toBeFocused();
   await page.keyboard.press('n');
   expect(new URL(page.url()).searchParams.get('path')).toBe('a.md');
   await page.locator('#changes-tree .review-filter input').first().blur();
