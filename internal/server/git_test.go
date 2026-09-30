@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -390,7 +392,18 @@ func TestSearchIndexReportsGitIgnoredPaths(t *testing.T) {
 	repo := t.TempDir()
 	gitCommand(t, repo, "init", "-q")
 	dir := filepath.Join(repo, "site")
-	for name, content := range map[string]string{"main.go": "package main\n", "dist/main.bin": "x", "dist/deep/main.js": "x", "notes.tmp": "x", ":magic.tmp": "x"} {
+	contents := map[string]string{"main.go": "package main\n", "dist/main.bin": "x", "dist/deep/main.js": "x", "notes.tmp": "x"}
+	wantPaths := []string{"dist/deep/main.js", "dist/main.bin", "main.go", "notes.tmp"}
+	wantIgnored := []string{"dist/deep/main.js", "dist/main.bin", "notes.tmp"}
+	// Windows forbids colons in filenames; retain pathspec-magic coverage elsewhere.
+	if runtime.GOOS != "windows" {
+		contents[":magic.tmp"] = "x"
+		wantPaths = append(wantPaths, ":magic.tmp")
+		wantIgnored = append(wantIgnored, ":magic.tmp")
+	}
+	sort.Strings(wantPaths)
+	sort.Strings(wantIgnored)
+	for name, content := range contents {
 		path := filepath.Join(dir, filepath.FromSlash(name))
 		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			t.Fatal(err)
@@ -403,10 +416,10 @@ func TestSearchIndexReportsGitIgnoredPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	paths, ignored := searchIndexBody(t, gitServer(t, dir))
-	if strings.Join(paths, ",") != ":magic.tmp,dist/deep/main.js,dist/main.bin,main.go,notes.tmp" {
+	if strings.Join(paths, ",") != strings.Join(wantPaths, ",") {
 		t.Fatalf("paths: %v", paths)
 	}
-	if strings.Join(ignored, ",") != ":magic.tmp,dist/deep/main.js,dist/main.bin,notes.tmp" {
+	if strings.Join(ignored, ",") != strings.Join(wantIgnored, ",") {
 		t.Fatalf("ignored: %v", ignored)
 	}
 }
