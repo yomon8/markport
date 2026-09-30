@@ -22,7 +22,7 @@ type ApiError = { error?: string; message?: string };
 class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
-app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">${iconSVG('menu')}</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">${iconSVG('panelLeft')}</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><div id="header-extras"><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button></div><button id="header-more" type="button" aria-label="More header actions" title="More header actions" aria-expanded="false" aria-controls="header-extras">${iconSVG('more')}</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">${iconSVG('refresh')}</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button><button id="history-tab" type="button" role="tab" aria-controls="history-tree">History</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><div class="files-search-heading"><label for="search">Search files</label><button id="collapse-all" type="button" aria-label="Collapse all folders" title="Collapse all folders" disabled>Collapse all</button></div><input id="search" type="search" placeholder="Path or file name, e.g. file.md:123"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav><nav id="history-tree" role="tabpanel" aria-labelledby="history-tab" aria-label="Commit history" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><div id="right-path" class="breadcrumbs"></div><div class="right-actions"><span id="right-kind" class="kind-badge"></span><div id="right-views" class="view-segment" role="group" aria-label="Rendered view or Source"><button id="right-rendered" type="button" aria-pressed="true">Rendered view</button><button id="right-source" type="button" aria-pressed="false">Source</button></div><button id="right-interactive" type="button" hidden>Enable JavaScript</button><button id="right-copy" type="button" class="title-icon" aria-label="Copy path" title="Copy path">${iconSVG('copy')}</button><button id="right-contents" type="button" class="title-icon" aria-label="Contents" title="Contents" hidden>${iconSVG('list')}</button><button id="right-swap" type="button" class="title-icon" aria-label="Swap panes" title="Swap panes">${iconSVG('swap')}</button><button id="right-only" type="button" class="title-icon" aria-label="Show this file only" title="Show this file only">${iconSVG('maximize')}</button><button id="right-close" type="button" class="title-icon" aria-label="Close split view" title="Close split view">${iconSVG('close')}</button></div></div><article id="right-content" aria-busy="false"></article><nav id="right-outline" aria-label="Right table of contents" hidden></nav></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
+app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">${iconSVG('menu')}</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">${iconSVG('panelLeft')}</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><div id="header-extras"><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button></div><button id="header-more" type="button" aria-label="More header actions" title="More header actions" aria-expanded="false" aria-controls="header-extras">${iconSVG('more')}</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">${iconSVG('refresh')}</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button><button id="history-tab" type="button" role="tab" aria-controls="history-tree">History</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><div class="files-search-heading"><label for="search">Search files</label><button id="collapse-all" type="button" aria-label="Collapse all folders" title="Collapse all folders" disabled>Collapse all</button></div><input id="search" type="search" placeholder="Path or file name, e.g. file.md:123"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav><nav id="history-tree" role="tabpanel" aria-labelledby="history-tab" aria-label="Commit history" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><div id="right-path" class="breadcrumbs"></div><div class="right-actions"><span id="right-kind" class="kind-badge"></span><div id="right-views" class="view-segment" role="group" aria-label="Preview or Source"><button id="right-rendered" type="button" aria-pressed="true">Preview</button><button id="right-source" type="button" aria-pressed="false">Source</button></div><button id="right-interactive" type="button" hidden>Enable JavaScript</button><button id="right-copy" type="button" class="title-icon" aria-label="Copy path" title="Copy path">${iconSVG('copy')}</button><button id="right-contents" type="button" class="title-icon" aria-label="Contents" title="Contents" hidden>${iconSVG('list')}</button><button id="right-swap" type="button" class="title-icon" aria-label="Swap panes" title="Swap panes">${iconSVG('swap')}</button><button id="right-only" type="button" class="title-icon" aria-label="Show this file only" title="Show this file only">${iconSVG('maximize')}</button><button id="right-close" type="button" class="title-icon" aria-label="Close split view" title="Close split view">${iconSVG('close')}</button></div></div><article id="right-content" aria-busy="false"></article><nav id="right-outline" aria-label="Right table of contents" hidden></nav></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
 const diagramOverlay = createDiagramOverlay();
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
@@ -461,6 +461,18 @@ async function refreshDirectories(path: string, expectedRevision: number): Promi
   for (const key of pageTags.keys()) if (!view.has(key)) pageTags.delete(key);
   void loadOpenDirectories(expectedRevision).catch(() => status('Refresh failed. Please try again.', 'error'));
 }
+function applyDiffAvailability(button: HTMLButtonElement, path: string): void {
+  button.querySelector('.change-dot')?.remove();
+  if (!currentChanges?.available) { button.disabled = false; button.title = ''; return; }
+  const changed = currentChanges.changes.some((change) => change.path === path);
+  button.disabled = !changed;
+  button.title = changed ? 'Changed since the comparison base' : `No changes against ${rememberedBase ? rememberedBase.slice(0, 7) : 'HEAD'}`;
+  if (changed) { const dot = document.createElement('span'); dot.className = 'change-dot'; dot.setAttribute('aria-hidden', 'true'); button.append(dot); }
+}
+function syncDiffButton(path: string): void {
+  const button = selectedMode() === 'file' ? title.querySelector<HTMLButtonElement>('.view-segment button[data-diff]') : null;
+  if (button) applyDiffAvailability(button, path);
+}
 function showTitle(path: string, kind = '', missing = false, canDownload = true): void {
   title.replaceChildren();
   if (selectedMode() === 'history') {
@@ -487,11 +499,12 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
   });
   title.append(crumbs);
   const actions = document.createElement('div'); actions.className = 'title-actions';
-  const segment = (choices: { label: string; selected: boolean; disabled?: boolean; select: () => void }[]): void => {
+  const segment = (choices: { label: string; selected: boolean; disabled?: boolean; diff?: boolean; select: () => void }[]): void => {
     const group = document.createElement('div'); group.className = 'view-segment'; group.setAttribute('role', 'group'); group.setAttribute('aria-label', choices.map((choice) => choice.label).join(' or '));
     for (const choice of choices) {
       const button = document.createElement('button'); button.type = 'button'; button.textContent = choice.label;
       button.setAttribute('aria-pressed', String(choice.selected)); button.disabled = Boolean(choice.disabled);
+      if (choice.diff) { button.dataset.diff = ''; if (!choice.selected) applyDiffAvailability(button, path); }
       button.addEventListener('click', choice.select); group.append(button);
     }
     actions.append(group);
@@ -524,11 +537,10 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
     const deleted = currentChanges?.changes.find((change) => change.path === path)?.status === 'deleted';
     segment([{ label: 'File', selected: false, disabled: deleted, select: () => navigate(fileURL(path)) }, { label: 'Diff', selected: true, select: () => {} }]);
   } else {
-    segment([{ label: 'File', selected: true, select: () => {} }, { label: 'Diff', selected: false, select: () => navigate(diffURL(path, rememberedBase)) }]);
+    segment([{ label: 'File', selected: true, select: () => {} }, { label: 'Diff', selected: false, diff: true, select: () => navigate(diffURL(path, rememberedBase)) }]);
   }
   if (kind === 'markdown' || kind === 'html') {
-    const rendered = kind === 'html' ? 'Preview' : 'Rendered view';
-    segment([{ label: rendered, selected: !sourceMode, select: () => { if (sourceMode) { sourceMode = false; requestRefresh(); } } }, { label: 'Source', selected: sourceMode, select: () => { if (!sourceMode) { sourceMode = true; requestRefresh(); } } }]);
+    segment([{ label: 'Preview', selected: !sourceMode, select: () => { if (sourceMode) { sourceMode = false; requestRefresh(); } } }, { label: 'Source', selected: sourceMode, select: () => { if (!sourceMode) { sourceMode = true; requestRefresh(); } } }]);
   }
   if (kind === 'html') {
     const interactive = document.createElement('button'); interactive.type = 'button'; interactive.className = 'interactive-toggle';
@@ -930,7 +942,7 @@ function showRightTitle(path: string, kind: FileReply['type']): void {
   const name = document.createElement('strong'); name.textContent = parts.at(-1) ?? path; rightPath.append(name);
   rightKind.textContent = kind === 'markdown' ? 'Markdown' : kind === 'html' ? 'HTML' : kind === 'image' ? 'Image' : (parts.at(-1)?.split('.').at(-1)?.toUpperCase() || 'Code');
   rightViews.hidden = kind !== 'markdown' && kind !== 'html';
-  rightRendered.textContent = kind === 'html' ? 'Preview' : 'Rendered view';
+  rightRendered.textContent = 'Preview';
   rightRendered.setAttribute('aria-pressed', String(!rightSourceMode));
   rightSource.setAttribute('aria-pressed', String(rightSourceMode));
 }
@@ -1062,7 +1074,8 @@ async function refreshLoop(): Promise<void> {
       if (path !== displayedPath || mode !== displayedMode) displayedTag = '';
       if (foreground) { activeForeground = true; beginLoading(); }
       const treePromise = refreshDirectories(mode === 'changes' || mode === 'paste' || mode === 'history' ? '' : path, current);
-      const gitPromise = mode === 'changes' || mode === 'diff' ? getGit<ChangesReply>(`/api/git/changes${base ? `?base=${encodeURIComponent(base)}` : ''}`) : Promise.resolve(undefined);
+      const gitPromise = mode === 'changes' || mode === 'diff' ? getGit<ChangesReply>(`/api/git/changes${base ? `?base=${encodeURIComponent(base)}` : ''}`)
+        : mode === 'file' ? getGit<ChangesReply>(`/api/git/changes${rememberedBase ? `?base=${encodeURIComponent(rememberedBase)}` : ''}`).catch(() => undefined) : Promise.resolve(undefined);
       const historyPromise = mode === 'history' ? getGit<HistoryPage>('/api/git/history') : Promise.resolve(undefined);
       const commitPromise = mode === 'history' && commitID ? cachedCommit?.id === commitID && knownHistoryHead ? Promise.resolve(cachedCommit) : getGit<CommitDetail>(`/api/git/commit?id=${encodeURIComponent(commitID)}`) : Promise.resolve(undefined);
       const historicalDiffPromise = mode === 'history' && commitID && path ? cachedHistoricalDiff?.id === commitID && cachedHistoricalDiff.path === path && knownHistoryHead ? Promise.resolve(cachedHistoricalDiff.value) : getGit<DiffReply>(`/api/git/commit-diff?id=${encodeURIComponent(commitID)}&path=${encodeURIComponent(path)}`) : Promise.resolve(undefined);
@@ -1071,7 +1084,7 @@ async function refreshLoop(): Promise<void> {
       try {
         const [, fileReply, changesReply, firstHistory, commitReply, historyDiffReply] = await Promise.all([treePromise, filePromise, gitPromise, historyPromise, commitPromise, historicalDiffPromise]);
         if (current !== revision || path !== selected() || mode !== selectedMode() || commitID !== (new URL(location.href).searchParams.get('commit') ?? '') || base !== selectedBase()) { pending = true; continue; }
-        if (changesReply?.base && changesReply.base !== base) {
+        if ((mode === 'changes' || mode === 'diff') && changesReply?.base && changesReply.base !== base) {
           const canonical = new URL(location.href); canonical.searchParams.set('base', changesReply.base);
           history.replaceState(history.state, '', canonical); rememberedBase = changesReply.base; syncComparisonControls();
         }
@@ -1084,6 +1097,7 @@ async function refreshLoop(): Promise<void> {
           currentChanges = changesReply;
           if (review.sync(changesReply)) reviewVersion++;
           updateChangeViews();
+          syncDiffButton(path);
         }
         if (firstHistory) {
           if (knownHistoryHead && firstHistory.head !== knownHistoryHead) {

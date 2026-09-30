@@ -220,8 +220,8 @@ test('title controls show active views and keep auxiliary actions reachable on m
   await expect(title.getByRole('button', { name: 'File', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await title.getByRole('button', { name: 'Source' }).click();
   await expect(title.getByRole('button', { name: 'Source' })).toHaveAttribute('aria-pressed', 'true');
-  await title.getByRole('button', { name: 'Rendered view' }).click();
-  await expect(title.getByRole('button', { name: 'Rendered view' })).toHaveAttribute('aria-pressed', 'true');
+  await title.getByRole('button', { name: 'Preview' }).click();
+  await expect(title.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true');
   await expect(title.getByRole('button', { name: 'Copy path' })).toHaveAttribute('title', 'Copy path');
   await page.setViewportSize({ width: 390, height: 720 });
   const more = title.getByRole('button', { name: 'More actions' });
@@ -342,7 +342,7 @@ test('mobile title stays one row and keeps reading actions close', async ({ page
   await page.getByRole('menuitemradio', { name: 'Source' }).click();
   await expect(page.locator('#content')).toHaveAttribute('data-kind', 'code');
   await more.click();
-  await page.getByRole('menuitemradio', { name: 'Rendered view' }).click();
+  await page.getByRole('menuitemradio', { name: 'Preview' }).click();
   await expect(page.locator('#content h1')).toHaveText('Mobile title');
   await more.click();
   await page.getByRole('menuitem', { name: 'Contents' }).click();
@@ -563,7 +563,7 @@ test('searches text within a folder and opens the matching source line', async (
   expect((await page.locator('#L2').boundingBox())!.y).toBeGreaterThanOrEqual(titleBox.y + titleBox.height);
   await page.locator('.content-search-results a', { hasText: 'guide.md' }).click();
   await expect(page).toHaveURL(/path=content-scope%2Fguide\.md&source=1#L4$/);
-  await expect(page.locator('#file-title').getByRole('button', { name: 'Rendered view' })).toBeVisible();
+  await expect(page.locator('#file-title').getByRole('button', { name: 'Preview' })).toBeVisible();
   await expect(page.locator('#L4')).toBeVisible();
   await expect(page.locator('#content .line.selected-code-line')).toHaveCount(1);
   await page.locator('#content-folder').fill('missing-folder');
@@ -1107,7 +1107,7 @@ test('opens README, switches source, searches by keyboard, and follows code line
   await expect(page).toHaveTitle('README.md — markport');
   await page.getByRole('button', { name: 'Source', exact: true }).click();
   await expect(page.locator('article .lntd:last-child pre')).toContainText('# Demo');
-  await page.getByRole('button', { name: 'Rendered view' }).click();
+  await page.getByRole('button', { name: 'Preview' }).click();
   await expect(page.locator('article h1')).toHaveText('Demo');
   await page.keyboard.press('Control+k');
   await expect(page.locator('#search')).toBeFocused();

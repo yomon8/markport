@@ -495,6 +495,24 @@ describe('lazy browsing and refresh', () => {
     vi.useRealTimers();
   });
 
+  it.each([
+    ['unfetched', undefined, false, false],
+    ['changed', [{ path: 'a.md', status: 'modified', revision: 'r1' }], false, true],
+    ['unchanged', [{ path: 'other.md', status: 'modified', revision: 'r1' }], true, false],
+  ] as const)('handles the Diff button for %s files', async (_name, changes, disabled, marked) => {
+    history.replaceState(null, '', '/?path=a.md');
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === '/api/tree') return reply(page([entry('a.md')]));
+      if (url.startsWith('/api/git/changes')) return changes ? reply({ available: true, rootId: 'r', base: 'abc', changes }) : reply({ error: 'x' }, 500);
+      return reply({ path: 'a.md', type: 'markdown', html: '<h1>A</h1>' });
+    }));
+    await import('../src/main'); await flush(); await flush();
+    const diff = [...document.querySelectorAll<HTMLButtonElement>('#file-title .view-segment button')].find((button) => button.textContent?.startsWith('Diff'))!;
+    expect(diff.disabled).toBe(disabled);
+    expect(Boolean(diff.querySelector('.change-dot'))).toBe(marked);
+    if (disabled) expect(diff.title).toBe('No changes against HEAD');
+  });
+
   it('groups consecutive matched characters into one mark', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: ['web/src/main.ts'] }) : reply(page([]))));
     await import('../src/main'); await flush();
@@ -565,6 +583,7 @@ describe('lazy browsing and refresh', () => {
     let fileCalls = 0;
     vi.stubGlobal('fetch', vi.fn((url: string) => {
       if (url.startsWith('/api/tree')) return Promise.resolve(reply(page([entry('a.md')])));
+      if (url.startsWith('/api/git/')) return Promise.resolve(reply({ available: false, changes: [] }));
       fileCalls++;
       if (fileCalls === 2) return new Promise<Response>((resolve) => { releaseFile = resolve; });
       return Promise.resolve(reply({ path: 'a.md', type: 'markdown', html: '<h1>Stable</h1>' }, 200, 'v1'));
