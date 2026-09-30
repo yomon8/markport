@@ -78,6 +78,25 @@ To verify a download, place `checksums_<version>.txt` from the release alongside
 ./markport_v0.2.7_linux_amd64 --version
 ```
 
+### Updating
+
+After installing a version that supports self-update, use:
+
+```sh
+markport --check-update
+markport --update
+```
+
+These commands support Linux, macOS, and Windows on amd64 and arm64. Use each flag on its own, without a directory, `--host`, `--port`, or `--version`. `--check-update` reports the current and latest stable versions without downloading an executable or writing files. `--update` downloads a newer stable release from `yomon8/markport`, verifies its SHA-256 checksum and reported version, and replaces the executable at its existing path. The file name is preserved, and symbolic links continue to point to the updated executable. Equal or older releases are not installed.
+
+Updates run only when requested; normal startup does not check for updates. Restart any running Markport servers manually to use the new version. The installation directory must be writable; Markport does not automatically request administrator privileges. Builds whose version is not `vMAJOR.MINOR.PATCH`, including `dev` and `ci`, can check the latest release but cannot self-update. Install an official release manually instead. Older versions without these flags need the installer or a manual download once before using self-update.
+
+Download and verification failures leave the installed executable in place. On Windows, the old executable is renamed before installing the new one; a failed installation attempts to restore it. If a running process prevents deletion of the previous executable, its path is printed so you can remove it and its containing staging directory after all old processes exit. If the update is forcibly terminated during replacement, look for `previous.exe` in the adjacent `.<executable>-update-*` directory and move it back to the original path if that path is missing. A failed restore reports the recovery paths. The small `.<executable>.update.lock` file remains in the installation directory to coordinate updates; its lock is released when the updater exits.
+
+Exit codes are `0` for a successful check, completed update, or no newer version; `1` for a check or update failure; and `2` for invalid arguments.
+
+### LAN access
+
 By default, Markport listens only on `127.0.0.1`. To allow devices on the same LAN to connect, use `--host 0.0.0.0` and open `http://<this-machine-LAN-IP>:<port>/` on those devices. You can also bind to a specific IPv4 address with `--host`. The LAN mode has no authentication or TLS; anyone who can reach the port can browse the selected directory, including dotfiles other than the excluded directories.
 
 Markport excludes `.git`, `node_modules`, and `.venv` from browsing. Other dotfiles remain visible. It does not read symbolic links, Windows junctions, or special files such as FIFOs. Text files are limited to 10 MiB, and image files to 32 MiB. Binary or unreadable files show an error for that file only. Folders load when opened, 200 entries at a time; filename search covers all browsable files and shows the top 100 matches. The browser checks the open folders and selected file about every three seconds, and refreshes the filename list every ten seconds while searching. Closed folders refresh when opened. Use the refresh button to fetch the latest state immediately.

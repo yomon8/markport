@@ -59,3 +59,41 @@ func TestOutputAndOccupiedPort(t *testing.T) {
 		t.Fatalf("port %d: code=%d error=%s", port, code, errout.String())
 	}
 }
+
+func TestUpdateFlags(t *testing.T) {
+	for _, flag := range []string{"--update", "--check-update"} {
+		t.Run(flag, func(t *testing.T) {
+			o, err := Parse([]string{flag})
+			if err != nil || o.Update != (flag == "--update") || o.CheckUpdate != (flag == "--check-update") {
+				t.Fatalf("%+v, %v", o, err)
+			}
+			for _, args := range [][]string{
+				{flag, flag}, {flag, "."}, {"update", flag}, {flag, "--host", "127.0.0.1"},
+				{flag, "--port=3000"}, {flag, "--version"}, {"--update", "--check-update"},
+			} {
+				var out, errout bytes.Buffer
+				if code := Run(args, &out, &errout); code != 2 || errout.Len() == 0 {
+					t.Fatalf("%v: code=%d error=%s", args, code, errout.String())
+				}
+			}
+			var out, errout bytes.Buffer
+			if code := Run([]string{flag, "--help"}, &out, &errout); code != 0 || !strings.Contains(out.String(), "--check-update") || !strings.Contains(out.String(), "--update") || errout.Len() != 0 {
+				t.Fatalf("help: %d %s %s", code, out.String(), errout.String())
+			}
+		})
+	}
+	o, err := Parse([]string{"update"})
+	if err != nil || o.Directory != "update" || o.Update || o.CheckUpdate {
+		t.Fatalf("update folder: %+v, %v", o, err)
+	}
+}
+
+func TestDevelopmentUpdateRejected(t *testing.T) {
+	old := Version
+	Version = "dev"
+	defer func() { Version = old }()
+	var out, errout bytes.Buffer
+	if code := Run([]string{"--update"}, &out, &errout); code != 1 || !strings.Contains(errout.String(), "development builds") || out.Len() != 0 {
+		t.Fatalf("development update: %d %s %s", code, out.String(), errout.String())
+	}
+}

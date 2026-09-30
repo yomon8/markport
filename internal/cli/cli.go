@@ -17,15 +17,17 @@ import (
 
 	"github.com/markport/markport/internal/files"
 	"github.com/markport/markport/internal/server"
+	"github.com/markport/markport/internal/update"
 )
 
 var Version = "dev"
 
 type Options struct {
-	Directory         string
-	Host              string
-	Port              int
-	Help, ShowVersion bool
+	Directory           string
+	Host                string
+	Port                int
+	Help, ShowVersion   bool
+	Update, CheckUpdate bool
 }
 
 func Parse(args []string) (Options, error) {
@@ -38,6 +40,12 @@ func Parse(args []string) (Options, error) {
 			o.Help = true
 		case a == "--version":
 			o.ShowVersion = true
+		case a == "--update" || a == "--check-update":
+			if o.Update || o.CheckUpdate {
+				return o, errors.New("specify only one update flag, once")
+			}
+			o.Update = a == "--update"
+			o.CheckUpdate = a == "--check-update"
 		case a == "--host" || strings.HasPrefix(a, "--host="):
 			if seenHost {
 				return o, errors.New("--host specified more than once")
@@ -88,6 +96,9 @@ func Parse(args []string) (Options, error) {
 			o.Directory = a
 		}
 	}
+	if !o.Help && (o.Update || o.CheckUpdate) && (seenDir || seenHost || seenPort || o.ShowVersion) {
+		return o, errors.New("update flags must be used without a directory, --host, --port, or --version")
+	}
 	return o, nil
 }
 
@@ -98,11 +109,41 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if o.Help {
-		fmt.Fprintln(stdout, "Usage: markport [directory] [--host IPv4] [--port PORT]\n       markport --help\n       markport --version")
+		fmt.Fprintln(stdout, "Usage: markport [directory] [--host IPv4] [--port PORT]\n       markport --help\n       markport --version\n       markport --check-update\n       markport --update")
 		return 0
 	}
 	if o.ShowVersion {
 		fmt.Fprintln(stdout, Version)
+		return 0
+	}
+	if o.Update || o.CheckUpdate {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		updater := update.New(Version)
+		var result update.Result
+		if o.Update {
+			result, err = updater.Update(ctx)
+		} else {
+			result, err = updater.Check(ctx)
+		}
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "Current version: %s\nLatest stable version: %s\n", result.Current, result.Latest)
+		switch {
+		case result.Updated:
+			fmt.Fprintf(stdout, "Updated %s to %s at %s.\nRestart any running Markport servers manually to use the new version.\n", result.Current, result.Latest, result.Path)
+		case !result.Comparable:
+			fmt.Fprintln(stdout, "This development build cannot be compared or updated. Install an official release manually.")
+		case result.Available:
+			fmt.Fprintln(stdout, "Update available. Run markport --update to install it.")
+		default:
+			fmt.Fprintln(stdout, "No newer stable version is available.")
+		}
+		if result.Backup != "" {
+			fmt.Fprintf(stdout, "Previous executable retained at %s; remove it after all old Markport processes exit.\n", result.Backup)
+		}
 		return 0
 	}
 	store, err := files.New(o.Directory)
