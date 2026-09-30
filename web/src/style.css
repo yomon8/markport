@@ -218,3 +218,13 @@ nav a[aria-current]{font-weight:600}
 .change-list:not(.compact) a{padding:10px 8px}
 .tab-badge{display:inline-block;min-width:18px;margin-left:6px;padding:0 5px;border-radius:9px;background:var(--accent);color:var(--surface);font-size:11px;font-weight:700;line-height:18px;text-align:center}
 .sidebar-tabs button{white-space:nowrap;padding-left:4px;padding-right:4px}
+
+/* Comparison form: one row, compact input, base summary on the right. */
+.comparison-controls{gap:6px 12px}
+.comparison-form{flex-wrap:nowrap}
+.comparison-form label{white-space:nowrap}
+.comparison-form input{width:24ch;max-width:100%;margin:0}
+.comparison-form button{white-space:nowrap}
+.comparison-error{color:var(--danger);font-size:12px}
+.comparison-current{margin-left:auto;font-size:11px;text-align:right}
+@media(max-width:700px){.comparison-form{flex-wrap:wrap}.comparison-current{margin-left:0;text-align:left}}

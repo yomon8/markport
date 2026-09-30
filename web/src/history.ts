@@ -16,6 +16,24 @@ export function comparisonURL(base = ''): string {
   return `/?view=changes${base ? `&base=${encodeURIComponent(base)}` : ''}`;
 }
 
+export type ComparisonOption = { value: string; label: string };
+
+// Suggestions for the comparison field: HEAD, the commit before it, then recent commits.
+export function comparisonOptions(commits: Commit[]): ComparisonOption[] {
+  const options: ComparisonOption[] = [{ value: 'HEAD', label: 'HEAD (latest commit)' }];
+  if (commits.length > 1) options.push({ value: 'HEAD~1', label: `HEAD~1 (${commits[1].subject})` });
+  for (const commit of commits) options.push({ value: commit.id.slice(0, 7), label: `${commit.id.slice(0, 7)} ${commit.subject}` });
+  return options;
+}
+
+// The server accepts only commit IDs, so HEAD and HEAD~1 are translated here.
+export function comparisonBase(input: string, commits: Commit[]): string | null {
+  const value = input.trim();
+  if (/^HEAD$/i.test(value)) return '';
+  if (/^HEAD~1$/i.test(value)) return commits[1]?.id ?? null;
+  return value;
+}
+
 function dateText(value: string): string {
   const time = Date.parse(value);
   return Number.isNaN(time) ? value : new Date(time).toLocaleString();

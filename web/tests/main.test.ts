@@ -553,6 +553,27 @@ describe('lazy browsing and refresh', () => {
     expect(tab.hasAttribute('aria-label')).toBe(false);
   });
 
+  it('offers recent commits as comparison bases and compares as soon as one is chosen', async () => {
+    const commits = ['c'.repeat(40), 'b'.repeat(40), 'a'.repeat(40)].map((id, index) => ({ id, subject: `Commit ${index}`, author: 'A', date: '2026-01-01T00:00:00Z' }));
+    history.replaceState(null, '', '/?view=changes');
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === '/api/tree') return reply(page([]));
+      if (url === '/api/git/history') return reply({ available: true, head: commits[0].id, commits, nextOffset: null });
+      if (url.startsWith('/api/git/changes')) return reply({ available: true, rootId: 'cmp', base: url.includes('base=') ? new URL(url, location.href).searchParams.get('base') : undefined, changes: [] });
+      return reply({ error: 'not_found' }, 404);
+    }));
+    await import('../src/main'); await flush(); await flush();
+    const input = document.querySelector<HTMLInputElement>('#comparison-base')!;
+    input.dispatchEvent(new Event('focus')); await flush();
+    const options = [...document.querySelectorAll<HTMLOptionElement>('#comparison-options option')];
+    expect(options.map((option) => option.value)).toEqual(['HEAD', 'HEAD~1', 'ccccccc', 'bbbbbbb', 'aaaaaaa']);
+    expect(options[3].label).toBe('bbbbbbb Commit 1');
+    input.value = 'HEAD~1'; input.dispatchEvent(new InputEvent('input', { inputType: 'insertReplacementText' })); await flush();
+    expect(new URL(location.href).searchParams.get('base')).toBe('b'.repeat(40));
+    input.value = 'HEAD'; input.dispatchEvent(new InputEvent('input', { inputType: 'insertText' })); await flush();
+    expect(new URL(location.href).searchParams.get('base')).toBe('b'.repeat(40));
+  });
+
   it('groups consecutive matched characters into one mark', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: ['web/src/main.ts'] }) : reply(page([]))));
     await import('../src/main'); await flush();

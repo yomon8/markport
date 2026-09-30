@@ -4,7 +4,7 @@ import { drawMermaid } from './mermaid';
 import { TreeView, type Page } from './tree';
 import { effectiveTheme, initTheme } from './theme';
 import { renderChanges, renderDiff, diffURL, orderedChanges, reviewButton, type Change, type ChangesReply, type DiffReply } from './diff';
-import { comparisonURL, historyURL, renderCommit, renderCommitDiff, renderHistoryList, type CommitDetail, type HistoryPage } from './history';
+import { comparisonBase, comparisonOptions, comparisonURL, historyURL, renderCommit, renderCommitDiff, renderHistoryList, type Commit, type CommitDetail, type HistoryPage } from './history';
 import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
 import { copyText } from './clipboard';
@@ -50,11 +50,13 @@ const title = document.querySelector<HTMLElement>('#file-title')!;
 const comparisonControls = document.createElement('div'); comparisonControls.className = 'comparison-controls'; comparisonControls.hidden = true;
 const comparisonForm = document.createElement('form'); comparisonForm.className = 'comparison-form';
 const comparisonLabel = document.createElement('label'); comparisonLabel.htmlFor = 'comparison-base'; comparisonLabel.textContent = 'Compare with current from';
-const comparisonInput = document.createElement('input'); comparisonInput.id = 'comparison-base'; comparisonInput.type = 'text'; comparisonInput.placeholder = 'Commit ID or HEAD'; comparisonInput.autocomplete = 'off'; comparisonInput.spellcheck = false;
+const comparisonInput = document.createElement('input'); comparisonInput.id = 'comparison-base'; comparisonInput.type = 'text'; comparisonInput.placeholder = 'Commit ID or HEAD'; comparisonInput.autocomplete = 'off'; comparisonInput.spellcheck = false; comparisonInput.setAttribute('list', 'comparison-options');
+const comparisonList = document.createElement('datalist'); comparisonList.id = 'comparison-options';
+const comparisonError = document.createElement('span'); comparisonError.className = 'comparison-error'; comparisonError.setAttribute('role', 'alert'); comparisonError.hidden = true;
 const comparisonSubmit = document.createElement('button'); comparisonSubmit.type = 'submit'; comparisonSubmit.textContent = 'Compare';
 const comparisonReset = document.createElement('button'); comparisonReset.type = 'button'; comparisonReset.textContent = 'Use HEAD';
 const comparisonCurrent = document.createElement('span'); comparisonCurrent.className = 'comparison-current';
-comparisonForm.append(comparisonLabel, comparisonInput, comparisonSubmit); comparisonControls.append(comparisonForm, comparisonReset, comparisonCurrent); title.after(comparisonControls);
+comparisonForm.append(comparisonLabel, comparisonInput, comparisonList, comparisonSubmit); comparisonControls.append(comparisonForm, comparisonReset, comparisonError, comparisonCurrent); title.after(comparisonControls);
 const search = document.querySelector<HTMLInputElement>('#search')!;
 const count = document.querySelector<HTMLElement>('#result-count')!;
 const collapseAll = document.querySelector<HTMLButtonElement>('#collapse-all')!;
@@ -164,7 +166,33 @@ function syncComparisonControls(): void {
   comparisonCurrent.textContent = `Base: ${base ? base.slice(0, 12) : 'HEAD'} → current working files`;
   comparisonReset.hidden = !base;
 }
-comparisonForm.addEventListener('submit', (event) => { event.preventDefault(); navigate(comparisonURL(comparisonInput.value.trim())); });
+let comparisonCommits: Commit[] = []; let comparisonLoadedAt = 0;
+function fillComparisonOptions(): void {
+  comparisonList.replaceChildren(...comparisonOptions(comparisonCommits).map((choice) => {
+    const option = document.createElement('option'); option.value = choice.value; option.label = choice.label; option.textContent = choice.label; return option;
+  }));
+}
+async function loadComparisonOptions(): Promise<void> {
+  if (Date.now() - comparisonLoadedAt < 30000) return;
+  comparisonLoadedAt = Date.now();
+  try {
+    const reply = await getGit<HistoryPage>('/api/git/history');
+    if (reply.available) { comparisonCommits = reply.commits; fillComparisonOptions(); }
+  } catch { comparisonLoadedAt = 0; }
+}
+fillComparisonOptions();
+comparisonInput.addEventListener('focus', () => { void loadComparisonOptions(); });
+function submitComparison(): void {
+  const base = comparisonBase(comparisonInput.value, comparisonCommits);
+  if (base === null) { comparisonError.textContent = 'Cannot load this comparison.'; comparisonError.hidden = false; return; }
+  navigate(comparisonURL(base));
+}
+comparisonInput.addEventListener('input', (event) => {
+  comparisonError.hidden = true;
+  const chosen = event instanceof InputEvent ? event.inputType === 'insertReplacementText' : true;
+  if (chosen && [...comparisonList.children].some((option) => (option as HTMLOptionElement).value === comparisonInput.value)) submitComparison();
+});
+comparisonForm.addEventListener('submit', (event) => { event.preventDefault(); submitComparison(); });
 comparisonReset.addEventListener('click', () => navigate(comparisonURL()));
 function fileURL(path: string): string { return `/?path=${encodeURIComponent(path)}`; }
 function downloadFile(path: string): void {
@@ -1104,6 +1132,7 @@ async function refreshLoop(): Promise<void> {
         if (path && mode !== 'history') lastFilePath = path;
         if (changesReply) {
           currentChanges = changesReply;
+          if (mode === 'changes' || mode === 'diff') comparisonError.hidden = true;
           if (review.sync(changesReply)) reviewVersion++;
           updateChangeViews();
           syncDiffButton(path);
@@ -1204,6 +1233,7 @@ async function refreshLoop(): Promise<void> {
         if ((mode === 'changes' || mode === 'diff') && base !== (currentChanges?.base ?? '')) {
           currentChanges = undefined; displayedChanges = '';
           const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = 'Cannot load this comparison.';
+          comparisonError.textContent = 'Cannot load this comparison.'; comparisonError.hidden = false;
           changesTree.replaceChildren(hint);
         }
         if (foreground || path !== displayedPath || mode !== displayedMode || !(error instanceof RequestError && error.code === 'network')) showError(error, path);

@@ -467,6 +467,16 @@ test('keeps sidebar rows compact with precise pointers and touch-sized with coar
   await touch.close();
 });
 
+test('keeps the comparison form on one row at desktop width', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.route('**/api/git/changes**', (route) => route.fulfill({ json: { available: true, rootId: 'cmp-row', changes: [] } }));
+  await page.goto(`http://127.0.0.1:${port}/?view=changes`);
+  const controls = page.locator('.comparison-controls');
+  await expect(controls).toBeVisible();
+  expect((await controls.boundingBox())!.height).toBeLessThan(60);
+  expect((await page.locator('#comparison-base').boundingBox())!.width).toBeLessThan(260);
+});
+
 test('keeps the file name fully visible in a narrow title bar', async ({ page }) => {
   for (const width of [900, 700, 390]) {
     await page.setViewportSize({ width, height: 800 });
