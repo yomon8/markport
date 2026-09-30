@@ -1004,7 +1004,8 @@ test('tracks imported descendants and an in-root directory move', async ({ page 
   await mkdir(join(source, 'folder', 'child'), { recursive: true });
   await writeFile(join(source, 'folder', 'child', 'nested.md'), '# Nested first\n');
   await page.goto(`http://127.0.0.1:${port}/`);
-  await expect(page.locator('#connection')).toHaveText('Checking every few seconds');
+  await expect(page.locator('#connection')).toHaveText('Live · auto-refresh on');
+  await expect(page.locator('#connection')).toHaveAttribute('title', 'Live · auto-refresh on');
   await rename(join(source, 'folder'), join(directory, 'folder'));
   await expect(page.locator('details[data-path="folder"]')).toHaveCount(1);
   await page.locator('details[data-path="folder"] > summary').click();

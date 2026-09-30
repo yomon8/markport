@@ -321,7 +321,7 @@ export class TreeView {
         this.tree.append(list);
       }
     } else {
-      this.count.textContent = `${this.fileCount()} ${this.fileCount() === 1 ? 'file' : 'files'} loaded from open folders`;
+      this.count.textContent = '';
       if (this.has('') && !this.nodes('').length) { const empty = document.createElement('p'); empty.className = 'hint'; empty.textContent = 'No files to display (.git, node_modules, and .venv are excluded).'; this.tree.append(empty); }
       else this.appendNodes(this.tree, '');
       this.collapseButton.disabled = !this.tree.querySelector('details[open]');

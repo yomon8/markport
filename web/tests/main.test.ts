@@ -466,6 +466,16 @@ describe('lazy browsing and refresh', () => {
     expect(results[0].querySelectorAll('.node-parent-path mark')).toHaveLength(0);
   });
 
+  it('shows no internal file count and a friendly connection status', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: ['a.md'] }) : reply(page([{ name: 'a.md', path: 'a.md', type: 'file' }]))));
+    await import('../src/main'); await flush();
+    expect(document.querySelector('#result-count')?.textContent).toBe('');
+    expect(document.querySelector('#content .empty-state p')?.textContent).toBe('Select a file from the list, or press / to search.');
+    const connection = document.querySelector<HTMLElement>('#connection')!;
+    expect(connection.title).toBe('Live · auto-refresh on');
+    expect(connection.getAttribute('aria-label')).toBe('Live · auto-refresh on');
+  });
+
   it('groups consecutive matched characters into one mark', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: ['web/src/main.ts'] }) : reply(page([]))));
     await import('../src/main'); await flush();

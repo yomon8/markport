@@ -272,9 +272,10 @@ function showRightOnly(): void {
   history.pushState({ scroll: rightPane.scrollTop }, '', url);
   sourceMode = rightSourceMode; rightPane.hidden = true; layout.classList.remove('split'); requestRefresh();
 }
+const liveMessage = 'Live · auto-refresh on';
 function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
   if (connection.dataset.state === state && connection.title === message) return;
-  connection.querySelector<HTMLElement>('.connection-label')!.textContent = message; connection.dataset.state = state; connection.title = message;
+  connection.querySelector<HTMLElement>('.connection-label')!.textContent = message; connection.dataset.state = state; connection.title = message; connection.setAttribute('aria-label', message);
   banner.hidden = state === 'ok'; banner.replaceChildren();
   if (state !== 'ok') {
     banner.append(document.createTextNode(state === 'error' ? 'Refresh failed. Check the connection and files.' : 'Checking connection.'));
@@ -673,7 +674,7 @@ async function loadOlderHistory(): Promise<void> {
   }
 }
 function showEmpty(): void {
-  const detailText = `${view.fileCount()} ${view.fileCount() === 1 ? 'file' : 'files'} loaded from ${rootName || 'the root directory'}. Open a folder to see more, or press / to search.`;
+  const detailText = 'Select a file from the list, or press / to search.';
   if (content.querySelector('.empty-state p')?.textContent === detailText) return;
   content.replaceChildren(); const box = document.createElement('div'); box.className = 'empty-state';
   const heading = document.createElement('h2'); heading.textContent = 'Select a file';
@@ -1111,19 +1112,19 @@ async function refreshLoop(): Promise<void> {
               displayedHTML = key; outline.hidden = true; showTitle('');
             }
           }
-          status('Checking every few seconds', 'ok'); continue;
+          status(liveMessage, 'ok'); continue;
         }
         if (mode === 'changes') {
-          status('Checking every few seconds', 'ok'); continue;
+          status(liveMessage, 'ok'); continue;
         }
         if (mode === 'paste') {
           if (pathChanged || content.dataset.kind !== 'paste') showPaste();
-          status('Checking every few seconds', 'ok'); continue;
+          status(liveMessage, 'ok'); continue;
         }
-        if (!path) { if (pathChanged) showTitle(''); showEmpty(); status('Checking every few seconds', 'ok'); continue; }
+        if (!path) { if (pathChanged) showTitle(''); showEmpty(); status(liveMessage, 'ok'); continue; }
         if (fileReply && 'error' in fileReply) {
           if (fileReply.error instanceof RequestError && fileReply.error.code === 'network') throw fileReply.error;
-          showError(fileReply.error, path); displayedHTML = ''; displayedTag = ''; status('Checking every few seconds', 'ok'); continue;
+          showError(fileReply.error, path); displayedHTML = ''; displayedTag = ''; status(liveMessage, 'ok'); continue;
         }
         if (mode === 'diff' && fileReply && 'value' in fileReply) {
           const diff = fileReply.value as DiffReply;
@@ -1132,11 +1133,11 @@ async function refreshLoop(): Promise<void> {
             content.dataset.kind = 'diff'; renderDiff(content, diff); displayedHTML = displayKey;
             outline.hidden = true; showTitle(path, 'diff');
           }
-          status('Checking every few seconds', 'ok'); continue;
+          status(liveMessage, 'ok'); continue;
         }
         if (fileReply && 'value' in fileReply) {
           const file = fileReply.value as FileReply | null;
-          if (!file) { highlightCodeLines(pendingLineJump); pendingLineJump = false; status('Checking every few seconds', 'ok'); continue; }
+          if (!file) { highlightCodeLines(pendingLineJump); pendingLineJump = false; status(liveMessage, 'ok'); continue; }
           const displayKey = filePreviewKey(file, path);
           const changed = displayedHTML !== displayKey || displayedSource !== source;
           if (changed) {
@@ -1167,7 +1168,7 @@ async function refreshLoop(): Promise<void> {
           if (pathChanged) view.reveal(path);
           if (pathChanged && !preserveTabFocus) title.focus({ preventScroll: true });
         }
-        status('Checking every few seconds', 'ok');
+        status(liveMessage, 'ok');
       } catch (error) {
         if (current !== revision) { pending = true; continue; }
         if ((mode === 'changes' || mode === 'diff') && base !== (currentChanges?.base ?? '')) {
@@ -1300,7 +1301,7 @@ resize.addEventListener('pointercancel', () => resize.classList.remove('dragging
 resize.addEventListener('keydown', (event) => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; const width = Math.max(200, Math.min(480, Number(localStorage.getItem('markport-sidebar-width') ?? 280) + (event.key === 'ArrowRight' ? 10 : -10))); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
 initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => { updateBrand(); if (content.querySelector('[data-mermaid]')) { if (selectedMode() === 'paste') refreshPastedPreview?.(); else { displayedHTML = ''; requestRefresh(); } } if (rightContent.querySelector('[data-mermaid]')) { rightShownKey = ''; void refreshRight(); } });
 updateBrand();
-status('Checking every few seconds', 'ok');
+status(liveMessage, 'ok');
 requestRefresh();
 const pollTimer = setInterval(() => { if (!document.hidden) requestRefresh(false); }, 3000);
 window.addEventListener('pagehide', () => { clearInterval(pollTimer); onSearchChange(''); });
