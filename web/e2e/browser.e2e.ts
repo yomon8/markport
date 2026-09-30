@@ -300,6 +300,35 @@ test('downloads original files from both panes and the mobile menu', async ({ pa
   }
 });
 
+test('contents button follows the persistent outline and split view', async ({ page }) => {
+  await writeFile(join(directory, 'contents.md'), '# Contents\n\n## First\n\n## Second\n');
+  await page.setViewportSize({ width: 1200, height: 900 });
+  await page.goto(`http://127.0.0.1:${port}/?path=contents.md`);
+  const contents = page.locator('#file-title').getByRole('button', { name: 'Contents', exact: true });
+  await expect(page.locator('#outline')).toBeVisible();
+  await expect(contents).toBeHidden();
+
+  await page.setViewportSize({ width: 1199, height: 900 });
+  await expect(contents).toBeVisible();
+  await expect(page.locator('#outline')).toBeHidden();
+  await contents.click();
+  await expect(page.locator('#outline')).toBeVisible();
+  await contents.click();
+  await expect(page.locator('#outline')).toBeHidden();
+
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await expect(contents).toBeHidden();
+  await expect(page.locator('#outline')).toBeVisible();
+  await page.getByRole('button', { name: 'Open on right', exact: true }).click();
+  await expect(contents).toBeVisible();
+  await expect(page.locator('#outline')).toBeHidden();
+  await contents.click();
+  await expect(page.locator('#outline')).toBeVisible();
+  await page.getByRole('button', { name: 'Close split view', exact: true }).click();
+  await expect(contents).toBeHidden();
+  await expect(page.locator('#outline')).toBeVisible();
+});
+
 test('mobile title stays one row and keeps reading actions close', async ({ page }, testInfo) => {
   await writeFile(join(directory, 'mobile-title.md'), `# Mobile title\n\n## First\n\n${'Reading line\n\n'.repeat(60)}## Second\n\n## Third\n\n## Fourth\n`);
   await page.setViewportSize({ width: 390, height: 844 });
