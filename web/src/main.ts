@@ -1,3 +1,4 @@
+import { iconSVG, setIcon, type IconName } from './icons';
 import './style.css';
 import { drawMermaid } from './mermaid';
 import { TreeView, type Page } from './tree';
@@ -21,7 +22,7 @@ type ApiError = { error?: string; message?: string };
 class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
-app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">☰</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">☰</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><div id="header-extras"><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button></div><button id="header-more" type="button" aria-label="More header actions" aria-expanded="false" aria-controls="header-extras">⋯</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">↻</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button><button id="history-tab" type="button" role="tab" aria-controls="history-tree">History</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><div class="files-search-heading"><label for="search">Search files</label><button id="collapse-all" type="button" aria-label="Collapse all folders" title="Collapse all folders" disabled>Collapse all</button></div><input id="search" type="search" placeholder="Path or file name, e.g. file.md:123"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav><nav id="history-tree" role="tabpanel" aria-labelledby="history-tab" aria-label="Commit history" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><div id="right-path" class="breadcrumbs"></div><div class="right-actions"><span id="right-kind" class="kind-badge"></span><div id="right-views" class="view-segment" role="group" aria-label="Rendered view or Source"><button id="right-rendered" type="button" aria-pressed="true">Rendered view</button><button id="right-source" type="button" aria-pressed="false">Source</button></div><button id="right-interactive" type="button" hidden>Enable JavaScript</button><button id="right-copy" type="button" class="title-icon" aria-label="Copy path" title="Copy path">⧉</button><button id="right-contents" type="button" class="title-icon" aria-label="Contents" title="Contents" hidden>☷</button><button id="right-swap" type="button" class="title-icon" aria-label="Swap panes" title="Swap panes">⇄</button><button id="right-only" type="button" class="title-icon" aria-label="Show this file only" title="Show this file only">▣</button><button id="right-close" type="button" class="title-icon" aria-label="Close split view" title="Close split view">×</button></div></div><article id="right-content" aria-busy="false"></article><nav id="right-outline" aria-label="Right table of contents" hidden></nav></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
+app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">${iconSVG('menu')}</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">${iconSVG('panelLeft')}</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><div id="header-extras"><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button">Paste Markdown</button></div><button id="header-more" type="button" aria-label="More header actions" title="More header actions" aria-expanded="false" aria-controls="header-extras">${iconSVG('more')}</button><button id="reload" type="button"><span class="reload-icon" aria-hidden="true">${iconSVG('refresh')}</span> Refresh</button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button><button id="history-tab" type="button" role="tab" aria-controls="history-tree">History</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><div class="files-search-heading"><label for="search">Search files</label><button id="collapse-all" type="button" aria-label="Collapse all folders" title="Collapse all folders" disabled>Collapse all</button></div><input id="search" type="search" placeholder="Path or file name, e.g. file.md:123"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav><nav id="history-tree" role="tabpanel" aria-labelledby="history-tab" aria-label="Commit history" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><div id="right-path" class="breadcrumbs"></div><div class="right-actions"><span id="right-kind" class="kind-badge"></span><div id="right-views" class="view-segment" role="group" aria-label="Rendered view or Source"><button id="right-rendered" type="button" aria-pressed="true">Rendered view</button><button id="right-source" type="button" aria-pressed="false">Source</button></div><button id="right-interactive" type="button" hidden>Enable JavaScript</button><button id="right-copy" type="button" class="title-icon" aria-label="Copy path" title="Copy path">${iconSVG('copy')}</button><button id="right-contents" type="button" class="title-icon" aria-label="Contents" title="Contents" hidden>${iconSVG('list')}</button><button id="right-swap" type="button" class="title-icon" aria-label="Swap panes" title="Swap panes">${iconSVG('swap')}</button><button id="right-only" type="button" class="title-icon" aria-label="Show this file only" title="Show this file only">${iconSVG('maximize')}</button><button id="right-close" type="button" class="title-icon" aria-label="Close split view" title="Close split view">${iconSVG('close')}</button></div></div><article id="right-content" aria-busy="false"></article><nav id="right-outline" aria-label="Right table of contents" hidden></nav></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
 const diagramOverlay = createDiagramOverlay();
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
@@ -80,11 +81,11 @@ const rightSource = document.querySelector<HTMLButtonElement>('#right-source')!;
 const rightOutline = document.querySelector<HTMLElement>('#right-outline')!;
 const rightContents = document.querySelector<HTMLButtonElement>('#right-contents')!;
 const rightDownload = document.createElement('button');
-rightDownload.type = 'button'; rightDownload.className = 'title-icon'; rightDownload.textContent = '↓';
+rightDownload.type = 'button'; rightDownload.className = 'title-icon'; setIcon(rightDownload, 'download');
 rightDownload.setAttribute('aria-label', 'Download'); rightDownload.title = 'Download';
 document.querySelector('#right-copy')!.before(rightDownload);
 const rightOpenPDF = document.createElement('button');
-rightOpenPDF.type = 'button'; rightOpenPDF.className = 'title-icon'; rightOpenPDF.textContent = '↗';
+rightOpenPDF.type = 'button'; rightOpenPDF.className = 'title-icon'; setIcon(rightOpenPDF, 'external');
 rightOpenPDF.setAttribute('aria-label', 'Open PDF in new tab'); rightOpenPDF.title = 'Open PDF in new tab'; rightOpenPDF.hidden = true;
 rightDownload.before(rightOpenPDF);
 let rightShownPath = ''; let rightShownKey = ''; let rightSourceMode = false; let rightRequest = 0;
@@ -286,8 +287,14 @@ const copyTimers = new WeakMap<HTMLButtonElement, ReturnType<typeof setTimeout>>
 function copyWithFeedback(button: HTMLButtonElement, text: string, label: string): void {
   void copyText(text).then((copied) => {
     clearTimeout(copyTimers.get(button));
-    button.textContent = copied ? 'Copied' : 'Copy failed';
-    copyTimers.set(button, setTimeout(() => { button.textContent = label; copyTimers.delete(button); }, 2000));
+    const iconic = button.classList.contains('title-icon');
+    const restore = button.dataset.icon as IconName | undefined;
+    if (iconic) { setIcon(button, copied ? 'check' : 'close'); button.title = copied ? 'Copied' : 'Copy failed'; }
+    else button.textContent = copied ? 'Copied' : 'Copy failed';
+    copyTimers.set(button, setTimeout(() => {
+      if (iconic) { setIcon(button, restore ?? 'copy'); button.title = label; } else button.textContent = label;
+      copyTimers.delete(button);
+    }, 2000));
   });
 }
 function scheduleSearchIndexRefresh(): void {
@@ -532,7 +539,7 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
     interactive.addEventListener('click', () => setInteractive(path, !enabled)); actions.append(interactive);
   }
   const auxiliary = document.createElement('div'); auxiliary.className = 'title-auxiliary';
-  const menuButton = document.createElement('button'); menuButton.type = 'button'; menuButton.className = 'title-more'; menuButton.textContent = '⋯'; menuButton.title = 'More actions'; menuButton.setAttribute('aria-label', 'More actions'); menuButton.setAttribute('aria-expanded', 'false'); menuButton.setAttribute('aria-haspopup', 'menu');
+  const menuButton = document.createElement('button'); menuButton.type = 'button'; menuButton.className = 'title-more'; setIcon(menuButton, 'more'); menuButton.title = 'More actions'; menuButton.setAttribute('aria-label', 'More actions'); menuButton.setAttribute('aria-expanded', 'false'); menuButton.setAttribute('aria-haspopup', 'menu');
   const menu = document.createElement('div'); menu.className = 'title-menu'; menu.setAttribute('role', 'menu'); menu.hidden = true;
   const closeMenu = (): void => { menu.hidden = true; menuButton.setAttribute('aria-expanded', 'false'); menuButton.focus(); };
   menuButton.addEventListener('click', () => { menu.hidden = !menu.hidden; menuButton.setAttribute('aria-expanded', String(!menu.hidden)); if (!menu.hidden) menu.querySelector<HTMLButtonElement>('button')?.focus(); });
@@ -542,16 +549,16 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
     event.preventDefault(); const items = [...menu.querySelectorAll<HTMLButtonElement>('button')]; const index = items.indexOf(document.activeElement as HTMLButtonElement);
     items[(index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
   });
-  const addAux = (label: string, icon: string, action: (button: HTMLButtonElement) => void, visible = true): void => {
+  const addAux = (label: string, icon: IconName, action: (button: HTMLButtonElement) => void, visible = true): void => {
     if (!visible) return;
-    const desktop = document.createElement('button'); desktop.type = 'button'; desktop.className = 'title-icon'; desktop.textContent = icon; desktop.title = label; desktop.setAttribute('aria-label', label); desktop.addEventListener('click', () => action(desktop)); auxiliary.append(desktop);
+    const desktop = document.createElement('button'); desktop.type = 'button'; desktop.className = 'title-icon'; setIcon(desktop, icon); desktop.title = label; desktop.setAttribute('aria-label', label); desktop.addEventListener('click', () => action(desktop)); auxiliary.append(desktop);
     const mobile = document.createElement('button'); mobile.type = 'button'; mobile.setAttribute('role', 'menuitem'); mobile.textContent = label; mobile.addEventListener('click', () => { action(mobile); closeMenu(); }); menu.append(mobile);
   };
-  addAux('Open on right', '◫', () => openRight(path), selectedMode() === 'file');
-  addAux('Open PDF in new tab', '↗', () => openPDF(path), kind === 'pdf');
-  addAux('Download', '↓', () => downloadFile(path), canDownload && !missing && (selectedMode() !== 'diff' || currentChanges?.changes.find((change) => change.path === path)?.status !== 'deleted'));
-  addAux('Copy path', '⧉', (button) => copyWithFeedback(button, path, button.classList.contains('title-icon') ? '⧉' : 'Copy path'));
-  addAux('Contents', '☷', () => outline.classList.toggle('open'), !outline.hidden);
+  addAux('Open on right', 'panelRight', () => openRight(path), selectedMode() === 'file');
+  addAux('Open PDF in new tab', 'external', () => openPDF(path), kind === 'pdf');
+  addAux('Download', 'download', () => downloadFile(path), canDownload && !missing && (selectedMode() !== 'diff' || currentChanges?.changes.find((change) => change.path === path)?.status !== 'deleted'));
+  addAux('Copy path', 'copy', (button) => copyWithFeedback(button, path, 'Copy path'));
+  addAux('Contents', 'list', () => outline.classList.toggle('open'), !outline.hidden);
   const mobileChoices = [...actions.querySelectorAll<HTMLButtonElement>('.view-segment button, .review-toggle, .diff-navigation button, .interactive-toggle')].map((control) => {
     const item = document.createElement('button'); item.type = 'button';
     item.textContent = control.getAttribute('aria-label') ?? control.textContent;
@@ -1266,7 +1273,7 @@ document.querySelector('#right-close')!.addEventListener('click', closeRight);
 rightSource.addEventListener('click', () => { rightSourceMode = true; rightShownKey = ''; rightTag = ''; void refreshRight(); });
 rightRendered.addEventListener('click', () => { rightLineHash = ''; pendingRightLineJump = false; rightSourceMode = false; rightShownKey = ''; rightTag = ''; void refreshRight(); });
 rightContents.addEventListener('click', () => rightOutline.classList.toggle('open'));
-document.querySelector('#right-copy')!.addEventListener('click', (event) => { const path = rightSelected(); if (path) copyWithFeedback(event.currentTarget as HTMLButtonElement, path, '⧉'); });
+document.querySelector('#right-copy')!.addEventListener('click', (event) => { const path = rightSelected(); if (path) copyWithFeedback(event.currentTarget as HTMLButtonElement, path, 'Copy path'); });
 rightDownload.addEventListener('click', () => { const path = rightSelected(); if (path) downloadFile(path); });
 rightOpenPDF.addEventListener('click', () => { const path = rightSelected(); if (path) openPDF(path); });
 document.querySelector('#right-swap')!.addEventListener('click', swapPanes);

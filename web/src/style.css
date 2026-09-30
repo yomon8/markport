@@ -168,3 +168,9 @@ header button{height:34px;min-height:34px;font-size:13px;line-height:1.2;padding
   .title-actions .title-menu button{text-align:left;border:0;background:transparent}
   .title-actions .title-menu button:hover,.title-actions .title-menu button:focus-visible{background:var(--hover)}
 }
+
+/* SVG icons inherit the button colour and stay a fixed size. */
+.icon{width:16px;height:16px;flex:none;vertical-align:-3px}
+.title-icon .icon,nav .open-right .icon,.title-more .icon{display:block;margin:auto}
+#theme-toggle .icon,#header-more .icon,#drawer-toggle .icon,#sidebar-toggle .icon{display:block}
+.reload-icon .icon{display:block}

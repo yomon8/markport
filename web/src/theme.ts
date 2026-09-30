@@ -1,7 +1,8 @@
+import { setIcon, type IconName } from './icons';
 export type Theme = 'auto' | 'light' | 'dark';
 const choices: Theme[] = ['auto', 'light', 'dark'];
 const labels: Record<Theme, string> = { auto: 'Auto', light: 'Light', dark: 'Dark' };
-const icons: Record<Theme, string> = { auto: '◐', light: '☀', dark: '☾' };
+const icons: Record<Theme, IconName> = { auto: 'auto', light: 'sun', dark: 'moon' };
 
 function preference(): Theme {
   const saved = localStorage.getItem('markport-theme');
@@ -25,7 +26,7 @@ export function initTheme(button: HTMLButtonElement, redraw: () => void): void {
   function apply(): void {
     const selected = preference();
     document.documentElement.dataset.theme = effectiveTheme();
-    button.textContent = icons[selected]; button.setAttribute('aria-label', `Theme: ${labels[selected]}`);
+    setIcon(button, icons[selected]); button.setAttribute('aria-label', `Theme: ${labels[selected]}`);
     button.title = `Theme: ${labels[selected]}`;
     items.forEach((item, index) => item.setAttribute('aria-checked', String(choices[index] === selected)));
   }

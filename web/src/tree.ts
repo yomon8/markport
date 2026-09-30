@@ -1,4 +1,5 @@
 import { matchesShortcut } from './shortcuts';
+import { setIcon } from './icons';
 export type Node = { name: string; path: string; type: 'directory' | 'file' };
 export type Page = { entries: Node[]; offset: number; nextOffset: number | null; revision: string; root: string; readme?: string };
 type Directory = { pages: Map<number, Node[]>; next: Map<number, number | null>; revision: string };
@@ -129,7 +130,7 @@ function fileLink(node: Node, selected: string, positions?: number[], line?: num
   if (node.path === selected) link.setAttribute('aria-current', 'page');
   const right = document.createElement('button'); right.type = 'button'; right.className = 'open-right'; right.dataset.rightPath = node.path;
   if (line) right.dataset.rightLine = String(line);
-  right.title = `Open ${destination} on right`; right.setAttribute('aria-label', `Open ${destination} on right`); right.textContent = '⇥';
+  right.title = `Open ${destination} on right`; right.setAttribute('aria-label', `Open ${destination} on right`); setIcon(right, 'panelRight');
   row.append(link, right); return row;
 }
 export class TreeView {

@@ -476,6 +476,25 @@ describe('lazy browsing and refresh', () => {
     expect(connection.getAttribute('aria-label')).toBe('Live · auto-refresh on');
   });
 
+  it('uses labelled SVG icons for icon-only buttons and restores the icon after copying', async () => {
+    history.replaceState(null, '', '/?path=a.md');
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn(async () => {}) } });
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree' ? reply(page([entry('a.md')])) : reply({ path: 'a.md', type: 'markdown', html: '<h1>A</h1>' })));
+    await import('../src/main'); await flush();
+    const copy = document.querySelector<HTMLButtonElement>('#file-title .title-icon[aria-label="Copy path"]')!;
+    const iconOnly = [...document.querySelectorAll<HTMLButtonElement>('header button, #file-title .title-icon, #right-pane .title-icon, .open-right')].filter((button) => button.querySelector('svg') && !button.textContent?.trim());
+    expect(iconOnly.length).toBeGreaterThan(5);
+    for (const button of iconOnly) expect([button.id || button.className, button.getAttribute('aria-label'), button.title].every(Boolean)).toBe(true);
+    expect([...document.querySelectorAll('button, .reload-icon')].map((button) => button.textContent).join('')).not.toMatch(/[◫↓⧉☷⇄▣↗☰◐↻⋯⇥☀☾]/);
+    const before = copy.innerHTML;
+    vi.useFakeTimers();
+    copy.click(); await vi.advanceTimersByTimeAsync(0);
+    expect(copy.dataset.icon).toBe('check'); expect(copy.title).toBe('Copied');
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(copy.innerHTML).toBe(before); expect(copy.title).toBe('Copy path');
+    vi.useRealTimers();
+  });
+
   it('groups consecutive matched characters into one mark', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: ['web/src/main.ts'] }) : reply(page([]))));
     await import('../src/main'); await flush();
