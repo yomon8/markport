@@ -43,7 +43,7 @@ export function orderedChanges(changes: Change[], treeView: boolean): Change[] {
   return result;
 }
 
-export function reviewButton(change: Change, isReviewed: boolean, toggle: () => void): HTMLButtonElement {
+export function reviewButton(change: Change, isReviewed: boolean, toggle: () => void, labeled = false): HTMLButtonElement {
   const button = document.createElement('button'); button.type = 'button'; button.className = 'review-toggle';
   button.setAttribute('aria-pressed', String(isReviewed));
   button.setAttribute('aria-label', `${isReviewed ? 'Mark unreviewed' : 'Mark reviewed'}: ${change.path}`);
@@ -58,8 +58,37 @@ export function reviewButton(change: Change, isReviewed: boolean, toggle: () => 
     check.setAttribute('d', 'M5 10l3 3 7-7'); icon.append(check);
   }
   button.append(icon);
+  if (labeled) {
+    const label = document.createElement('span'); label.className = 'review-label'; label.textContent = isReviewed ? 'Reviewed' : 'Mark reviewed';
+    button.classList.add('labeled'); button.append(label);
+  }
   button.addEventListener('click', toggle);
   return button;
+}
+
+export function summarizeChanges(changes: Change[], reviewed: (change: Change) => boolean): { files: number; added: number; deleted: number; reviewed: number } {
+  let added = 0; let deleted = 0; let done = 0;
+  for (const change of changes) {
+    added += change.added ?? 0; deleted += change.deleted ?? 0;
+    if (reviewed(change)) done++;
+  }
+  return { files: changes.length, added, deleted, reviewed: done };
+}
+
+function changeSummary(reply: ChangesReply, reviewed: (change: Change) => boolean): HTMLElement {
+  const total = summarizeChanges(reply.changes, reviewed);
+  const box = document.createElement('section'); box.className = 'change-summary'; box.setAttribute('aria-label', 'Change summary');
+  const heading = document.createElement('div'); heading.className = 'change-summary-heading';
+  const files = document.createElement('strong'); files.textContent = `${total.files} ${total.files === 1 ? 'file' : 'files'} changed`;
+  const lines = document.createElement('span'); lines.className = 'change-lines'; lines.textContent = `+${total.added} −${total.deleted}`;
+  lines.setAttribute('aria-label', `Added ${total.added} lines, deleted ${total.deleted} lines`);
+  heading.append(files, lines);
+  const bar = document.createElement('div'); bar.className = 'review-progress'; bar.setAttribute('role', 'progressbar');
+  bar.setAttribute('aria-label', 'Reviewed files'); bar.setAttribute('aria-valuemin', '0'); bar.setAttribute('aria-valuemax', String(total.files)); bar.setAttribute('aria-valuenow', String(total.reviewed));
+  const fill = document.createElement('span'); fill.style.width = `${total.files ? Math.round((total.reviewed / total.files) * 100) : 0}%`; bar.append(fill);
+  const caption = document.createElement('span'); caption.className = 'review-progress-caption'; caption.textContent = `${total.reviewed} of ${total.files} reviewed`;
+  box.append(heading, bar, caption);
+  return box;
 }
 
 export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed: (change: Change) => boolean, toggle: (change: Change) => void, onlyUnreviewed: boolean, setFilter: (value: boolean) => void, treeView: boolean, setTreeView: (value: boolean) => void, collapsed: Set<string>, toggleFolder: (path: string, open: boolean) => void, compact = false): void {
@@ -70,6 +99,7 @@ export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed
     target.append(message); return;
   }
   const checked = reply.changes.filter(reviewed).length;
+  if (!compact && reply.changes.length) target.append(changeSummary(reply, reviewed));
   const controls = document.createElement('div'); controls.className = 'change-controls';
   const count = document.createElement('span'); count.className = 'review-count'; count.textContent = `${checked} of ${reply.changes.length} reviewed`;
   const filter = document.createElement('label'); filter.className = 'review-filter';
@@ -96,7 +126,7 @@ export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed
     lines.setAttribute('aria-label', `Added ${change.added ?? 'unknown'} lines, deleted ${change.deleted ?? 'unknown'} lines`);
     lines.textContent = change.added === null || change.deleted === null || change.added === undefined || change.deleted === undefined ? 'Binary' : `+${change.added} −${change.deleted}`;
     link.append(lines);
-    const button = reviewButton(change, reviewed(change), () => toggle(change));
+    const button = reviewButton(change, reviewed(change), () => toggle(change), !compact);
     item.append(link, button); return item;
   };
   const list = document.createElement('ul'); list.className = compact ? 'change-list compact' : 'change-list';

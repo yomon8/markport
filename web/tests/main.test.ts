@@ -534,6 +534,25 @@ describe('lazy browsing and refresh', () => {
     expect(links.map((link) => link.dataset.ignored)).toEqual([undefined, 'true']);
   });
 
+  it('shows the unreviewed count on the Changes tab and updates it when reviewing', async () => {
+    history.replaceState(null, '', '/?view=changes');
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url === '/api/tree') return reply(page([]));
+      if (url === '/api/git/changes') return reply({ available: true, rootId: 'badge', changes: [{ path: 'a.md', status: 'modified', revision: 'v1', added: 2, deleted: 1 }, { path: 'b.md', status: 'added', revision: 'v2', added: 4, deleted: 0 }] });
+      return reply({ error: 'not_found' }, 404);
+    }));
+    await import('../src/main'); await flush(); await flush();
+    const tab = document.querySelector<HTMLButtonElement>('#changes-tab')!;
+    expect(tab.querySelector('.tab-badge')?.textContent).toBe('2');
+    expect(tab.getAttribute('aria-label')).toBe('Changes, 2 unreviewed');
+    expect(document.querySelector('#content .change-summary')?.textContent).toContain('2 files changed');
+    document.querySelector<HTMLButtonElement>('#content .review-toggle')!.click(); await flush();
+    expect(tab.querySelector('.tab-badge')?.textContent).toBe('1');
+    document.querySelectorAll<HTMLButtonElement>('#content .review-toggle')[1].click(); await flush();
+    expect(tab.querySelector('.tab-badge')).toBeNull();
+    expect(tab.hasAttribute('aria-label')).toBe(false);
+  });
+
   it('groups consecutive matched characters into one mark', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: ['web/src/main.ts'] }) : reply(page([]))));
     await import('../src/main'); await flush();

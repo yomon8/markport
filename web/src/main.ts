@@ -629,7 +629,16 @@ function toggleChangeFolder(path: string, open: boolean): void {
     if (details.dataset.path === path && details.open !== open) details.open = open;
   }
 }
+function updateChangesBadge(): void {
+  const unreviewed = currentChanges?.available ? currentChanges.changes.filter((change) => !review.has(change.path, change.revision)).length : 0;
+  let badge = changesTab.querySelector<HTMLElement>('.tab-badge');
+  if (!unreviewed) { badge?.remove(); changesTab.removeAttribute('aria-label'); return; }
+  if (!badge) { badge = document.createElement('span'); badge.className = 'tab-badge'; badge.setAttribute('aria-hidden', 'true'); changesTab.append(badge); }
+  badge.textContent = String(unreviewed);
+  changesTab.setAttribute('aria-label', `Changes, ${unreviewed} unreviewed`);
+}
 function updateChangeViews(): void {
+  updateChangesBadge();
   if (!currentChanges) return;
   const rootId = currentChanges.rootId ?? '';
   if (changeRootId !== rootId) {

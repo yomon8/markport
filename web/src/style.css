@@ -205,3 +205,16 @@ nav a[aria-current]{font-weight:600}
 
 .search-results a[data-ignored=true]{opacity:.6}
 .search-results a[data-ignored=true]:hover,.search-results a[data-ignored=true]:focus-visible{opacity:1}
+
+/* Changes overview: summary, progress, labelled review buttons, tab badge. */
+.change-controls .review-filter{font-weight:400}
+.change-summary{display:grid;gap:8px;margin:0 0 18px;padding:14px 16px;border:1px solid var(--border);border-radius:8px;background:var(--surface)}
+.change-summary-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px;font-size:15px;color:var(--text)}
+.change-summary .change-lines{margin-left:0;font-size:13px}
+.review-progress{height:8px;border-radius:4px;background:var(--hover);overflow:hidden}
+.review-progress>span{display:block;height:100%;background:var(--success);transition:width .2s}
+.review-progress-caption{font-size:12px;color:var(--text-muted)}
+.review-toggle.labeled{display:inline-flex;align-items:center;gap:6px;width:auto;padding:0 12px;font-size:13px;white-space:nowrap}
+.change-list:not(.compact) a{padding:10px 8px}
+.tab-badge{display:inline-block;min-width:18px;margin-left:6px;padding:0 5px;border-radius:9px;background:var(--accent);color:var(--surface);font-size:11px;font-weight:700;line-height:18px;text-align:center}
+.sidebar-tabs button{white-space:nowrap;padding-left:4px;padding-right:4px}
