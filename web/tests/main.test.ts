@@ -27,6 +27,54 @@ beforeEach(() => {
 afterEach(() => { window.dispatchEvent(new Event('pagehide')); vi.unstubAllGlobals(); });
 
 describe('lazy browsing and refresh', () => {
+  it('closes only the theme menu on Escape and keeps focus inside mobile settings', async () => {
+    stubFetch(async () => reply(page([])));
+    await import('../src/main'); await flush();
+    document.querySelector<HTMLButtonElement>('#header-more')!.click();
+    const button = document.querySelector<HTMLButtonElement>('#theme-toggle')!; button.click();
+    document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.querySelector<HTMLElement>('#theme-menu')!.hidden).toBe(true);
+    expect(document.querySelector('#header-extras')!.classList.contains('open')).toBe(true);
+    expect(document.activeElement).toBe(button);
+  });
+
+  it('redraws diagrams in both panes without fetching files or replacing content on theme changes', async () => {
+    history.replaceState(null, '', '/?path=a.md&right=b.md');
+    const fetch = vi.fn(async (url: string) => url === '/api/tree'
+      ? reply(page([entry('a.md'), entry('b.md')]))
+      : reply({ path: url.includes('b.md') ? 'b.md' : 'a.md', type: 'markdown', html: '<h1>Diagram</h1><div data-mermaid="true">flowchart LR; A --> B</div>' }));
+    stubFetch(fetch);
+    await import('../src/main'); await flush();
+    const left = document.querySelector('#content h1'); const right = document.querySelector('#right-content h1');
+    const { drawMermaid } = await import('../src/mermaid');
+    vi.mocked(drawMermaid).mockClear(); fetch.mockClear();
+    const main = document.querySelector<HTMLElement>('#main')!; const rightPane = document.querySelector<HTMLElement>('#right-pane')!;
+    main.scrollTop = 120; rightPane.scrollTop = 240;
+    [...document.querySelectorAll<HTMLButtonElement>('#theme-menu button')].find((button) => button.textContent === 'Nord')!.click();
+    await flush();
+    expect(fetch).not.toHaveBeenCalled(); expect(drawMermaid).toHaveBeenCalledTimes(2);
+    expect(document.querySelector('#content h1')).toBe(left); expect(document.querySelector('#right-content h1')).toBe(right);
+    expect(main.scrollTop).toBe(120); expect(rightPane.scrollTop).toBe(240);
+  });
+
+  it('changes the pasted preview theme without rendering Markdown again or losing input', async () => {
+    history.replaceState(null, '', '/?view=paste');
+    const fetch = vi.fn(async (url: string) => url === '/api/render'
+      ? reply({ html: '<h1>Pasted</h1><div data-mermaid="true">flowchart LR; A --> B</div>' })
+      : reply(page([])));
+    stubFetch(fetch);
+    await import('../src/main'); await flush();
+    const input = document.querySelector<HTMLTextAreaElement>('#paste-input')!;
+    input.value = '# Pasted'; input.dispatchEvent(new Event('input'));
+    [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === 'Rendered view')!.click();
+    await flush();
+    const preview = document.querySelector('.paste-preview h1'); fetch.mockClear();
+    [...document.querySelectorAll<HTMLButtonElement>('#theme-menu button')].find((button) => button.textContent === 'Sepia')!.click();
+    await flush();
+    expect(fetch).not.toHaveBeenCalled(); expect(document.querySelector('.paste-preview h1')).toBe(preview);
+    expect(input.value).toBe('# Pasted'); expect(document.querySelector<HTMLElement>('.paste-preview')!.hidden).toBe(false);
+  });
+
   it.each([
     ['docs/guide.md:123', 'docs/guide.md', '123', true],
     ['  guide.md:0012  ', 'docs/guide.md', '12', true],

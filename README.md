@@ -38,6 +38,14 @@ Open the `http://127.0.0.1:3000/` URL printed at startup. Omit the directory to 
 
 Click the **Server info** (ⓘ) button in the header to check the browsed folder's absolute path, working directory at startup, running Markport version, and connection URL. The button is always available on desktop and mobile. For example, when you run `markport ./notes`, the browsing directory is the `notes` folder and the working directory is where you ran the command. The browsing path resolves symbolic links.
 
+### Color themes
+
+Use **Theme** in the header (under **App settings** on mobile) to choose **Auto**, **Light**, **Dark**, **Sepia**, or **Nord**. Auto follows your operating system's light/dark preference. Sepia uses warm colors for reading; Nord uses a dark blue-gray palette. Themes also apply to code highlighting, Git diffs, and Mermaid diagrams.
+
+The choice is saved in this browser for the same host and port and restored after reloads. HTML previews keep the document's colors; PDFs and images keep their original appearance.
+
+[See Sepia](docs/screenshots/content-search-sepia.png) · [See Nord](docs/screenshots/content-search-nord.png)
+
 ### Browser tab title
 
 Set a fixed browser tab title at startup:

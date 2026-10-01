@@ -60,7 +60,7 @@ test.afterAll(async () => {
 
 const url = (query: string): string => `http://127.0.0.1:${port}/${query}`;
 
-async function useTheme(page: Page, theme: 'light' | 'dark'): Promise<void> {
+async function useTheme(page: Page, theme: 'light' | 'dark' | 'sepia' | 'nord'): Promise<void> {
   await page.addInitScript((value) => localStorage.setItem('markport-theme', value), theme);
 }
 
@@ -85,6 +85,14 @@ test('content search in the dark theme', async ({ page }) => {
   await searchContent(page);
   await page.screenshot({ path: join(output, 'content-search-dark.png') });
 });
+
+for (const theme of ['sepia', 'nord'] as const) {
+  test(`content search in the ${theme} theme`, async ({ page }) => {
+    await useTheme(page, theme);
+    await searchContent(page);
+    await page.screenshot({ path: join(output, `content-search-${theme}.png`) });
+  });
+}
 
 test('split view', async ({ page }) => {
   await useTheme(page, 'light');

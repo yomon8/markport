@@ -36,6 +36,14 @@ markport ./notes
 
 ヘッダーの **Server info**（ⓘ）ボタンから、閲覧対象フォルダの絶対パス、起動時の作業ディレクトリ、起動中のMarkportのバージョン、接続先URLを確認できます。PC・モバイルともにボタンを常時表示します。例えば `markport ./notes` で起動した場合、閲覧対象は `notes` フォルダ、作業ディレクトリはコマンドを実行した場所です。閲覧対象のパスはシンボリックリンクの解決後の場所を表示します。
 
+### カラーテーマ
+
+ヘッダーの **Theme**（モバイルでは **App settings** 内）から **Auto**、**Light**、**Dark**、**Sepia**、**Nord** を選択できます。Auto は OS のライト／ダーク設定に追従します。Sepia は読書向けの暖色系、Nord は青灰色を基調としたダーク配色です。コードの構文色、Git 差分、Mermaid 図にもテーマが適用されます。
+
+選択は同じホスト・ポートのブラウザに保存され、再読み込み後も復元されます。HTML プレビューは文書の配色を維持し、PDF と画像は元の見た目を保ちます。
+
+[Sepia の画面](docs/screenshots/content-search-sepia.png) · [Nord の画面](docs/screenshots/content-search-nord.png)
+
 ### ブラウザのタブタイトル
 
 起動時にタブタイトルを指定できます。

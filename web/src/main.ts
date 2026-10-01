@@ -1430,7 +1430,13 @@ resize.addEventListener('pointermove', (event) => { if (!resize.hasPointerCaptur
 resize.addEventListener('pointerup', () => resize.classList.remove('dragging'));
 resize.addEventListener('pointercancel', () => resize.classList.remove('dragging'));
 resize.addEventListener('keydown', (event) => { if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return; const width = Math.max(200, Math.min(480, Number(localStorage.getItem('markport-sidebar-width') ?? 280) + (event.key === 'ArrowRight' ? 10 : -10))); document.documentElement.style.setProperty('--sidebar-width', `${width}px`); localStorage.setItem('markport-sidebar-width', String(width)); });
-initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => { updateBrand(); if (content.querySelector('[data-mermaid]')) { if (selectedMode() === 'paste') refreshPastedPreview?.(); else { displayedHTML = ''; requestRefresh(); } } if (rightContent.querySelector('[data-mermaid]')) { rightShownKey = ''; void refreshRight(); } });
+initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => {
+  updateBrand();
+  const mode = selectedMode(); const path = selected(); const right = rightSelected();
+  const updateOverlay = (): void => diagramOverlay.refresh();
+  void drawMermaid(content, () => mode === selectedMode() && path === selected(), updateOverlay);
+  void drawMermaid(rightContent, () => right === rightSelected(), updateOverlay);
+});
 updateBrand();
 status(liveMessage, 'ok');
 requestRefresh();

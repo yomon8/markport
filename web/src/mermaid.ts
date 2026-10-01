@@ -1,26 +1,78 @@
-import { effectiveTheme } from './theme';
+import { effectiveTheme, effectiveThemeId } from './theme';
+import type { MermaidConfig } from 'mermaid';
+
 let serial = 0;
-export async function drawMermaid(container: HTMLElement, current: () => boolean): Promise<void> {
+let queue: Promise<void> = Promise.resolve();
+const generations = new WeakMap<HTMLElement, symbol>();
+
+function config(): MermaidConfig {
+  const theme = effectiveThemeId();
+  if (theme === 'light' || theme === 'dark') {
+    return { securityLevel: 'strict', startOnLoad: false, theme: theme === 'dark' ? 'dark' : 'neutral' };
+  }
+  const css = getComputedStyle(document.documentElement);
+  const color = (name: string): string => css.getPropertyValue(name).trim();
+  return {
+    securityLevel: 'strict', startOnLoad: false, theme: 'base',
+    themeVariables: {
+      darkMode: effectiveTheme() === 'dark',
+      background: color('--code-bg'), textColor: color('--text'),
+      primaryColor: color('--accent-soft'), primaryTextColor: color('--text'), primaryBorderColor: color('--accent'),
+      secondaryColor: color('--surface'), secondaryTextColor: color('--text'), secondaryBorderColor: color('--accent'),
+      tertiaryColor: color('--sidebar'), tertiaryTextColor: color('--text'), tertiaryBorderColor: color('--accent'),
+      lineColor: color('--accent'), nodeTextColor: color('--text'),
+    },
+  };
+}
+
+export function drawMermaid(container: HTMLElement, current: () => boolean, rendered?: () => void): Promise<void> {
   const elements = [...container.querySelectorAll<HTMLElement>('[data-mermaid="true"]')];
-  if (!elements.length) return;
-  const { default: mermaid } = await import('mermaid');
-  mermaid.initialize({ securityLevel: 'strict', startOnLoad: false, theme: effectiveTheme() === 'dark' ? 'dark' : 'neutral' });
-  for (const element of elements) {
+  if (!elements.length) return Promise.resolve();
+  const generation = Symbol();
+  generations.set(container, generation);
+  const theme = effectiveThemeId();
+  const options = config();
+  const definitions = elements.map((element) => {
     const definition = element.dataset.source ?? element.textContent ?? '';
     element.dataset.source = definition;
-    try {
-      const { svg } = await mermaid.render(`markport-diagram-${++serial}`, definition);
-      if (!current() || !element.isConnected) return;
-      element.innerHTML = `<div class="diagram-actions"><button type="button" data-diagram-action="source">Source</button><button type="button" data-diagram-action="expand">Expand</button></div><div class="diagram-image">${svg}</div>`;
-      element.dataset.rendered = 'true';
-    } catch (error) {
-      if (!current() || !element.isConnected) return;
-      element.replaceChildren();
-      const heading = document.createElement('strong'); heading.textContent = 'Cannot display diagram';
-      const message = document.createElement('p'); message.className = 'diagram-error'; message.textContent = String(error).replace(/^Error:\s*/, '');
-      const details = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = 'Show source';
-      const source = document.createElement('pre'); source.textContent = definition; details.append(summary, source);
-      element.append(heading, message, details); element.dataset.rendered = 'true';
+    return definition;
+  });
+  const valid = (): boolean => generations.get(container) === generation && effectiveThemeId() === theme && current();
+  // Mermaid has global configuration. Keep initialization and rendering in one queue.
+  const task = queue.then(async () => {
+    if (!valid()) return;
+    const { default: mermaid } = await import('mermaid');
+    if (!valid()) return;
+    mermaid.initialize(options);
+    for (const [index, element] of elements.entries()) {
+      if (!valid()) return;
+      if (!element.isConnected || !container.contains(element)) continue;
+      try {
+        const { svg } = await mermaid.render(`markport-diagram-${++serial}`, definitions[index]);
+        if (!valid()) return;
+        if (!element.isConnected || !container.contains(element)) continue;
+        const image = element.querySelector<HTMLElement>('.diagram-image');
+        if (image) {
+          const { scrollTop, scrollLeft } = image;
+          image.innerHTML = svg;
+          image.scrollTop = scrollTop; image.scrollLeft = scrollLeft;
+        } else {
+          element.innerHTML = `<div class="diagram-actions"><button type="button" data-diagram-action="source">Source</button><button type="button" data-diagram-action="expand">Expand</button></div><div class="diagram-image">${svg}</div>`;
+        }
+        element.dataset.rendered = 'true';
+        rendered?.();
+      } catch (error) {
+        if (!valid()) return;
+        if (!element.isConnected || !container.contains(element)) continue;
+        element.replaceChildren();
+        const heading = document.createElement('strong'); heading.textContent = 'Cannot display diagram';
+        const message = document.createElement('p'); message.className = 'diagram-error'; message.textContent = String(error).replace(/^Error:\s*/, '');
+        const details = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = 'Show source';
+        const source = document.createElement('pre'); source.textContent = definitions[index]; details.append(summary, source);
+        element.append(heading, message, details); element.dataset.rendered = 'true';
+      }
     }
-  }
+  });
+  queue = task.catch(() => { /* A failed load must not block later renders. */ });
+  return task;
 }
