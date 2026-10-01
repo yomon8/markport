@@ -295,13 +295,16 @@ func TestRenderPastedMarkdown(t *testing.T) {
 		app.ServeHTTP(response, req)
 		return response
 	}
-	good := post(`{"markdown":"# Preview\n\n[local](code.py)"}`, "application/json")
+	good := post(`{"markdown":"# Preview\n\n[local](code.py)\n\n$x_1$"}`, "application/json")
 	var rendered map[string]string
 	if err := json.Unmarshal(good.Body.Bytes(), &rendered); err != nil {
 		t.Fatal(err)
 	}
 	if good.Code != http.StatusOK || !strings.Contains(rendered["html"], "<h1") || strings.Contains(rendered["html"], "/?path=") {
 		t.Fatalf("render response: %d %s", good.Code, good.Body.String())
+	}
+	if !strings.Contains(rendered["html"], `data-math="inline"`) || !strings.Contains(rendered["html"], "$x_1$") {
+		t.Fatalf("missing pasted math: %s", good.Body.String())
 	}
 	for _, test := range []struct {
 		body, contentType string
@@ -323,6 +326,31 @@ func TestRenderPastedMarkdown(t *testing.T) {
 	wrongMethod := request(app, "localhost:3000", "/api/render")
 	if wrongMethod.Code != http.StatusMethodNotAllowed || wrongMethod.Header().Get("Allow") != "POST" {
 		t.Fatalf("method: %d %s", wrongMethod.Code, wrongMethod.Header().Get("Allow"))
+	}
+}
+
+func TestMathFilePreview(t *testing.T) {
+	app, dir := newTestServer(t)
+	if err := os.WriteFile(filepath.Join(dir, "math.md"), []byte("$x_1$\n\n$$\n\\frac{1}{2}\n$$\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, source := range []bool{false, true} {
+		target := "/api/file?path=math.md"
+		if source {
+			target += "&source=1"
+		}
+		response := request(app, "localhost:3000", target)
+		var file map[string]interface{}
+		if err := json.Unmarshal(response.Body.Bytes(), &file); err != nil {
+			t.Fatal(err)
+		}
+		output, _ := file["html"].(string)
+		if response.Code != http.StatusOK || strings.Contains(output, "data-math=") == source {
+			t.Fatalf("source=%v: %s", source, response.Body.String())
+		}
+		if !source && !strings.Contains(output, `data-math="display"`) {
+			t.Fatal(output)
+		}
 	}
 }
 

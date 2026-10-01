@@ -1,6 +1,7 @@
 import { iconSVG, setIcon, type IconName } from './icons';
 import './style.css';
 import { drawMermaid } from './mermaid';
+import { drawMath, mathText } from './math';
 import { TreeView, type Page } from './tree';
 import { effectiveTheme, initTheme } from './theme';
 import { renderChanges, renderDiff, diffURL, orderedChanges, reviewButton, type Change, type ChangesReply, type DiffReply } from './diff';
@@ -772,7 +773,7 @@ function showPaste(): void {
     if (new TextEncoder().encode(markdown).length > maxPasteBytes) { message('Markdown exceeds the 1 MiB limit.', true); return; }
     const current = ++pasteVersion;
     rendered = true; editor.hidden = true; preview.hidden = false; toggle.textContent = 'Markdown Text';
-    if (!force && renderedMarkdown === markdown) { updateOutline(); return; }
+    if (!force && renderedMarkdown === markdown) { updateOutline(); void drawMath(preview, () => current === pasteVersion && selectedMode() === 'paste' && rendered); return; }
     preview.textContent = 'Rendering…'; outline.hidden = true;
     try {
       const response = await fetch('/api/render', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ markdown }) });
@@ -783,6 +784,7 @@ function showPaste(): void {
       preview.innerHTML = body.html; renderedMarkdown = markdown; decorateContent(); updateOutline();
       message('');
       void drawMermaid(content, () => current === pasteVersion && selectedMode() === 'paste' && rendered);
+      void drawMath(preview, () => current === pasteVersion && selectedMode() === 'paste' && rendered);
     } catch (error) {
       if (current === pasteVersion && selectedMode() === 'paste' && rendered) {
         showText(); message(error instanceof Error ? error.message : 'Cannot render Markdown.', true);
@@ -1002,7 +1004,7 @@ function updateOutline(): void {
   outline.hidden = headings.length < 3;
   if (outline.hidden) return;
   for (const heading of headings) {
-    const link = document.createElement('a'); link.href = `#${encodeURIComponent(heading.id)}`; link.textContent = heading.textContent; link.className = `outline-h${heading.tagName.slice(1)}`;
+    const link = document.createElement('a'); link.href = `#${encodeURIComponent(heading.id)}`; link.textContent = mathText(heading); link.className = `outline-h${heading.tagName.slice(1)}`;
     link.addEventListener('click', (event) => { event.preventDefault(); history.replaceState(history.state, '', `#${encodeURIComponent(heading.id)}`); heading.scrollIntoView(); outline.classList.remove('open'); }); outline.append(link);
   }
   if (typeof IntersectionObserver !== 'undefined') {
@@ -1016,7 +1018,7 @@ function updateRightOutline(): void {
   rightOutline.hidden = headings.length < 3; rightContents.hidden = rightOutline.hidden;
   for (const heading of headings) {
     const link = document.createElement('a'); link.href = `#${encodeURIComponent(heading.id)}`;
-    link.textContent = heading.textContent; link.className = `outline-h${heading.tagName.slice(1)}`;
+    link.textContent = mathText(heading); link.className = `outline-h${heading.tagName.slice(1)}`;
     link.addEventListener('click', (event) => { event.preventDefault(); heading.scrollIntoView(); rightOutline.classList.remove('open'); });
     rightOutline.append(link);
   }
@@ -1127,6 +1129,7 @@ async function refreshRight(): Promise<void> {
       rightShownKey = key;
       updateRightOutline();
       void drawMermaid(rightContent, () => request === rightRequest && path === rightSelected());
+      void drawMath(rightContent, () => path === rightSelected() && rightContent.dataset.kind === 'markdown');
       showRightTitle(path, file.type);
       rightPane.scrollTop = scroll;
     } else {
@@ -1274,6 +1277,7 @@ async function refreshLoop(): Promise<void> {
             }
             if (!pathChanged && oldScroll > 0) main.scrollTop = oldScroll;
             void drawMermaid(content, () => path === selected() && source === sourceMode);
+            void drawMath(content, () => selectedMode() === 'file' && path === selected() && !sourceMode);
           }
           highlightCodeLines(pendingLineJump); pendingLineJump = false;
           if (pathChanged) view.reveal(path);

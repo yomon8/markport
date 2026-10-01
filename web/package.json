@@ -11,6 +11,7 @@
     "lint": "tsc --noEmit && eslint src tests e2e"
   },
   "dependencies": {
+    "katex": "0.16.47",
     "mermaid": "^11.12.1",
     "type-fest": "^4.41.0"
   },

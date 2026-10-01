@@ -95,6 +95,75 @@ test.afterAll(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 
+test('renders LaTeX in both panes, source, updates, themes, and mobile', async ({ page }, testInfo) => {
+  const markdown = '# Math $x_1$\n\n## Second\n\n### Third\n\nInline $x_1$ and \\(x_2\\).\n\n$$\n\\frac{1}{2}\n$$\n\n\\[x_3\\]\n\n$$' + Array(90).fill('x').join('+') + '$$\n\n`$literal$` and $5 and $10\n\n$\\unknowncommand$\n';
+  await writeFile(join(directory, 'math.md'), markdown);
+  const remote: string[] = [];
+  const requests: string[] = [];
+  page.on('request', (request) => { requests.push(request.url()); if (!request.url().startsWith(`http://127.0.0.1:${port}/`)) remote.push(request.url()); });
+  await page.goto(`http://127.0.0.1:${port}/?path=math.md&right=math.md`);
+  for (const pane of ['#content', '#right-content']) {
+    await expect(page.locator(`${pane} .katex`)).toHaveCount(6);
+    await expect(page.locator(`${pane} .math-error`)).toHaveCount(1);
+    await expect(page.locator(`${pane} code`)).toContainText('$literal$');
+    await expect(page.locator(pane)).toContainText('$5 and $10');
+  }
+  await expect(page.locator('#outline a').first()).toHaveText('Math $x_1$');
+  await expect(page.locator('#right-outline a').first()).toHaveText('Math $x_1$');
+  await page.evaluate(async () => { await document.fonts.ready; });
+  expect(requests.some((url) => /KaTeX.*\.woff2/.test(url))).toBe(true);
+  expect(remote).toEqual([]);
+  await page.locator('#file-title .view-segment').getByRole('button', { name: 'Source' }).click();
+  await expect(page.locator('#content .katex')).toHaveCount(0);
+  await expect(page.locator('#content')).toContainText('$x_1$');
+  await page.locator('#file-title .view-segment').getByRole('button', { name: 'Preview' }).click();
+  await expect(page.locator('#content .katex')).toHaveCount(6);
+  await page.locator('#right-source').click();
+  await expect(page.locator('#right-content .katex')).toHaveCount(0);
+  await page.locator('#right-rendered').click();
+  await expect(page.locator('#right-content .katex')).toHaveCount(6);
+  await writeFile(join(directory, 'math.md'), markdown.replace('\\frac{1}{2}', '\\frac{3}{4}'));
+  await page.locator('#reload').click();
+  for (const pane of ['#content', '#right-content']) await expect(page.locator(`${pane} [data-math-source]`).filter({ has: page.locator('math annotation', { hasText: '\\frac{3}{4}' }) })).toHaveCount(1);
+  for (const theme of ['dark', 'light']) {
+    await page.locator('#theme-toggle').click();
+    await page.getByRole('menuitemradio', { name: theme === 'dark' ? 'Dark' : 'Light', exact: true }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    const colors = await page.locator('#content').evaluate((article) => [getComputedStyle(article).color, getComputedStyle(article.querySelector('.katex')!).color]);
+    expect(colors[0]).toBe(colors[1]);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => { document.querySelector('#main')!.scrollTop = 0; document.querySelector('#right-pane')!.scrollTop = 0; });
+  const long = page.locator('#content [data-math="display"]').last();
+  expect(await long.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('latex-mobile.png'), fullPage: true, animations: 'disabled' });
+});
+
+test('renders pasted math and survives cached preview toggles', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=sample.py`);
+  await page.getByRole('button', { name: 'Paste Markdown' }).click();
+  await page.getByLabel('Markdown Text').fill('$x_1$ and \\(x_2\\)\n\n$$\\frac{1}{2}$$\n\n\\[x_3\\]');
+  await page.getByRole('button', { name: 'Rendered view', exact: true }).click();
+  await expect(page.locator('.paste-preview .katex')).toHaveCount(4);
+  await page.getByRole('button', { name: 'Markdown Text', exact: true }).click();
+  await page.getByRole('button', { name: 'Rendered view', exact: true }).click();
+  await expect(page.locator('.paste-preview .katex')).toHaveCount(4);
+});
+
+test('loads math assets on demand and preserves source on loading failure', async ({ page }) => {
+  await writeFile(join(directory, 'math-load.md'), '$x_1$\n');
+  const assets: string[] = [];
+  page.on('request', (request) => { if (/\/assets\/(katex|KaTeX)/.test(request.url())) assets.push(request.url()); });
+  await page.goto(`http://127.0.0.1:${port}/?path=sample.py`);
+  await expect(page.locator('#content')).toContainText('print');
+  expect(assets).toEqual([]);
+  await page.route('**/assets/katex*.js', (route) => route.abort());
+  await page.goto(`http://127.0.0.1:${port}/?path=math-load.md`);
+  await expect(page.locator('#content .math-error')).toHaveText('Cannot display formula');
+  await expect(page.locator('#content .math-original')).toHaveText('$x_1$');
+});
+
 test('shows English controls with a Japanese browser locale', async ({ browser }) => {
   const context = await browser.newContext({ locale: 'ja-JP' });
   try {
