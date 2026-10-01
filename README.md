@@ -46,7 +46,7 @@ Set a fixed browser tab title at startup:
 markport ./notes --title "Work notes"
 ```
 
-You can also use **Tab title** in the header (under **App settings** on mobile). A title saved in the browser overrides `--title` and stays fixed when switching files or views. It is saved separately for each browsed folder and connection (host and port) in that browser, and restored after reloads and server restarts. Changes also apply to other open tabs using the same setting. Another host or port has separate settings.
+You can also use **Title** in the header (under **App settings** on mobile). A title saved in the browser overrides `--title` and stays fixed when switching files or views. It is saved separately for each browsed folder and connection (host and port) in that browser, and restored after reloads and server restarts. Changes also apply to other open tabs using the same setting. Another host or port has separate settings.
 
 Use **Reset** or save an empty field to remove the browser override and use the startup title. If neither is set, the tab shows the current file or screen name as before. Surrounding whitespace is removed. `--title=TEXT` is also supported; quote titles containing spaces.
 

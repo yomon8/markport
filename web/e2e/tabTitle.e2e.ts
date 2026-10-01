@@ -49,17 +49,17 @@ test('keeps the CLI title fixed across files, split view, Git screens and pasted
 
 test('saves, restores, synchronizes and resets browser titles', async ({ page, context }) => {
   await startServer(); await page.goto(url()); await expect(page).toHaveTitle(startupTitle);
-  await page.getByRole('button', { name: 'Tab title', exact: true }).click();
+  await page.getByRole('button', { name: 'Title', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Tab title', exact: true });
   await dialog.getByLabel('Browser tab title').fill('  Browser notes  ');
   await dialog.getByRole('button', { name: 'Save', exact: true }).click(); await expect(page).toHaveTitle('Browser notes');
   await page.reload(); await expect(page).toHaveTitle('Browser notes');
   const other = await context.newPage(); await other.goto(url()); await expect(other).toHaveTitle('Browser notes');
-  await page.getByRole('button', { name: 'Tab title', exact: true }).click();
+  await page.getByRole('button', { name: 'Title', exact: true }).click();
   await dialog.getByLabel('Browser tab title').fill('Unsaved'); await dialog.getByLabel('Browser tab title').press('Escape');
-  await expect(dialog).not.toBeVisible(); await expect(page.getByRole('button', { name: 'Tab title', exact: true })).toBeFocused();
+  await expect(dialog).not.toBeVisible(); await expect(page.getByRole('button', { name: 'Title', exact: true })).toBeFocused();
   await expect(page).toHaveTitle('Browser notes');
-  await page.getByRole('button', { name: 'Tab title', exact: true }).click();
+  await page.getByRole('button', { name: 'Title', exact: true }).click();
   await dialog.getByRole('button', { name: 'Reset', exact: true }).click();
   await expect(page).toHaveTitle(startupTitle); await expect(other).toHaveTitle(startupTitle);
   await other.close();
@@ -67,13 +67,13 @@ test('saves, restores, synchronizes and resets browser titles', async ({ page, c
 
 test('restores folder-specific titles after a restart or a different folder on the same port', async ({ page }) => {
   await startServer(); await page.goto(url()); await expect(page).toHaveTitle(startupTitle);
-  await page.getByRole('button', { name: 'Tab title', exact: true }).click();
+  await page.getByRole('button', { name: 'Title', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Tab title', exact: true });
   await dialog.getByLabel('Browser tab title').fill('Folder one'); await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await stopServer(); await startServer(directory, 'Restarted');
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page).toHaveTitle('Folder one');
-  await page.getByRole('button', { name: 'Tab title', exact: true }).click();
+  await page.getByRole('button', { name: 'Title', exact: true }).click();
   await expect(dialog.getByLabel('Browser tab title')).toHaveAttribute('placeholder', 'Restarted');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   const otherFolder = join(directory, 'other'); await mkdir(otherFolder); await writeFile(join(otherFolder, 'README.md'), '# Other');
@@ -86,11 +86,11 @@ test('offers mobile keyboard controls and returns to existing titles when unset'
   await startServer(directory, ''); await page.setViewportSize({ width: 390, height: 844 }); await page.goto(url());
   await expect(page).toHaveTitle('README.md — markport');
   await page.getByRole('button', { name: 'App settings', exact: true }).click();
-  await page.getByRole('button', { name: 'Tab title', exact: true }).click();
+  await page.getByRole('button', { name: 'Title', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Tab title', exact: true });
   const input = dialog.getByLabel('Browser tab title'); await expect(input).toBeFocused();
   await input.fill('Mobile notes'); await input.press('Enter'); await expect(page).toHaveTitle('Mobile notes');
-  await page.getByRole('button', { name: 'Tab title', exact: true }).click(); await input.fill('  '); await input.press('Enter');
+  await page.getByRole('button', { name: 'Title', exact: true }).click(); await input.fill('  '); await input.press('Enter');
   await expect(page).toHaveTitle('README.md — markport');
   await page.goto(url() + '?path=code.py'); await expect(page).toHaveTitle('code.py — markport');
 });

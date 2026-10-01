@@ -80,7 +80,7 @@ const pasteToggle = document.querySelector<HTMLButtonElement>('#paste-toggle')!;
 const headerMore = document.querySelector<HTMLButtonElement>('#header-more')!;
 const headerExtras = document.querySelector<HTMLElement>('#header-extras')!;
 const tabTitleButton = document.createElement('button'); tabTitleButton.id = 'tab-title-toggle'; tabTitleButton.type = 'button';
-tabTitleButton.textContent = 'Tab title'; tabTitleButton.setAttribute('aria-label', 'Tab title'); tabTitleButton.title = 'Tab title';
+tabTitleButton.textContent = 'Title'; tabTitleButton.setAttribute('aria-label', 'Title'); tabTitleButton.title = 'Set tab title';
 headerExtras.append(tabTitleButton);
 const tabTitle = new TabTitle(tabTitleButton);
 void tabTitle.reload();
