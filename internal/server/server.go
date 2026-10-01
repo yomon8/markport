@@ -50,6 +50,7 @@ type Server struct {
 	Files         *files.Store
 	Host          string
 	Port          int
+	Title         string
 	instance      string
 	mu            sync.Mutex
 	subs          map[chan string]struct{}
@@ -137,6 +138,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/api/config":
+		rootID := sha256.Sum256([]byte(s.Files.Path))
+		w.Header().Set("Cache-Control", "no-store")
+		jsonReply(w, http.StatusOK, struct {
+			Title  string `json:"title"`
+			RootID string `json:"rootId"`
+		}{s.Title, hex.EncodeToString(rootID[:])})
 	case "/api/tree":
 		s.tree(w, r)
 	case "/api/search-index":

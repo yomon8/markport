@@ -34,6 +34,18 @@ markport ./notes
 
 Open the `http://127.0.0.1:3000/` URL printed at startup. Omit the directory to browse the current directory. Press `Ctrl+C` to stop Markport.
 
+### Browser tab title
+
+Set a fixed browser tab title at startup:
+
+```sh
+markport ./notes --title "Work notes"
+```
+
+You can also use **Tab title** in the header (under **App settings** on mobile). A title saved in the browser overrides `--title` and stays fixed when switching files or views. It is saved separately for each browsed folder and connection (host and port) in that browser, and restored after reloads and server restarts. Changes also apply to other open tabs using the same setting. Another host or port has separate settings.
+
+Use **Reset** or save an empty field to remove the browser override and use the startup title. If neither is set, the tab shows the current file or screen name as before. Surrounding whitespace is removed. `--title=TEXT` is also supported; quote titles containing spaces.
+
 ### Keyboard shortcuts
 
 Press `?` or the help button in the header to see these shortcuts in Markport. On macOS, use `⌘` instead of `Ctrl`.
@@ -87,7 +99,7 @@ markport --check-update
 markport --update
 ```
 
-These commands support Linux, macOS, and Windows on amd64 and arm64. Use each flag on its own, without a directory, `--host`, `--port`, or `--version`. `--check-update` reports the current and latest stable versions without downloading an executable or writing files. `--update` downloads a newer stable release from `yomon8/markport`, verifies its SHA-256 checksum and reported version, and replaces the executable at its existing path. The file name is preserved, and symbolic links continue to point to the updated executable. Equal or older releases are not installed.
+These commands support Linux, macOS, and Windows on amd64 and arm64. Use each flag on its own, without a directory, `--host`, `--port`, `--title`, or `--version`. `--check-update` reports the current and latest stable versions without downloading an executable or writing files. `--update` downloads a newer stable release from `yomon8/markport`, verifies its SHA-256 checksum and reported version, and replaces the executable at its existing path. The file name is preserved, and symbolic links continue to point to the updated executable. Equal or older releases are not installed.
 
 Updates run only when requested; normal startup does not check for updates. Restart any running Markport servers manually to use the new version. The installation directory must be writable; Markport does not automatically request administrator privileges. Builds whose version is not `vMAJOR.MINOR.PATCH`, including `dev` and `ci`, can check the latest release but cannot self-update. Install an official release manually instead. Older versions without these flags need the installer or a manual download once before using self-update.
 

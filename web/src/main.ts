@@ -9,6 +9,7 @@ import { comparisonBase, comparisonOptions, comparisonURL, historyURL, renderCom
 import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
 import { copyText } from './clipboard';
+import { TabTitle } from './tabTitle';
 import { createDiagramOverlay } from './diagramOverlay';
 import { createShortcutHelp } from './shortcutHelp';
 import { createTableOverlay } from './tableOverlay';
@@ -73,6 +74,11 @@ const shortcutHelp = createShortcutHelp(helpToggle);
 const pasteToggle = document.querySelector<HTMLButtonElement>('#paste-toggle')!;
 const headerMore = document.querySelector<HTMLButtonElement>('#header-more')!;
 const headerExtras = document.querySelector<HTMLElement>('#header-extras')!;
+const tabTitleButton = document.createElement('button'); tabTitleButton.id = 'tab-title-toggle'; tabTitleButton.type = 'button';
+tabTitleButton.textContent = 'Tab title'; tabTitleButton.setAttribute('aria-label', 'Tab title'); tabTitleButton.title = 'Tab title';
+headerExtras.append(tabTitleButton);
+const tabTitle = new TabTitle(tabTitleButton);
+void tabTitle.reload();
 const main = document.querySelector<HTMLElement>('#main')!;
 const layout = document.querySelector<HTMLElement>('.layout')!;
 const rightPane = document.querySelector<HTMLElement>('#right-pane')!;
@@ -213,6 +219,7 @@ function previewStorageKey(): string { return `markport-interactive-preview:${pr
 function syncPreviewInstance(instance: string): void {
   if (!instance || instance === previewInstance) return;
   previewInstance = instance; interactivePaths.clear();
+  void tabTitle.reload(true);
   try {
     const saved = JSON.parse(sessionStorage.getItem(previewStorageKey()) ?? '[]') as unknown;
     if (Array.isArray(saved)) for (const path of saved) if (typeof path === 'string') interactivePaths.add(path);
@@ -511,12 +518,12 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
   title.replaceChildren();
   if (selectedMode() === 'history') {
     const heading = document.createElement('strong'); heading.textContent = `Git history${new URL(location.href).searchParams.get('commit') ? ` · ${new URL(location.href).searchParams.get('commit')!.slice(0, 7)}` : ''}`;
-    title.append(heading); document.title = 'Git history — markport'; return;
+    title.append(heading); tabTitle.setFallback('Git history — markport'); return;
   }
   if (selectedMode() === 'changes') {
-    const heading = document.createElement('strong'); heading.textContent = 'Git changes'; title.append(heading); document.title = 'Git changes — markport'; return;
+    const heading = document.createElement('strong'); heading.textContent = 'Git changes'; title.append(heading); tabTitle.setFallback('Git changes — markport'); return;
   }
-  if (!path) { title.textContent = rootName || 'markport'; document.title = 'markport'; return; }
+  if (!path) { title.textContent = rootName || 'markport'; tabTitle.setFallback('markport'); return; }
   const crumbs = document.createElement('div'); crumbs.className = 'breadcrumbs';
   const parts = path.split('/');
   parts.forEach((part, index) => {
@@ -623,7 +630,7 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
     menu.append(parentAction);
   }
   actions.append(auxiliary, menuButton, menu);
-  title.append(actions); document.title = `${parts.at(-1)} — markport`;
+  title.append(actions); tabTitle.setFallback(`${parts.at(-1)} — markport`);
 }
 function toggleReview(change: Change): void {
   review.set(change.path, change.revision, !review.has(change.path, change.revision));
@@ -749,7 +756,7 @@ function showPaste(): void {
   const titleActions = document.createElement('div'); titleActions.className = 'title-actions';
   const toggle = document.createElement('button'); toggle.type = 'button'; toggle.id = 'paste-view-toggle'; toggle.textContent = 'Rendered view';
   titleActions.append(toggle); title.replaceChildren(heading, titleActions);
-  document.title = 'Pasted Markdown — markport';
+  tabTitle.setFallback('Pasted Markdown — markport');
   outline.hidden = true;
   const editor = document.createElement('div'); editor.className = 'paste-editor';
   const label = document.createElement('label'); label.htmlFor = 'paste-input'; label.textContent = 'Markdown Text';
@@ -1044,6 +1051,7 @@ function requestRefresh(foreground = true): void {
   revision++; pending = true; pendingForeground ||= foreground; if (!running) void refreshLoop();
 }
 function manualRefresh(): void {
+  void tabTitle.reload();
   displayedTag = ''; rightTag = ''; pageTags.clear(); previewReload++; requestRefresh();
   if (selectedMode() === 'paste') refreshPastedPreview?.();
   if (search.value.trim()) void loadSearchIndex(true);
@@ -1420,7 +1428,7 @@ updateBrand();
 status(liveMessage, 'ok');
 requestRefresh();
 const pollTimer = setInterval(() => { if (!document.hidden) requestRefresh(false); }, 3000);
-window.addEventListener('pagehide', () => { clearInterval(pollTimer); onSearchChange(''); });
+window.addEventListener('pagehide', () => { clearInterval(pollTimer); onSearchChange(''); tabTitle.dispose(); });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     requestRefresh(false);

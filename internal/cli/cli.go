@@ -26,6 +26,7 @@ type Options struct {
 	Directory           string
 	Host                string
 	Port                int
+	Title               string
 	Help, ShowVersion   bool
 	Update, CheckUpdate bool
 }
@@ -33,6 +34,7 @@ type Options struct {
 func Parse(args []string) (Options, error) {
 	o := Options{Directory: ".", Host: "127.0.0.1", Port: 3000}
 	seenDir, seenHost, seenPort := false, false, false
+	seenTitle := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -86,6 +88,20 @@ func Parse(args []string) (Options, error) {
 				return o, fmt.Errorf("invalid port %q: expected 1–65535", value)
 			}
 			o.Port = n
+		case a == "--title" || strings.HasPrefix(a, "--title="):
+			if seenTitle {
+				return o, errors.New("--title specified more than once")
+			}
+			seenTitle = true
+			value := strings.TrimPrefix(a, "--title=")
+			if a == "--title" {
+				i++
+				if i >= len(args) || strings.HasPrefix(args[i], "--") {
+					return o, errors.New("--title requires a title")
+				}
+				value = args[i]
+			}
+			o.Title = strings.TrimSpace(value)
 		case strings.HasPrefix(a, "-"):
 			return o, fmt.Errorf("unknown option %q", a)
 		default:
@@ -96,8 +112,8 @@ func Parse(args []string) (Options, error) {
 			o.Directory = a
 		}
 	}
-	if !o.Help && (o.Update || o.CheckUpdate) && (seenDir || seenHost || seenPort || o.ShowVersion) {
-		return o, errors.New("update flags must be used without a directory, --host, --port, or --version")
+	if !o.Help && (o.Update || o.CheckUpdate) && (seenDir || seenHost || seenPort || seenTitle || o.ShowVersion) {
+		return o, errors.New("update flags must be used without a directory, --host, --port, --title, or --version")
 	}
 	return o, nil
 }
@@ -109,7 +125,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if o.Help {
-		fmt.Fprintln(stdout, "Usage: markport [directory] [--host IPv4] [--port PORT]\n       markport --help\n       markport --version\n       markport --check-update\n       markport --update")
+		fmt.Fprintln(stdout, "Usage: markport [directory] [--host IPv4] [--port PORT] [--title TEXT]\n       markport --help\n       markport --version\n       markport --check-update\n       markport --update\n\n--title TEXT  Set a fixed browser tab title (overridden by browser settings).")
 		return 0
 	}
 	if o.ShowVersion {
@@ -164,6 +180,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	base, cancel := context.WithCancel(context.Background())
+	app.Title = o.Title
 	httpServer := &http.Server{Handler: app, BaseContext: func(net.Listener) context.Context { return base }}
 	serveDone := make(chan error, 1)
 	go func() { serveDone <- httpServer.Serve(listener) }()

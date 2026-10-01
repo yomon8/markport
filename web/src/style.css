@@ -244,3 +244,12 @@ nav a[aria-current]{font-weight:600}
 #table-overlay article{max-width:none;width:max-content;min-width:100%;margin:0;padding:16px;box-sizing:border-box}
 #table-overlay article:not(.table-nowrap){width:auto}
 #table-overlay thead{position:sticky;top:0;z-index:1}
+
+#tab-title-dialog[open]{width:min(440px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow:auto;padding:22px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);box-shadow:0 15px 55px #0005}
+#tab-title-dialog::backdrop{background:#0008}
+#tab-title-dialog h2{margin:0 0 18px;font-size:20px}
+#tab-title-dialog label{display:block;margin-bottom:8px}
+#tab-title-input{width:100%;box-sizing:border-box}
+#tab-title-hint{font-size:13px;color:var(--text-muted)}
+.tab-title-actions{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:700px){#header-extras>#tab-title-toggle:after{content:none}}

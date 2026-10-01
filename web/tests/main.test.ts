@@ -8,6 +8,10 @@ const flush = async (): Promise<void> => { await new Promise((resolve) => setTim
 const reply = (body: unknown, status = 200, tag = ''): Response => ({
   ok: status < 400, status, json: async () => body, headers: { get: () => tag },
 }) as unknown as Response;
+const stubFetch = (fetch: (url: string, init?: RequestInit) => Promise<Response>): void => {
+  vi.stubGlobal('fetch', (url: string, init?: RequestInit) => url === '/api/config'
+    ? Promise.resolve(reply({ title: '', rootId: 'a'.repeat(64) })) : fetch(url, init));
+};
 const page = (entries: Entry[], revision = '1', nextOffset: number | null = null, offset = 0) =>
   ({ entries, revision, offset, nextOffset, root: 'project' });
 const entry = (name: string, type: 'directory' | 'file' = 'file', parent = ''): Entry =>
@@ -33,7 +37,7 @@ describe('lazy browsing and refresh', () => {
     ['file:1.5', 'file:1.5', '', false],
     ['file:9007199254740992', 'file:9007199254740992', '', false],
   ])('searches %s and builds the matching destination', async (query, path, line, source) => {
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index'
+    stubFetch(vi.fn(async (url: string) => url === '/api/search-index'
       ? reply({ paths: [path] }) : reply(page([]))));
     await import('../src/main'); await flush();
     const search = document.querySelector<HTMLInputElement>('#search')!;
@@ -51,7 +55,7 @@ describe('lazy browsing and refresh', () => {
 
   it('explains when Git history is unavailable', async () => {
     history.replaceState(null, '', '/?view=history');
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree'
+    stubFetch(vi.fn(async (url: string) => url === '/api/tree'
       ? reply(page([]))
       : reply({ available: false, reason: 'not_repository', commits: [], nextOffset: null })));
     await import('../src/main'); await flush();
@@ -68,7 +72,7 @@ describe('lazy browsing and refresh', () => {
       if (url === `/api/git/commit-diff?id=${firstID}&path=docs%2Fa.md`) return reply({ path: 'docs/a.md', kind: 'text', patch: '@@ -1 +1 @@\n-old\n+<script>alert(1)</script>\n' });
       return reply({ error: 'not_found' }, 404);
     });
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     await import('../src/main'); await flush();
     document.querySelector<HTMLButtonElement>('#history-tab')!.click();
     await flush(); await flush(); await flush();
@@ -97,7 +101,7 @@ describe('lazy browsing and refresh', () => {
       if (url === '/api/git/changes') return reply({ available: true, rootId: 'root', changes: [] });
       return reply({ error: 'not_found' }, 404);
     });
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     history.replaceState(null, '', '/?view=history');
     await import('../src/main'); await flush(); await flush();
     document.querySelector<HTMLAnchorElement>('#history-tree .history-compare')!.click(); await flush();
@@ -116,7 +120,7 @@ describe('lazy browsing and refresh', () => {
   });
   it('shows an invalid comparison ID without leaving the previous change list active', async () => {
     history.replaceState(null, '', '/?view=changes');
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    stubFetch(vi.fn(async (url: string) => {
       if (url === '/api/tree') return reply(page([]));
       if (url === '/api/git/changes') return reply({ available: true, rootId: 'root', changes: [{ path: 'a.md', status: 'modified', revision: 'v1' }] });
       if (url === '/api/git/changes?base=deadbee') return reply({ error: 'not_found' }, 404);
@@ -142,7 +146,7 @@ describe('lazy browsing and refresh', () => {
       }
       return reply({ path: 'a.md', type: 'markdown', html: '<h1>Left</h1>' });
     });
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     await import('../src/main'); await flush();
     const first = document.querySelector('#right-content h1');
     document.dispatchEvent(new Event('visibilitychange')); await flush();
@@ -164,7 +168,7 @@ describe('lazy browsing and refresh', () => {
       }
       return reply(page([]));
     });
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     await import('../src/main'); await flush();
     const search = document.querySelector<HTMLInputElement>('#search')!;
     search.value = 'md'; search.dispatchEvent(new Event('input')); await flush();
@@ -183,7 +187,7 @@ describe('lazy browsing and refresh', () => {
       if (url === '/api/render') return reply({ html: `<h1>${JSON.parse(options?.body as string).markdown.slice(2)}</h1>` });
       return reply({ path: 'README.md', type: 'markdown', html: '<h1>File</h1>' });
     });
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     await import('../src/main'); await flush(); await flush();
     expect(document.querySelector('#content h1')?.textContent).toBe('File');
     document.querySelector<HTMLButtonElement>('#paste-toggle')!.click(); await flush();
@@ -225,7 +229,7 @@ describe('lazy browsing and refresh', () => {
   });
 
   it('reports a paste render error without clearing the text', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree' ? reply(page([])) : reply({ error: 'render_failed', message: 'Cannot render Markdown' }, 500)));
+    stubFetch(vi.fn(async (url: string) => url === '/api/tree' ? reply(page([])) : reply({ error: 'render_failed', message: 'Cannot render Markdown' }, 500)));
     await import('../src/main'); await flush();
     document.querySelector<HTMLButtonElement>('#paste-toggle')!.click(); await flush();
     const input = document.querySelector<HTMLTextAreaElement>('#paste-input')!;
@@ -246,7 +250,7 @@ describe('lazy browsing and refresh', () => {
       if (url === '/api/git/diff?path=new.md') return reply({ path: 'new.md', kind: 'text', patch });
       return reply({ path: 'new.md', type: 'markdown', html: '<h1>Preview</h1>' });
     });
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     await import('../src/main'); await flush();
     expect(document.querySelector('#content .change-path')?.textContent).toBe('new.md');
     expect(document.querySelector('#changes-tree .change-path')?.textContent).toBe('new.md');
@@ -274,7 +278,7 @@ describe('lazy browsing and refresh', () => {
       ] });
       return reply({ path: 'a.md', kind: 'text', patch: 'diff --git a/a.md b/a.md\n+new\n' });
     });
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     await import('../src/main'); await flush();
     expect(document.querySelector('#content .review-count')?.textContent).toBe('0 of 2 reviewed');
     const unreviewed = document.querySelector<HTMLButtonElement>('#content .review-toggle')!;
@@ -303,7 +307,7 @@ describe('lazy browsing and refresh', () => {
       { path: 'docs/b.md', status: 'added', revision: 'b' },
       { path: 'docs/nested/a.md', status: 'deleted', revision: 'a' },
     ];
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    stubFetch(vi.fn(async (url: string) => {
       if (url === '/api/tree') return reply(page([]));
       if (url === '/api/git/changes') return reply({ available: true, rootId: 'root', changes });
       return reply({ path: new URL(url, location.href).searchParams.get('path'), kind: 'text', patch: '+changed\n' });
@@ -336,7 +340,7 @@ describe('lazy browsing and refresh', () => {
 
   it('explains when the selected directory is not a Git repository', async () => {
     history.replaceState(null, '', '/?view=changes');
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree' ? reply(page([])) : reply({ available: false, reason: 'not_repository', changes: [] })));
+    stubFetch(vi.fn(async (url: string) => url === '/api/tree' ? reply(page([])) : reply({ available: false, reason: 'not_repository', changes: [] })));
     await import('../src/main'); await flush();
     expect(document.querySelector('#content')?.textContent).toContain('This directory is not a Git repository.');
     expect(document.querySelector('#changes-tree')?.textContent).toContain('This directory is not a Git repository.');
@@ -349,7 +353,7 @@ describe('lazy browsing and refresh', () => {
       if (url === '/api/file?path=page.html&source=1') return reply({ path: 'page.html', type: 'html', html: '<pre>HTML source</pre>' });
       return reply({ path: 'page.html', type: 'html', previewUrl: '/api/preview/page.html?v=1' });
     });
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     await import('../src/main'); await flush();
     const frame = document.querySelector<HTMLIFrameElement>('.html-preview');
     expect(frame?.getAttribute('sandbox')).toBe('allow-same-origin');
@@ -370,7 +374,7 @@ describe('lazy browsing and refresh', () => {
       return reply({ path: 'sample.pdf', type: 'pdf', previewUrl: '/api/pdf?path=sample.pdf&v=1' });
     });
     const open = vi.fn(); vi.stubGlobal('open', open);
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     await import('../src/main'); await flush(); await flush();
     const left = document.querySelector<HTMLIFrameElement>('#content .pdf-preview');
     const right = document.querySelector<HTMLIFrameElement>('#right-content .pdf-preview');
@@ -399,7 +403,7 @@ describe('lazy browsing and refresh', () => {
       if (url === '/api/search-index') return reply({ paths: ['docs/deep/a.md'] });
       return reply({ path: 'docs/deep/a.md', type: 'markdown', html: '<h1>A</h1>' });
     });
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     await import('../src/main'); await flush(); await flush();
     expect(document.querySelector('#content h1')?.textContent).toBe('A');
     expect(document.querySelector<HTMLDetailsElement>('details[data-path="docs"]')?.open).toBe(true);
@@ -423,7 +427,7 @@ describe('lazy browsing and refresh', () => {
       ? reply(page(first, '1', 200))
       : url === '/api/search-index' ? reply({ paths: ['last.md', 'nested/hidden.md'] })
       : reply(page([entry('last.md')], '1', null, 200)));
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     await import('../src/main'); await flush();
     expect(document.querySelectorAll('#tree a').length).toBe(200);
     const search = document.querySelector<HTMLInputElement>('#search')!;
@@ -441,7 +445,7 @@ describe('lazy browsing and refresh', () => {
 
   it('shows only the best 100 matches and the exact total', async () => {
     const paths = Array.from({ length: 125 }, (_, i) => `docs/item${String(i).padStart(3, '0')}.md`);
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths }) : reply(page([]))));
+    stubFetch(vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths }) : reply(page([]))));
     await import('../src/main'); await flush();
     const search = document.querySelector<HTMLInputElement>('#search')!;
     search.value = 'item'; search.dispatchEvent(new Event('input')); await flush();
@@ -453,7 +457,7 @@ describe('lazy browsing and refresh', () => {
 
   it('ranks filename matches first and shows names with parent folders', async () => {
     const paths = ['srv/archive.ts', 'docs/server.ts', 'other/server.ts'];
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths }) : reply(page([]))));
+    stubFetch(vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths }) : reply(page([]))));
     await import('../src/main'); await flush();
     const search = document.querySelector<HTMLInputElement>('#search')!;
     search.value = 'srv'; search.dispatchEvent(new Event('input')); await flush();
@@ -467,7 +471,7 @@ describe('lazy browsing and refresh', () => {
   });
 
   it('shows no internal file count and a friendly connection status', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: ['a.md'] }) : reply(page([{ name: 'a.md', path: 'a.md', type: 'file' }]))));
+    stubFetch(vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: ['a.md'] }) : reply(page([{ name: 'a.md', path: 'a.md', type: 'file' }]))));
     await import('../src/main'); await flush();
     expect(document.querySelector('#result-count')?.textContent).toBe('');
     expect(document.querySelector('#content .empty-state p')?.textContent).toBe('Select a file from the list, or press / to search.');
@@ -479,7 +483,7 @@ describe('lazy browsing and refresh', () => {
   it('uses labelled SVG icons for icon-only buttons and restores the icon after copying', async () => {
     history.replaceState(null, '', '/?path=a.md');
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn(async () => {}) } });
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree' ? reply(page([entry('a.md')])) : reply({ path: 'a.md', type: 'markdown', html: '<h1>A</h1>' })));
+    stubFetch(vi.fn(async (url: string) => url === '/api/tree' ? reply(page([entry('a.md')])) : reply({ path: 'a.md', type: 'markdown', html: '<h1>A</h1>' })));
     await import('../src/main'); await flush();
     const copy = document.querySelector<HTMLButtonElement>('#file-title .title-icon[aria-label="Copy path"]')!;
     const iconOnly = [...document.querySelectorAll<HTMLButtonElement>('header button, #file-title .title-icon, #right-pane .title-icon, .open-right')].filter((button) => button.querySelector('svg') && !button.textContent?.trim());
@@ -501,7 +505,7 @@ describe('lazy browsing and refresh', () => {
     ['unchanged', [{ path: 'other.md', status: 'modified', revision: 'r1' }], true, false],
   ] as const)('handles the Diff button for %s files', async (_name, changes, disabled, marked) => {
     history.replaceState(null, '', '/?path=a.md');
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    stubFetch(vi.fn(async (url: string) => {
       if (url === '/api/tree') return reply(page([entry('a.md')]));
       if (url.startsWith('/api/git/changes')) return changes ? reply({ available: true, rootId: 'r', base: 'abc', changes }) : reply({ error: 'x' }, 500);
       return reply({ path: 'a.md', type: 'markdown', html: '<h1>A</h1>' });
@@ -514,7 +518,7 @@ describe('lazy browsing and refresh', () => {
   });
 
   it('keeps header controls as labelled icon buttons', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/tree' ? reply(page([])) : reply({ paths: [] })));
+    stubFetch(vi.fn(async (url: string) => url === '/api/tree' ? reply(page([])) : reply({ paths: [] })));
     await import('../src/main'); await flush();
     const reload = document.querySelector<HTMLButtonElement>('#reload')!;
     expect(reload.getAttribute('aria-label')).toBe('Refresh'); expect(reload.title).toBe('Refresh now'); expect(reload.textContent?.trim()).toBe('');
@@ -525,7 +529,7 @@ describe('lazy browsing and refresh', () => {
 
   it('shows ignored files last and marks them in search results', async () => {
     const paths = ['dist/main.bin', 'web/src/main.ts'];
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths, ignored: ['dist/main.bin'] }) : reply(page([]))));
+    stubFetch(vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths, ignored: ['dist/main.bin'] }) : reply(page([]))));
     await import('../src/main'); await flush();
     const search = document.querySelector<HTMLInputElement>('#search')!;
     search.value = 'main'; search.dispatchEvent(new Event('input')); await flush();
@@ -536,7 +540,7 @@ describe('lazy browsing and refresh', () => {
 
   it('shows the unreviewed count on the Changes tab and updates it when reviewing', async () => {
     history.replaceState(null, '', '/?view=changes');
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    stubFetch(vi.fn(async (url: string) => {
       if (url === '/api/tree') return reply(page([]));
       if (url === '/api/git/changes') return reply({ available: true, rootId: 'badge', changes: [{ path: 'a.md', status: 'modified', revision: 'v1', added: 2, deleted: 1 }, { path: 'b.md', status: 'added', revision: 'v2', added: 4, deleted: 0 }] });
       return reply({ error: 'not_found' }, 404);
@@ -556,7 +560,7 @@ describe('lazy browsing and refresh', () => {
   it('offers recent commits as comparison bases and compares as soon as one is chosen', async () => {
     const commits = ['c'.repeat(40), 'b'.repeat(40), 'a'.repeat(40)].map((id, index) => ({ id, subject: `Commit ${index}`, author: 'A', date: '2026-01-01T00:00:00Z' }));
     history.replaceState(null, '', '/?view=changes');
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    stubFetch(vi.fn(async (url: string) => {
       if (url === '/api/tree') return reply(page([]));
       if (url === '/api/git/history') return reply({ available: true, head: commits[0].id, commits, nextOffset: null });
       if (url.startsWith('/api/git/changes')) return reply({ available: true, rootId: 'cmp', base: url.includes('base=') ? new URL(url, location.href).searchParams.get('base') : undefined, changes: [] });
@@ -575,7 +579,7 @@ describe('lazy browsing and refresh', () => {
   });
 
   it('groups consecutive matched characters into one mark', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: ['web/src/main.ts'] }) : reply(page([]))));
+    stubFetch(vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: ['web/src/main.ts'] }) : reply(page([]))));
     await import('../src/main'); await flush();
     const search = document.querySelector<HTMLInputElement>('#search')!;
     search.value = 'main'; search.dispatchEvent(new Event('input')); await flush();
@@ -585,7 +589,7 @@ describe('lazy browsing and refresh', () => {
 
   it('includes a matching file even when its path is very long', async () => {
     const longPath = `${'folder/'.repeat(90)}target.md`;
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: [longPath] }) : reply(page([]))));
+    stubFetch(vi.fn(async (url: string) => url === '/api/search-index' ? reply({ paths: [longPath] }) : reply(page([]))));
     await import('../src/main'); await flush();
     const search = document.querySelector<HTMLInputElement>('#search')!;
     search.value = 't'; search.dispatchEvent(new Event('input')); await flush();
@@ -605,7 +609,7 @@ describe('lazy browsing and refresh', () => {
       }
       return Promise.resolve(reply(page([entry('root.md')])));
     });
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     await import('../src/main'); await flush();
     const search = document.querySelector<HTMLInputElement>('#search')!;
     search.value = 'old'; search.dispatchEvent(new Event('input'));
@@ -626,7 +630,7 @@ describe('lazy browsing and refresh', () => {
       if (options?.headers && (options.headers as Record<string, string>)['If-None-Match'] === `v${version}`) return reply(null, 304);
       return reply({ path: 'a.md', type: 'markdown', html: `<h1>Version ${version}</h1>` }, 200, `v${version}`);
     });
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     await import('../src/main'); await flush();
     const first = document.querySelector('#content h1');
     document.dispatchEvent(new Event('visibilitychange')); await flush();
@@ -642,7 +646,7 @@ describe('lazy browsing and refresh', () => {
     history.replaceState(null, '', '/?path=a.md');
     let releaseFile: ((value: Response) => void) | undefined;
     let fileCalls = 0;
-    vi.stubGlobal('fetch', vi.fn((url: string) => {
+    stubFetch(vi.fn((url: string) => {
       if (url.startsWith('/api/tree')) return Promise.resolve(reply(page([entry('a.md')])));
       if (url.startsWith('/api/git/')) return Promise.resolve(reply({ available: false, changes: [] }));
       fileCalls++;
@@ -666,7 +670,7 @@ describe('lazy browsing and refresh', () => {
     history.replaceState(null, '', '/?path=manual-priority.md');
     let releaseFile: ((value: Response) => void) | undefined;
     let fileCalls = 0;
-    vi.stubGlobal('fetch', vi.fn((url: string) => {
+    stubFetch(vi.fn((url: string) => {
       if (url.startsWith('/api/tree')) return Promise.resolve(reply(page([entry('manual-priority.md')])));
       if (url === '/api/file?path=manual-priority.md') {
         fileCalls++;
@@ -687,7 +691,7 @@ describe('lazy browsing and refresh', () => {
   it('keeps the current file visible during a background connection failure', async () => {
     history.replaceState(null, '', '/?path=a.md');
     let offline = false;
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    stubFetch(vi.fn(async (url: string) => {
       if (offline) throw new Error('offline');
       return url === '/api/tree' ? reply(page([entry('a.md')])) : reply({ path: 'a.md', type: 'markdown', html: '<h1>Readable</h1>' });
     }));
@@ -703,7 +707,7 @@ describe('lazy browsing and refresh', () => {
   it('discards a stale listing after a newer refresh starts', async () => {
     let releaseFirst: ((value: Response) => void) | undefined;
     let calls = 0;
-    vi.stubGlobal('fetch', vi.fn((url: string) => {
+    stubFetch(vi.fn((url: string) => {
       if (url === '/api/tree' && ++calls === 1) return new Promise<Response>((resolve) => { releaseFirst = resolve; });
       return Promise.resolve(reply(page([entry('new.md')], '2')));
     }));
@@ -719,7 +723,7 @@ describe('lazy browsing and refresh', () => {
     const fetch = vi.fn(async (url: string) => url === '/api/tree'
       ? reply(page([entry('docs', 'directory')]))
       : reply(page([entry('a.md', 'file', 'docs')])));
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     await import('../src/main'); await flush();
     document.querySelector<HTMLElement>('#tree summary')!.click(); await flush();
     expect(document.querySelector('#tree a')?.textContent).toBe('a.md');
@@ -737,7 +741,7 @@ describe('lazy browsing and refresh', () => {
       if (url.startsWith('/api/tree?path=other')) return reply(page([entry('b.md', 'file', 'other')]));
       return reply({ path: 'docs/deep/a.md', type: 'markdown', html: '<h1>A</h1>' });
     });
-    vi.stubGlobal('fetch', fetch);
+    stubFetch(fetch);
     await import('../src/main'); await flush(); await flush();
     document.querySelector<HTMLElement>('details[data-path="other"] > summary')!.click(); await flush();
     const collapse = document.querySelector<HTMLButtonElement>('#collapse-all')!;

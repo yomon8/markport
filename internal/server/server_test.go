@@ -770,3 +770,55 @@ func TestSSEReplaysCurrentWatchStatus(t *testing.T) {
 		t.Fatalf("stale error status: %s", body)
 	}
 }
+
+func TestConfigAPI(t *testing.T) {
+	app, dir := newTestServer(t)
+	readConfig := func(app *Server) (string, string) {
+		t.Helper()
+		response := request(app, "localhost:3000", "/api/config")
+		var config struct {
+			Title  string `json:"title"`
+			RootID string `json:"rootId"`
+		}
+		if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" || json.Unmarshal(response.Body.Bytes(), &config) != nil {
+			t.Fatalf("config: %d %s", response.Code, response.Body.String())
+		}
+		if len(config.RootID) != 64 || strings.Contains(response.Body.String(), dir) {
+			t.Fatalf("root identity: %s", response.Body.String())
+		}
+		return config.Title, config.RootID
+	}
+	title, root := readConfig(app)
+	if title != "" {
+		t.Fatalf("default title: %q", title)
+	}
+	app.Title = "作業ノート <script> & \"quoted\""
+	title, sameRoot := readConfig(app)
+	if title != app.Title || sameRoot != root {
+		t.Fatalf("title=%q root=%q", title, sameRoot)
+	}
+	restarted, err := New(app.Files, "127.0.0.1", 3000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(restarted.Close)
+	_, restartedRoot := readConfig(restarted)
+	if restartedRoot != root {
+		t.Fatal("root identity changed after restart")
+	}
+	other, _ := newTestServer(t)
+	_, otherRoot := readConfig(other)
+	if otherRoot == root {
+		t.Fatal("different folders share identity")
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/config", nil)
+	req.Host = "localhost:3000"
+	response := httptest.NewRecorder()
+	app.ServeHTTP(response, req)
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST: %d", response.Code)
+	}
+	if response := request(app, "example.com:3000", "/api/config"); response.Code != http.StatusBadRequest {
+		t.Fatalf("Host: %d", response.Code)
+	}
+}

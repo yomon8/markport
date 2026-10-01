@@ -97,3 +97,34 @@ func TestDevelopmentUpdateRejected(t *testing.T) {
 		t.Fatalf("development update: %d %s %s", code, out.String(), errout.String())
 	}
 }
+
+func TestTitleOption(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"notes", "--title", " 作業ノート "}, "作業ノート"},
+		{[]string{"--title=Work notes", "notes"}, "Work notes"},
+		{[]string{"--title="}, ""},
+		{[]string{"--title", " \t "}, ""},
+		{[]string{"--title=--name"}, "--name"},
+	} {
+		o, err := Parse(tc.args)
+		if err != nil || o.Title != tc.want {
+			t.Fatalf("%v: title=%q, err=%v", tc.args, o.Title, err)
+		}
+	}
+	for _, args := range [][]string{
+		{"--title"}, {"--title", "--port", "3000"}, {"--title=a", "--title", "b"},
+		{"--update", "--title="}, {"--check-update", "--title", "notes"},
+	} {
+		var out, errout bytes.Buffer
+		if code := Run(args, &out, &errout); code != 2 || errout.Len() == 0 {
+			t.Fatalf("%v: code=%d error=%s", args, code, errout.String())
+		}
+	}
+	var out, errout bytes.Buffer
+	if code := Run([]string{"--help"}, &out, &errout); code != 0 || !strings.Contains(out.String(), "--title TEXT") {
+		t.Fatalf("help: %d %s %s", code, out.String(), errout.String())
+	}
+}
