@@ -112,7 +112,8 @@ header button{height:34px;min-height:34px;font-size:13px;line-height:1.2;padding
   #header-extras.open{display:grid}
   #header-extras>button{width:100%;text-align:left}
   #theme-menu:not([hidden]){right:calc(100% + 4px);top:0}
-  #connection:not([data-state=ok]) .connection-label{position:static;width:auto;height:auto;padding:0;margin:0;overflow:visible;clip:auto;white-space:nowrap}
+  #connection{min-width:16px}
+  #connection:not([data-state=ok]) .connection-label{position:static;width:auto;min-width:0;height:auto;padding:0;margin:0;overflow:hidden;text-overflow:ellipsis;clip:auto;white-space:nowrap}
   #reload{min-width:32px}
 }
 
@@ -184,7 +185,7 @@ header button{height:34px;min-height:34px;font-size:13px;line-height:1.2;padding
 
 /* Header: every control is a 32px icon button. */
 header button{min-width:32px;height:32px;min-height:32px;padding:0 6px}
-header #reload,header #help-toggle,header #theme-toggle,header #paste-toggle,header #header-more,header #drawer-toggle,header #sidebar-toggle{width:32px;padding:0}
+header #reload,header #help-toggle,header #server-info-toggle,header #theme-toggle,header #paste-toggle,header #header-more,header #drawer-toggle,header #sidebar-toggle{width:32px;padding:0;flex-shrink:0}
 header #header-more{place-items:center}
 header #reload .reload-icon{display:grid;place-items:center;font-size:0;line-height:0}
 @media(max-width:700px){
@@ -253,3 +254,12 @@ nav a[aria-current]{font-weight:600}
 #tab-title-hint{font-size:13px;color:var(--text-muted)}
 .tab-title-actions{display:flex;gap:8px;flex-wrap:wrap}
 @media(max-width:700px){#header-extras>#tab-title-toggle:after{content:none}}
+
+#server-info-toggle{display:inline-grid;place-items:center}
+#server-info-dialog[open]{box-sizing:border-box;width:min(600px,calc(100vw - 28px));max-height:calc(100vh - 28px);overflow:auto;padding:22px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);box-shadow:0 15px 55px #0005}
+#server-info-dialog::backdrop{background:#0008}
+#server-info-dialog h2{margin:0 0 18px;font-size:20px}
+#server-info-dialog dl{margin:0 0 20px}
+#server-info-dialog dt{margin-top:16px;font-size:13px;color:var(--text-muted)}
+#server-info-dialog dd{margin:5px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--mono)}
+.server-info-actions{display:flex;gap:8px}

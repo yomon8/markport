@@ -47,22 +47,24 @@ func imageContentType(name string) (string, bool) {
 }
 
 type Server struct {
-	Files         *files.Store
-	Host          string
-	Port          int
-	Title         string
-	instance      string
-	mu            sync.Mutex
-	subs          map[chan string]struct{}
-	closed        bool
-	watchError    bool
-	static        http.Handler
-	searchMu      sync.Mutex
-	searchPaths   []string
-	searchIgnored []string
-	searchExpires time.Time
-	searchFlight  chan struct{}
-	searchErr     error
+	Files            *files.Store
+	Host             string
+	Port             int
+	Title            string
+	WorkingDirectory string
+	Version          string
+	instance         string
+	mu               sync.Mutex
+	subs             map[chan string]struct{}
+	closed           bool
+	watchError       bool
+	static           http.Handler
+	searchMu         sync.Mutex
+	searchPaths      []string
+	searchIgnored    []string
+	searchExpires    time.Time
+	searchFlight     chan struct{}
+	searchErr        error
 }
 
 func New(store *files.Store, host string, port int) (*Server, error) {
@@ -138,6 +140,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
+	case "/api/info":
+		w.Header().Set("Cache-Control", "no-store")
+		jsonReply(w, http.StatusOK, struct {
+			RootPath         string `json:"rootPath"`
+			WorkingDirectory string `json:"workingDirectory"`
+			Version          string `json:"version"`
+		}{s.Files.Path, s.WorkingDirectory, s.Version})
 	case "/api/config":
 		rootID := sha256.Sum256([]byte(s.Files.Path))
 		w.Header().Set("Cache-Control", "no-store")

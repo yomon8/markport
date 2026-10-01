@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rename, writeFile, unlink, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rename, writeFile, unlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
@@ -253,13 +253,73 @@ test('theme colors follow the selected theme and HTML keeps document colors', as
   }
 });
 
+test('server info shows actual startup details and returns keyboard focus', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  const button = page.getByRole('button', { name: 'Server info', exact: true });
+  const dialog = page.getByRole('dialog', { name: 'Server info', exact: true });
+  await button.focus(); await page.keyboard.press('Enter');
+  await expect(dialog.locator('dd')).toHaveText([
+    await realpath(directory), process.cwd(), execFileSync(resolve('../dist/markport'), ['--version'], { encoding: 'utf8' }).trim(), `http://127.0.0.1:${port}`,
+  ]);
+  await page.keyboard.press('Escape'); await expect(dialog).toBeHidden(); await expect(button).toBeFocused();
+  await button.click(); await expect(dialog.locator('dd')).toHaveCount(4);
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click(); await expect(button).toBeFocused();
+});
+
+test('server info wraps long paths on desktop and mobile in both themes', async ({ page }, testInfo) => {
+  const rootPath = `/work/${'very-long-directory-'.repeat(30)}作業 <script> & notes`;
+  await page.route('**/api/info', (route) => route.fulfill({ json: { rootPath, workingDirectory: '/startup', version: 'dev' } }));
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const theme of ['light', 'dark']) {
+      await page.addInitScript((value) => localStorage.setItem('markport-theme', value), theme);
+      await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+      const button = page.getByRole('button', { name: 'Server info', exact: true });
+      await expect(button).toBeVisible(); await button.click();
+      const dialog = page.getByRole('dialog', { name: 'Server info', exact: true });
+      await expect(dialog.locator('dd').first()).toHaveText(rootPath);
+      expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+      expect(await page.locator('header').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`server-info-${width}-${theme}.png`) });
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    }
+  }
+  await page.route('**/api/tree**', (route) => route.abort());
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.locator('#connection')).toHaveAttribute('data-state', 'error');
+  expect(await page.locator('header').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await expect(page.getByRole('button', { name: 'Server info', exact: true })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath('server-info-320-connection-error.png') });
+  await page.getByRole('button', { name: 'Server info', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Server info', exact: true }).locator('dd').first()).toHaveText(rootPath);
+});
+
+test('server info retries and updates an open dialog after server restart', async ({ page }) => {
+  let requests = 0;
+  await page.route('**/api/info', (route) => {
+    requests++;
+    return requests === 1 ? route.fulfill({ status: 503 }) : route.continue();
+  });
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await expect(page.locator('#content h1').first()).toHaveText('Demo');
+  await page.getByRole('button', { name: 'Server info', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Server info', exact: true });
+  await expect(dialog).toContainText('Cannot load server info');
+  await dialog.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(dialog.locator('dd')).toHaveCount(4);
+  const beforeRestart = requests;
+  await stopServer(); await startServer();
+  await expect.poll(() => requests).toBeGreaterThan(beforeRestart);
+  await expect(dialog.locator('dd').first()).toHaveText(await realpath(directory));
+});
+
 test('header controls stay aligned and theme choices work by keyboard on mobile', async ({ page }, testInfo) => {
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 844 });
     for (const theme of ['light', 'dark']) {
       await page.addInitScript((value) => localStorage.setItem('markport-theme', value), theme);
       await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
-      const buttons = width <= 700 ? ['#drawer-toggle', '#header-more', '#reload'] : ['#sidebar-toggle', '#theme-toggle', '#paste-toggle', '#reload'];
+      const buttons = width <= 700 ? ['#drawer-toggle', '#header-more', '#server-info-toggle', '#reload'] : ['#sidebar-toggle', '#theme-toggle', '#paste-toggle', '#server-info-toggle', '#reload'];
       const positions = await page.locator(buttons.join(',')).evaluateAll((elements) => elements.map((element) => {
         const box = element.getBoundingClientRect(); return { top: box.top, height: box.height, right: box.right };
       }));

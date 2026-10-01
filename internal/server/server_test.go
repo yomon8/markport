@@ -771,6 +771,36 @@ func TestSSEReplaysCurrentWatchStatus(t *testing.T) {
 	}
 }
 
+func TestInfoAPI(t *testing.T) {
+	app, _ := newTestServer(t)
+	app.WorkingDirectory = filepath.Join(t.TempDir(), "起動 <script> & quoted")
+	app.Version = "v1.2.3"
+	response := request(app, "localhost:3000", "/api/info")
+	var info struct {
+		RootPath         string `json:"rootPath"`
+		WorkingDirectory string `json:"workingDirectory"`
+		Version          string `json:"version"`
+	}
+	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" || json.Unmarshal(response.Body.Bytes(), &info) != nil {
+		t.Fatalf("info: %d %s", response.Code, response.Body.String())
+	}
+	if info.RootPath != app.Files.Path || info.WorkingDirectory != app.WorkingDirectory || info.Version != app.Version || !filepath.IsAbs(info.RootPath) {
+		t.Fatalf("unexpected info: %+v", info)
+	}
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/info", nil)
+		req.Host = "localhost:3000"
+		response := httptest.NewRecorder()
+		app.ServeHTTP(response, req)
+		if response.Code != http.StatusMethodNotAllowed || response.Header().Get("Allow") != "GET" {
+			t.Fatalf("%s: %d", method, response.Code)
+		}
+	}
+	if response := request(app, "example.com:3000", "/api/info"); response.Code != http.StatusBadRequest {
+		t.Fatalf("Host: %d", response.Code)
+	}
+}
+
 func TestConfigAPI(t *testing.T) {
 	app, dir := newTestServer(t)
 	readConfig := func(app *Server) (string, string) {

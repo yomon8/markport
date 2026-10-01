@@ -162,6 +162,11 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	store, err := files.New(o.Directory)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -181,6 +186,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	}
 	base, cancel := context.WithCancel(context.Background())
 	app.Title = o.Title
+	app.WorkingDirectory = workingDirectory
+	app.Version = Version
 	httpServer := &http.Server{Handler: app, BaseContext: func(net.Listener) context.Context { return base }}
 	serveDone := make(chan error, 1)
 	go func() { serveDone <- httpServer.Serve(listener) }()

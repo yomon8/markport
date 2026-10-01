@@ -10,6 +10,7 @@ import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
 import { copyText } from './clipboard';
 import { TabTitle } from './tabTitle';
+import { ServerInfo } from './serverInfo';
 import { createDiagramOverlay } from './diagramOverlay';
 import { createShortcutHelp } from './shortcutHelp';
 import { createTableOverlay } from './tableOverlay';
@@ -71,6 +72,10 @@ const helpToggle = document.createElement('button'); helpToggle.id = 'help-toggl
 helpToggle.setAttribute('aria-label', `Keyboard shortcuts (${shortcutText('help')})`); helpToggle.title = `Keyboard shortcuts (${shortcutText('help')})`;
 reload.before(helpToggle);
 const shortcutHelp = createShortcutHelp(helpToggle);
+const infoToggle = document.createElement('button'); infoToggle.id = 'server-info-toggle'; infoToggle.type = 'button';
+infoToggle.setAttribute('aria-label', 'Server info'); infoToggle.title = 'Server info'; setIcon(infoToggle, 'info');
+helpToggle.before(infoToggle);
+const serverInfo = new ServerInfo(infoToggle);
 const pasteToggle = document.querySelector<HTMLButtonElement>('#paste-toggle')!;
 const headerMore = document.querySelector<HTMLButtonElement>('#header-more')!;
 const headerExtras = document.querySelector<HTMLElement>('#header-extras')!;
@@ -220,6 +225,7 @@ function syncPreviewInstance(instance: string): void {
   if (!instance || instance === previewInstance) return;
   previewInstance = instance; interactivePaths.clear();
   void tabTitle.reload(true);
+  void serverInfo.reloadIfOpen();
   try {
     const saved = JSON.parse(sessionStorage.getItem(previewStorageKey()) ?? '[]') as unknown;
     if (Array.isArray(saved)) for (const path of saved) if (typeof path === 'string') interactivePaths.add(path);
@@ -1052,6 +1058,7 @@ function requestRefresh(foreground = true): void {
 }
 function manualRefresh(): void {
   void tabTitle.reload();
+  void serverInfo.reloadIfOpen();
   displayedTag = ''; rightTag = ''; pageTags.clear(); previewReload++; requestRefresh();
   if (selectedMode() === 'paste') refreshPastedPreview?.();
   if (search.value.trim()) void loadSearchIndex(true);
@@ -1428,7 +1435,7 @@ updateBrand();
 status(liveMessage, 'ok');
 requestRefresh();
 const pollTimer = setInterval(() => { if (!document.hidden) requestRefresh(false); }, 3000);
-window.addEventListener('pagehide', () => { clearInterval(pollTimer); onSearchChange(''); tabTitle.dispose(); });
+window.addEventListener('pagehide', () => { clearInterval(pollTimer); onSearchChange(''); tabTitle.dispose(); serverInfo.dispose(); });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     requestRefresh(false);

@@ -34,6 +34,10 @@ markport ./notes
 
 Open the `http://127.0.0.1:3000/` URL printed at startup. Omit the directory to browse the current directory. Press `Ctrl+C` to stop Markport.
 
+### Server info
+
+Click the **Server info** (ⓘ) button in the header to check the browsed folder's absolute path, working directory at startup, running Markport version, and connection URL. The button is always available on desktop and mobile. For example, when you run `markport ./notes`, the browsing directory is the `notes` folder and the working directory is where you ran the command. The browsing path resolves symbolic links.
+
 ### Browser tab title
 
 Set a fixed browser tab title at startup:
