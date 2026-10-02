@@ -14,7 +14,7 @@ Markport opens a folder in your browser so you can read and review Markdown, HTM
 ## What you can do
 
 - **Read files in context:** browse folders, follow relative links and images, and preview Markdown, HTML, PDF, SVG, PNG, JPEG, GIF, and WebP. Markdown supports tables, task lists, code highlighting, Mermaid diagrams, and LaTeX math. Switch to source view for Markdown or HTML. PDFs use your browser's built-in viewer and can also be opened in a new tab or downloaded.
-- **Compare two files:** use the arrow beside a file in the sidebar to open it on the right. Each pane scrolls and refreshes independently; **Close split** returns to one file. On narrow screens the panes stack vertically.
+- **Compare two files:** use the arrow beside a file in the sidebar to open it on the right. Each pane scrolls and refreshes independently. Use **Swap panes** to exchange the files, **Show this file only** to keep the right file, or **Close split view** to return to the left file. On narrow screens the panes stack vertically.
 - **Find what you need:** search by file name or path, or search text inside files and jump to matching lines. In **Search files**, enter `path/to/file.md:123` to open line 123, including in the right pane. Markdown and HTML open in source view when a line is specified.
 - **Review Git changes:** see changed files and their diffs, compare current files with HEAD or a selected commit, mark each revision as reviewed, and filter to unreviewed files. Review marks are kept in this browser.
 - **Browse Git history:** open the History tab to inspect commits that changed the selected folder, then view each commit's files and per-file diff.
@@ -33,6 +33,28 @@ markport ./notes
 ```
 
 Open the `http://127.0.0.1:3000/` URL printed at startup. Omit the directory to browse the current directory. Press `Ctrl+C` to stop Markport.
+
+### File navigation and search
+
+Use **Collapse all** beside **Search files** to close all open folders. Click a folder in the file's breadcrumb path to reveal it in the sidebar. Drag the sidebar divider to adjust its width.
+
+**Search files** searches file names and paths, including files inside closed folders. Git-ignored files remain searchable but rank below other matches. Append a positive line number, such as `path/to/file.md:123`, to jump to that line; the arrow beside a result opens it on the right. Markdown and HTML line targets use **Source** view.
+
+Open **Search contents**, enter **Text to find**, and optionally set **Folder** to a path relative to the browsing directory. Leave Folder empty to search the whole directory. Results show matching lines with context; click a result to open its line. Use **Cancel** to stop a search. If a search limit is reached, the result message identifies the limit and indicates that the results are partial.
+
+### Git review and history
+
+Git views require Git to be installed and the browsing directory to be inside a Git repository. **Changes** compares current working files with HEAD by default, including staged, unstaged, and untracked changes. If you browse a subfolder, changes and history are limited to that folder.
+
+In **Compare with current from**, choose a recent commit suggestion or enter a full or abbreviated commit ID, then click **Compare**. You can also choose **Compare with current** from **History**. The selected commit must be reachable from the current HEAD; abbreviated IDs must be unambiguous and at least seven hexadecimal characters long. **Use HEAD** restores the default comparison. History's per-commit diffs show what that commit changed, while **Compare with current** compares that commit with the files currently on disk.
+
+The Changes overview shows file counts, added and deleted lines, and review progress. Use **Folder tree** to group changes by directory and **Unreviewed only** to focus on remaining files. **Mark reviewed** records the current revision; another change to the file makes it unreviewed again. Marks are saved in this browser separately for each browsing root and comparison base. In **Diff** view, use **Previous**, **Next**, or **Review and next** to move through the review.
+
+### Reading code, tables, and diagrams
+
+Use **Wrap lines** in a code block or source view to wrap long lines, and **Copy** to copy the code. Markdown tables have **Wrap cells** and **Expand** controls; wide tables scroll horizontally and show edge hints when more content is available. Code and table wrapping choices are saved in this browser and apply to both split panes and pasted Markdown.
+
+Mermaid diagrams have **Source** and **Expand** controls. In the expanded view, drag to pan, use the zoom buttons or a pinch gesture to zoom, and choose **Fit diagram** or **100%** to reset the scale.
 
 ### Server info
 
@@ -91,15 +113,17 @@ On Linux, install the latest release for your CPU with the installer:
 
 It installs `markport` in `~/.local/bin` without leaving an installer script behind. Run the same command again to replace an older version. The installer checks the release checksum before replacing the binary, so a failed download or check leaves the installed version in place. Add `~/.local/bin` to your `PATH` if needed, then run `markport ./notes`.
 
-Download the executable for your OS and CPU from the GitHub Releases page. Builds are available for Linux, macOS, and Windows on `amd64` (x64) and `arm64`. The Windows executable has a `.exe` extension. You do not need Go, Node.js, npm, or separate web assets to run it, but you do need a browser.
+Download the executable for your OS and CPU from the [GitHub Releases page](https://github.com/yomon8/markport/releases). Builds are available for Linux, macOS, and Windows on `amd64` (x64) and `arm64`. The Windows executable has a `.exe` extension. You do not need Go, Node.js, npm, or separate web assets to run it, but you do need a browser.
 
 To verify a download, place `checksums_<version>.txt` from the release alongside the executable. Run `sha256sum --check checksums_<version>.txt` on Linux or `shasum -a 256 -c checksums_<version>.txt` on macOS. On Windows, use `Get-FileHash` to check an individual file.
 
+For these examples, rename the downloaded Linux executable to `markport` and make it executable with `chmod +x markport`:
+
 ```sh
-./markport_v0.2.7_linux_amd64 ./notes --port 3000
-./markport_v0.2.7_linux_amd64 ./notes --host 0.0.0.0 --port 3000
-./markport_v0.2.7_linux_amd64 --help
-./markport_v0.2.7_linux_amd64 --version
+./markport ./notes --port 3000
+./markport ./notes --host 0.0.0.0 --port 3000
+./markport --help
+./markport --version
 ```
 
 ### Updating
@@ -158,21 +182,21 @@ Development requires Go 1.27, Node.js 24, npm, and Make. The devcontainer forwar
 
 ```sh
 make setup                 # Download Go modules and install npm dependencies
-make dev DIR=./testdata    # Start the Go API and Vite at localhost:5173
+make dev DIR=./testdata     # Start the Go API and Vite at localhost:5173
 make build VERSION=dev     # Build an executable for the current OS and CPU
 make run DIR=./testdata PORT=3000
 make run DIR=./testdata HOST=0.0.0.0 PORT=3000  # Allow LAN access
 make test                  # Run Go and UI tests
-make test-e2e             # Run Chromium browser tests (requires Playwright browser setup)
-make screenshots            # Regenerate the README screenshots (requires Playwright browser setup)
+make test-e2e              # Run Chromium browser tests (requires Playwright browser setup)
+make screenshots           # Regenerate the README screenshots (requires Playwright browser setup)
 make lint                  # Run go vet, TypeScript checks, and ESLint
-make dist VERSION=v0.2.7  # Build six executables and SHA-256 checksums
+make dist VERSION=v1.0.0   # Build six executables and SHA-256 checksums
 ```
 
 After `make setup`, you can run `make lint` on its own. Each relevant Make target builds the web UI and embeds it in the executable. During development, Vite proxies API requests to Go.
 
 Before running browser tests for the first time, install Chromium and its required libraries with `cd web && npx playwright install --with-deps chromium`.
 
-Pushing a `v*` tag triggers GitHub Actions to validate each OS build and create a release for that tag. Before a release, you can also run `make test`, `make lint`, and `make dist VERSION=<tag>` locally. The initial release does not include code signing or macOS notarization.
+Pull requests run CI on Linux, macOS, and Windows, with Chromium browser tests on Linux. Ordinary branch pushes do not run CI. Pushing a `v*` tag triggers GitHub Actions to validate each OS build and create a release for that tag. Before a release, you can also run `make test`, `make lint`, `make test-e2e VERSION=<tag>`, and `make dist VERSION=<tag>` locally. Release binaries are not code-signed or notarized on macOS.
 
 Current releases do not include editing files, comments, standard-input import, or authenticated network hosting.

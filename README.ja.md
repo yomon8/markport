@@ -5,6 +5,8 @@
   <img src="logo/markport-logo-horizontal-light.svg" alt="Markport のロゴ" width="300">
 </picture>
 
+[Read this in English](README.md)
+
 Markport は、指定したフォルダの Markdown・HTML・コード・画像・PDF をブラウザでまとめて確認できる CLI ツールです。AI Agent が作った文書やファイルの確認にも使えます。ファイルを書き換えず、ローカルで閲覧できます。
 
 ![Markdown と本文検索の結果を表示した Markport](docs/screenshots/content-search.png)
@@ -12,9 +14,9 @@ Markport は、指定したフォルダの Markdown・HTML・コード・画像�
 ## できること
 
 - **ファイルを見ながらたどる：** フォルダを開き、相対リンクや画像をたどれます。Markdown の表・タスクリスト・コードの色付け・Mermaid 図・LaTeX 数式、HTML・PDF と SVG・PNG・JPEG・GIF・WebP 画像のプレビューに対応します。Markdown と HTML はソース表示に切り替えられます。PDF はブラウザ標準のビューアーで表示し、別タブで開いたりダウンロードしたりできます。
-- **2つのファイルを見比べる：** サイドバーのファイル横にある矢印で右側に開けます。左右は独立してスクロール・自動更新されます。**Close split** で単一表示に戻ります。狭い画面では上下に並びます。
-- **必要な箇所を探す：** ファイル名・パスの検索に加え、ファイルの本文を検索して一致した行へ移動できます。
-- **Git の変更を確認する：** 変更ファイルの一覧と差分を表示し、確認済みの印を付けられます。未確認のファイルだけに絞ることもできます。確認済みの印はブラウザに保存されます。
+- **2つのファイルを見比べる：** サイドバーのファイル横にある矢印で右側に開けます。左右は独立してスクロール・自動更新されます。**Swap panes** で左右を入れ替え、**Show this file only** で右のファイルだけを表示し、**Close split view** で左のファイルだけの表示に戻ります。狭い画面では上下に並びます。
+- **必要な箇所を探す：** ファイル名・パスの検索に加え、ファイルの本文を検索して一致した行へ移動できます。**Search files** に `path/to/file.md:123` と入力すると123行目を開けます。右ペインでも利用でき、Markdown と HTML は行番号を指定するとソース表示で開きます。
+- **Git の変更を確認する：** 変更ファイルの一覧と差分を表示し、現在のファイルを HEAD や選択したコミットと比較できます。変更ごとに確認済みの印を付けられます。未確認のファイルだけに絞ることもできます。確認済みの印はブラウザに保存されます。
 - **Git の履歴をたどる：** サイドバーの **History** タブから、指定したフォルダ内を変更したコミットを確認できます。各コミットの変更ファイル一覧とファイルごとの差分も表示できます。
 - **更新や貼り付けをすぐに確認する：** 表示中のファイルは変更を自動反映します。Markdown を貼り付けて、ファイルを作らずにプレビューすることもできます。
 
@@ -31,6 +33,28 @@ markport ./notes
 ```
 
 起動時に表示される `http://127.0.0.1:3000/` をブラウザで開きます。フォルダを省略すると現在のディレクトリを表示します。終了するときは `Ctrl+C` を押します。
+
+### ファイルの移動と検索
+
+**Search files** 横の **Collapse all** で、開いているフォルダをすべて折りたためます。ファイルのパンくずにあるフォルダを押すと、サイドバーでその場所を表示します。サイドバーの境界をドラッグすると幅を調整できます。
+
+**Search files** は、閉じたフォルダ内も含めてファイル名・パスを検索します。Git の無視対象ファイルも検索できますが、他の一致結果より下位に表示します。`path/to/file.md:123` のように正の行番号を付けると、その行へ移動できます。結果横の矢印で右ペインにも開けます。Markdown と HTML の行指定は **Source** 表示になります。
+
+**Search contents** を開き、**Text to find** に検索語を入力します。**Folder** には閲覧ディレクトリからの相対パスを指定でき、空欄なら全体を検索します。結果には一致行と前後の文脈を表示し、押すとその行を開きます。**Cancel** で検索を中止できます。検索の上限に達した場合は、どの上限に達したかと結果が一部であることを表示します。
+
+### Git の変更確認と履歴
+
+Git の表示には、Git のインストールと、閲覧ディレクトリが Git リポジトリ内にあることが必要です。**Changes** は既定で現在の作業ファイルと HEAD を比較し、ステージ済み・未ステージ・未追跡の変更を表示します。サブフォルダを閲覧している場合、変更と履歴はそのフォルダ内に限定します。
+
+**Compare with current from** で最近のコミット候補を選ぶか、完全なコミット ID または短縮 ID を入力し、**Compare** を押します。**History** の **Compare with current** からも選択できます。比較元は現在の HEAD からたどれるコミットに限り、短縮 ID は一意に特定できる7文字以上の16進数で指定します。**Use HEAD** で既定の比較に戻します。History のコミットごとの差分はそのコミットによる変更を表示し、**Compare with current** はそのコミットと現在のディスク上のファイルを比較します。
+
+Changes の概要には、ファイル数・追加行数・削除行数・確認の進捗を表示します。**Folder tree** でフォルダごとにまとめ、**Unreviewed only** で未確認のファイルに絞れます。**Mark reviewed** は現在の変更内容を記録し、そのファイルが再び変更されると未確認に戻ります。印は同じブラウザの閲覧ルート・比較元ごとに保存します。**Diff** 表示の **Previous**、**Next**、**Review and next** で順に確認できます。
+
+### コード・表・図の表示
+
+コードブロックやソース表示の **Wrap lines** で長い行を折り返し、**Copy** でコードをコピーできます。Markdown の表には **Wrap cells** と **Expand** があり、横に長い表は水平スクロールでき、まだ表示されていない部分がある場合は端に目印を表示します。コードと表の折り返し設定はブラウザに保存し、分割表示の両ペインと貼り付けた Markdown に適用します。
+
+Mermaid 図には **Source** と **Expand** があります。拡大表示ではドラッグで移動し、ズームボタンやピンチ操作で拡大・縮小できます。**Fit diagram** で表示領域に合わせ、**100%** で等倍に戻します。
 
 ### 起動情報
 
@@ -89,15 +113,17 @@ Linux では、次のスクリプトで CPU に合う最新リリースをイン
 
 導入先は `~/.local/bin/markport` で、インストーラのファイルは残りません。同じコマンドを再実行すると、古いバージョンを最新版に置き換えます。スクリプトは置き換え前にチェックサムを確認するため、ダウンロードや検証に失敗しても既存のバージョンは残ります。必要に応じて `~/.local/bin` を `PATH` に追加し、`markport ./notes` で起動してください。
 
-GitHub Release から OS・CPU に合う実行ファイルを選びます。Linux、macOS、Windows の `amd64`（x64）と `arm64` を用意します。Windows 版は `.exe` です。利用時に Go、Node.js、npm や別置きの Web アセットは不要です。ブラウザは別途必要です。
+[GitHub Releases](https://github.com/yomon8/markport/releases) から OS・CPU に合う実行ファイルを選びます。Linux、macOS、Windows の `amd64`（x64）と `arm64` を用意します。Windows 版は `.exe` です。利用時に Go、Node.js、npm や別置きの Web アセットは不要です。ブラウザは別途必要です。
 
 Release の `checksums_<version>.txt` をダウンロードし、バイナリと同じフォルダで Linux は `sha256sum --check checksums_<version>.txt`、macOS は `shasum -a 256 -c checksums_<version>.txt` でハッシュを確認できます。Windows では `Get-FileHash` で個別に確認できます。
 
+以下の例では、ダウンロードした Linux 用実行ファイルを `markport` に変更し、`chmod +x markport` で実行権限を付けて使います。
+
 ```sh
-./markport_v0.2.7_linux_amd64 ./notes --port 3000
-./markport_v0.2.7_linux_amd64 ./notes --host 0.0.0.0 --port 3000
-./markport_v0.2.7_linux_amd64 --help
-./markport_v0.2.7_linux_amd64 --version
+./markport ./notes --port 3000
+./markport ./notes --host 0.0.0.0 --port 3000
+./markport --help
+./markport --version
 ```
 
 ### 更新
@@ -156,21 +182,21 @@ Go 1.27、Node.js 24、npm、Make を使います。devcontainer はポート 30
 
 ```sh
 make setup                 # Go と npm の依存関係
-make dev DIR=./testdata    # Go API と Vite 開発サーバー。Vite は localhost:5173
+make dev DIR=./testdata     # Go API と Vite 開発サーバー。Vite は localhost:5173
 make build VERSION=dev     # 現在の OS・CPU 向け実行ファイル
 make run DIR=./testdata PORT=3000
 make run DIR=./testdata HOST=0.0.0.0 PORT=3000  # LAN からアクセス
 make test                  # Go と画面のテスト
-make test-e2e             # Chromium の画面受け入れテスト（Playwright のブラウザ導入が必要）
-make screenshots            # README のスクリーンショットを再生成（Playwright ブラウザが必要）
+make test-e2e              # Chromium の画面受け入れテスト（Playwright のブラウザ導入が必要）
+make screenshots           # README のスクリーンショットを再生成（Playwright ブラウザが必要）
 make lint                  # go vet、TypeScript、ESLint
-make dist VERSION=v0.2.7  # 6 種類と SHA-256 チェックサム
+make dist VERSION=v1.0.0   # 6 種類と SHA-256 チェックサム
 ```
 
 `make setup` の後に `make lint` を単独で実行できます。画面は各 Make タスクでビルドされ、実行ファイルへ埋め込まれます。開発画面の API は Vite から Go へプロキシされます。
 
 ブラウザの受け入れテストを初回に実行する前に、`cd web && npx playwright install --with-deps chromium` で Chromium と実行に必要なライブラリを導入します。
 
-`v*` タグを push すると GitHub Actions が各 OS で検証してから、既存タグに対して Release を作成します。リリース実行前に `make test`、`make lint`、`make dist VERSION=<tag>` をローカルでも確認できます。コード署名と macOS の公証は初版では行いません。
+Pull Request では Linux・macOS・Windows で CI を実行し、Linux では Chromium の受け入れテストも実行します。通常のブランチ push では CI を実行しません。`v*` タグを push すると GitHub Actions が各 OS で検証してから、既存タグに対して Release を作成します。リリース実行前に `make test`、`make lint`、`make test-e2e VERSION=<tag>`、`make dist VERSION=<tag>` をローカルでも確認できます。リリース実行ファイルにはコード署名と macOS の公証を行っていません。
 
 現行版にファイルの編集、コメント、標準入力からの取り込み、認証付きのネットワーク公開は含めません。
