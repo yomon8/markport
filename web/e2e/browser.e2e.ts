@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 import { createServer } from 'node:net';
 
 let directory: string;
+let cacheDirectory: string;
 let port: number;
 let serverProcess: ChildProcess;
 
@@ -44,7 +45,7 @@ async function freePort(): Promise<number> {
 }
 
 async function startServer(): Promise<void> {
-  serverProcess = spawn(resolve('../dist/markport'), [directory, '--port', String(port)], { stdio: 'ignore' });
+  serverProcess = spawn(resolve('../dist/markport'), [directory, '--port', String(port)], { stdio: 'ignore', env: { ...process.env, XDG_CACHE_HOME: cacheDirectory, LOCALAPPDATA: cacheDirectory } });
   for (let i = 0; i < 100; i++) {
     try { if ((await fetch(`http://127.0.0.1:${port}/api/tree`)).ok) return; } catch { /* Starting. */ }
     await new Promise((done) => setTimeout(done, 50));
@@ -61,6 +62,7 @@ async function stopServer(): Promise<void> {
 
 test.beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), 'markport-e2e-'));
+  cacheDirectory = await mkdtemp(join(tmpdir(), 'markport-e2e-cache-'));
   port = await freePort();
   await writeFile(join(directory, 'README.md'), '# Demo\n\n[Jump](#section)\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n- [x] done\n\n[Python](sample.py)\n\n[PDF](docs/sample.pdf)\n\n![Image](image.svg)\n\n## Section\n\n```mermaid\nflowchart LR\n  A --> B\n```\n');
   await writeFile(join(directory, 'sample.py'), 'print("first")\n');
@@ -93,6 +95,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await stopServer();
   if (directory) await rm(directory, { recursive: true, force: true });
+  if (cacheDirectory) await rm(cacheDirectory, { recursive: true, force: true });
 });
 
 test('renders LaTeX in both panes, source, updates, themes, and mobile', async ({ page }, testInfo) => {
@@ -266,9 +269,52 @@ test('server info shows actual startup details and returns keyboard focus', asyn
   await dialog.getByRole('button', { name: 'Close', exact: true }).click(); await expect(button).toBeFocused();
 });
 
+test('server info navigates to another running server and refreshes after shutdown', async ({ page }, testInfo) => {
+  const otherDirectory = await mkdtemp(join(tmpdir(), 'markport-other-'));
+  const otherRoot = await realpath(otherDirectory);
+  const otherPort = await freePort();
+  await writeFile(join(otherDirectory, 'README.md'), '# Other server');
+  const other = spawn(resolve('../dist/markport'), [otherDirectory, '--host', '0.0.0.0', '--port', String(otherPort)], {
+    stdio: 'ignore', env: { ...process.env, XDG_CACHE_HOME: cacheDirectory, LOCALAPPDATA: cacheDirectory },
+  });
+  async function stopOther(): Promise<void> {
+    if (other.exitCode !== null || other.signalCode !== null) return;
+    const exited = new Promise((done) => other.once('exit', done)); other.kill('SIGTERM'); await exited;
+  }
+  try {
+    await expect.poll(async () => {
+      try { return (await fetch(`http://127.0.0.1:${otherPort}/api/instance`)).ok; } catch { return false; }
+    }).toBe(true);
+    await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+    await page.getByRole('button', { name: 'Server info', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Server info', exact: true });
+    const link = dialog.getByRole('link', { name: otherRoot, exact: true });
+    await expect(link).toHaveAttribute('href', `http://127.0.0.1:${otherPort}/`);
+    await page.screenshot({ path: testInfo.outputPath('running-servers.png') });
+    await link.focus(); await page.keyboard.press('Enter');
+    await expect(page).toHaveURL((url) => url.origin === `http://127.0.0.1:${otherPort}`);
+    await expect(page.locator('#content h1')).toHaveText('Other server');
+    await page.getByRole('button', { name: 'Server info', exact: true }).click();
+    await expect(dialog.locator('dd').first()).toHaveText(otherRoot);
+    await page.goBack();
+    await page.getByRole('button', { name: 'Server info', exact: true }).click();
+    await expect(link).toBeVisible();
+    await stopOther();
+    await dialog.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect(link).toHaveCount(0);
+    await expect(dialog.getByRole('link', { name: await realpath(directory), exact: true })).toBeVisible();
+  } finally {
+    await stopOther(); await rm(otherDirectory, { recursive: true, force: true });
+  }
+});
+
 test('server info wraps long paths on desktop and mobile in both themes', async ({ page }, testInfo) => {
   const rootPath = `/work/${'very-long-directory-'.repeat(30)}作業 <script> & notes`;
-  await page.route('**/api/info', (route) => route.fulfill({ json: { rootPath, workingDirectory: '/startup', version: 'dev' } }));
+  await page.route('**/api/info', (route) => route.fulfill({ json: { rootPath, workingDirectory: '/startup', version: 'dev', instances: [
+    { rootPath, version: 'dev', url: 'http://127.0.0.1:3000/', current: true },
+    { rootPath: '/other/作業', version: 'v1.0.0', url: 'http://127.0.0.1:4000/', current: false },
+    { rootPath: '/local-only', version: 'dev', url: '', current: false, unavailableReason: 'Local access only' },
+  ] } }));
   for (const width of [1280, 390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     for (const theme of ['light', 'dark']) {

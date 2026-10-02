@@ -63,4 +63,45 @@ describe('server info', () => {
     button.click(); controller.dispose(); resolve(response()); await flush();
     expect(dialog().querySelectorAll('dd')).toHaveLength(0);
   });
+
+  it('renders server links safely and refreshes the list on demand', async () => {
+    const first = { rootPath: '/notes/<script>', version: 'v1.0.0', url: 'http://127.0.0.1:4000/', current: false };
+    const current = { rootPath: '/work', version: 'dev', url: 'http://127.0.0.1:3000/', current: true };
+    const local = { rootPath: '/private', version: 'dev', url: '', current: false, unavailableReason: 'Local access only' };
+    const fetch = vi.fn().mockResolvedValueOnce(response({ ...info, instances: [current, first, local] }))
+      .mockResolvedValue(response({ ...info, instances: [current] }));
+    vi.stubGlobal('fetch', fetch);
+    button.click(); await flush();
+    const section = dialog().querySelector('section')!;
+    const links = [...section.querySelectorAll('a')];
+    expect(links.map((link) => link.getAttribute('href'))).toEqual([current.url, first.url]);
+    expect(links[1].textContent).toBe(first.rootPath);
+    expect(links[1].hasAttribute('target')).toBe(false);
+    expect(section.querySelector('script')).toBeNull();
+    expect(section.textContent).toContain('Current'); expect(section.textContent).toContain('Local access only');
+    expect(section.querySelectorAll('li')).toHaveLength(3);
+    click('Refresh'); await flush();
+    expect(section.querySelectorAll('li')).toHaveLength(1); expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps current server details and links when discovery partly fails', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response({ ...info,
+      instances: [{ rootPath: '/self', version: 'dev', url: 'http://127.0.0.1:3000/', current: true }],
+      instancesError: 'Cannot load the complete server list. Please try again.',
+    })).mockResolvedValue(response({ ...info, instances: [] })));
+    button.click(); await flush();
+    expect(dialog().querySelectorAll('dd')).toHaveLength(4);
+    expect(dialog().textContent).toContain('Cannot load the complete server list');
+    expect(dialog().querySelector('section a')).not.toBeNull();
+    click('Retry'); await flush(); expect(dialog().textContent).not.toContain('Cannot load the complete server list');
+  });
+
+  it.each(['javascript:alert(1)', 'https://evil.example/', 'http://user:password@127.0.0.1:3000/', 'http://127.0.0.1:3000/?path=bad'])('rejects an unsafe instance link %s without hiding current details', async (url) => {
+    vi.stubGlobal('fetch', async () => response({ ...info, instances: [{ rootPath: '/bad', version: 'dev', url, current: false }] }));
+    button.click(); await flush();
+    expect(dialog().querySelectorAll('dd')).toHaveLength(4);
+    expect(dialog().querySelector('section a')).toBeNull();
+    expect(dialog().textContent).toContain('Server discovery is unavailable');
+  });
+
 });

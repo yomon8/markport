@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/markport/markport/internal/discovery"
 	"github.com/markport/markport/internal/files"
 	"github.com/markport/markport/internal/gitdiff"
 	"github.com/markport/markport/internal/render"
@@ -53,6 +54,8 @@ type Server struct {
 	Title            string
 	WorkingDirectory string
 	Version          string
+	Registry         *discovery.Registry
+	DiscoveryError   string
 	instance         string
 	mu               sync.Mutex
 	subs             map[chan string]struct{}
@@ -140,13 +143,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch r.URL.Path {
-	case "/api/info":
+	case "/api/instance":
 		w.Header().Set("Cache-Control", "no-store")
-		jsonReply(w, http.StatusOK, struct {
-			RootPath         string `json:"rootPath"`
-			WorkingDirectory string `json:"workingDirectory"`
-			Version          string `json:"version"`
-		}{s.Files.Path, s.WorkingDirectory, s.Version})
+		jsonReply(w, http.StatusOK, discovery.Info{RootPath: s.Files.Path, Version: s.Version})
+	case "/api/info":
+		s.serverInfo(w, r)
 	case "/api/config":
 		rootID := sha256.Sum256([]byte(s.Files.Path))
 		w.Header().Set("Cache-Control", "no-store")

@@ -60,6 +60,12 @@ Mermaid diagrams have **Source** and **Expand** controls. In the expanded view, 
 
 Click the **Server info** (ⓘ) button in the header to check the browsed folder's absolute path, working directory at startup, running Markport version, and connection URL. The button is always available on desktop and mobile. For example, when you run `markport ./notes`, the browsing directory is the `notes` folder and the working directory is where you ran the command. The browsing path resolves symbolic links.
 
+The **Running Markport servers** list shows Markport servers started by the same OS user on this host, with their browsing folders, connection URLs, and versions. The current server appears first and is marked **Current**. Click a folder link to open that server's home page in the same tab. Open Server info again or use its **Refresh** button to update the list.
+
+Links support local and direct LAN access. During LAN access, servers listening only on a loopback address are marked **Local access only** and have no link. Discovery requires a version supporting this feature and a shared user cache directory and network environment. Older versions, other OS users, separate containers, reverse proxies, and tunnels are not supported.
+
+Instance records are stored under `markport/instances` in the OS user cache directory, outside the browsed folder, and removed on normal shutdown. Stopped servers are excluded by a live check even if a record remains. If discovery fails, Server info still displays the current server's details and reports the discovery error.
+
 ### Color themes
 
 Use **Theme** in the header (under **App settings** on mobile) to choose **Auto**, **Light**, **Dark**, **Sepia**, or **Nord**. Auto follows your operating system's light/dark preference. Sepia uses warm colors for reading; Nord uses a dark blue-gray palette. Themes also apply to code highlighting, Git diffs, and Mermaid diagrams.

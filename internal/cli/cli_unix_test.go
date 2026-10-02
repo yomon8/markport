@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"syscall"
 	"testing"
@@ -33,6 +35,10 @@ func testShutdownWithSSE(t *testing.T, signal os.Signal) {
 	listener.Close()
 	command := exec.Command(os.Args[0], "-test.run=TestShutdownWithSSE", t.TempDir(), "--port", strconv.Itoa(port))
 	command.Env = append(os.Environ(), "MARKPORT_CLI_HELPER=1")
+	cacheDirectory := t.TempDir()
+	if runtime.GOOS == "linux" {
+		command.Env = append(command.Env, "XDG_CACHE_HOME="+cacheDirectory)
+	}
 	var output bytes.Buffer
 	command.Stdout = &output
 	command.Stderr = &output
@@ -58,6 +64,12 @@ func testShutdownWithSSE(t *testing.T, signal os.Signal) {
 	if response.StatusCode != 200 {
 		t.Fatalf("SSE: %d", response.StatusCode)
 	}
+	if runtime.GOOS == "linux" {
+		entries, err := os.ReadDir(filepath.Join(cacheDirectory, "markport", "instances"))
+		if err != nil || len(entries) != 1 {
+			t.Fatalf("instance registration: %v, %d entries", err, len(entries))
+		}
+	}
 	if err := command.Process.Signal(signal); err != nil {
 		t.Fatal(err)
 	}
@@ -71,4 +83,11 @@ func testShutdownWithSSE(t *testing.T, signal os.Signal) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("shutdown blocked by SSE")
 	}
+	if runtime.GOOS == "linux" {
+		entries, err := os.ReadDir(filepath.Join(cacheDirectory, "markport", "instances"))
+		if err != nil || len(entries) != 0 {
+			t.Fatalf("instance cleanup: %v, %d entries", err, len(entries))
+		}
+	}
+
 }

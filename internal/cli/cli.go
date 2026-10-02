@@ -188,6 +188,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	app.Title = o.Title
 	app.WorkingDirectory = workingDirectory
 	app.Version = Version
+	cleanup, err := app.RegisterInstance()
+	if err != nil {
+		fmt.Fprintf(stderr, "Warning: Markport instance discovery unavailable: %v\n", err)
+	} else {
+		defer cleanup()
+	}
 	httpServer := &http.Server{Handler: app, BaseContext: func(net.Listener) context.Context { return base }}
 	serveDone := make(chan error, 1)
 	go func() { serveDone <- httpServer.Serve(listener) }()
