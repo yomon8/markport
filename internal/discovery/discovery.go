@@ -119,6 +119,16 @@ func Link(record Record, info Info, current bool, requestHost string) Instance {
 // List only probes registered local addresses; it never follows redirects or proxies.
 func (r *Registry) List(ctx context.Context, self Record, info Info, requestHost string) ([]Instance, error) {
 	result := []Instance{Link(self, info, true, requestHost)}
+	directory, err := os.Stat(r.Directory)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return result, nil
+		}
+		return result, err
+	}
+	if !directory.IsDir() {
+		return result, errors.New("instance registry path is not a directory")
+	}
 	entries, err := os.ReadDir(r.Directory)
 	if err != nil {
 		if os.IsNotExist(err) {
