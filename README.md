@@ -62,6 +62,8 @@ Click the **Server info** (ⓘ) button in the header to check the browsed folder
 
 The **Running Markport servers** list shows Markport servers started by the same OS user on this host, with their browsing folders, connection URLs, and versions. The current server appears first and is marked **Current**. Click a folder link to open that server's home page in the same tab. Open Server info again or use its **Refresh** button to update the list.
 
+Use `Ctrl+I` to open Server info, then `↑` / `↓` to select a link and `Enter` to open it. The first available link is selected after loading; servers without a connection URL are skipped.
+
 Links support local and direct LAN access. During LAN access, servers listening only on a loopback address are marked **Local access only** and have no link. Discovery requires a version supporting this feature and a shared user cache directory and network environment. Older versions, other OS users, separate containers, reverse proxies, and tunnels are not supported.
 
 Instance records are stored under `markport/instances` in the OS user cache directory, outside the browsed folder, and removed on normal shutdown. Stopped servers are excluded by a live check even if a record remains. If discovery fails, Server info still displays the current server's details and reports the discovery error.
@@ -94,6 +96,8 @@ Press `?` or the help button in the header to see these shortcuts in Markport. O
 | --- | --- |
 | `/` or `Ctrl+K` | Focus file search |
 | `Ctrl+B` | Toggle the file list |
+| `Ctrl+I` | Open Server info |
+| `↑` / `↓`, `Enter` | Select and open a running server in Server info |
 | `?` | Open the shortcut list |
 | `Esc` | Close a dialog or menu |
 | `n` / `p` | Next / previous changed file in Diff view |

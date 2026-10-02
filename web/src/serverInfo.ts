@@ -1,3 +1,5 @@
+import { editingShortcutTarget, matchesShortcut } from './shortcuts';
+
 type InstanceInfo = { rootPath: string; version: string; url: string; current: boolean; unavailableReason?: string };
 type ServerInfoReply = { rootPath: string; workingDirectory: string; version: string; instances?: InstanceInfo[]; instancesError?: string };
 
@@ -19,10 +21,12 @@ export class ServerInfo {
   private readonly details = document.createElement('dl');
   private readonly message = document.createElement('p');
   private readonly retry = document.createElement('button');
+  private readonly close = document.createElement('button');
   private readonly refresh = document.createElement('button');
   private readonly servers = document.createElement('section');
   private readonly list = document.createElement('ul');
   private readonly listMessage = document.createElement('p');
+  private focusVersion = 0;
   private request = 0;
   private disposed = false;
   private controller: AbortController | undefined;
@@ -33,7 +37,7 @@ export class ServerInfo {
     this.message.setAttribute('role', 'status');
     this.retry.type = 'button'; this.retry.textContent = 'Retry'; this.retry.hidden = true;
     this.retry.addEventListener('click', () => { void this.reloadIfOpen(); });
-    const close = document.createElement('button'); close.type = 'button'; close.textContent = 'Close';
+    const close = this.close; close.type = 'button'; close.textContent = 'Close';
     close.addEventListener('click', () => this.dialog.close());
     this.refresh.type = 'button'; this.refresh.textContent = 'Refresh'; this.refresh.hidden = true;
     this.refresh.addEventListener('click', () => { void this.reloadIfOpen(); });
@@ -43,16 +47,35 @@ export class ServerInfo {
     this.servers.append(serversHeading, this.listMessage, this.list); this.servers.hidden = true;
     const actions = document.createElement('div'); actions.className = 'server-info-actions'; actions.append(this.refresh, this.retry, close);
     this.dialog.append(heading, this.message, this.details, this.servers, actions); document.body.append(this.dialog);
-    this.dialog.addEventListener('keydown', (event) => event.stopPropagation());
-    this.dialog.addEventListener('close', () => { this.cancel(); button.focus(); });
-    button.addEventListener('click', () => {
-      if (this.disposed || this.dialog.open) return;
-      this.dialog.showModal(); close.focus(); void this.reloadIfOpen();
+    this.dialog.addEventListener('focusin', () => { this.focusVersion++; });
+    this.dialog.addEventListener('keydown', (event) => {
+      event.stopPropagation();
+      if (editingShortcutTarget(event.target)) return;
+      const down = matchesShortcut(event, 'serverNext');
+      if (!down && !matchesShortcut(event, 'serverPrevious')) return;
+      const links = [...this.list.querySelectorAll('a')];
+      if (!links.length) return;
+      event.preventDefault();
+      const index = links.findIndex((link) => link === document.activeElement);
+      const next = index < 0 ? (down ? 0 : links.length - 1) : Math.max(0, Math.min(links.length - 1, index + (down ? 1 : -1)));
+      links[next].focus();
     });
+    this.dialog.addEventListener('close', () => { this.cancel(); button.focus(); });
+    button.addEventListener('click', () => this.open());
   }
 
-  async reloadIfOpen(): Promise<void> {
+  open(): void {
+    if (this.disposed || this.dialog.open) return;
+    this.dialog.showModal(); this.close.focus(); void this.reloadIfOpen(true);
+  }
+
+  async reloadIfOpen(focusFirst = false): Promise<void> {
     if (this.disposed || !this.dialog.open) return;
+    const active = document.activeElement;
+    const selectedURL = active instanceof HTMLAnchorElement && this.list.contains(active) ? active.href : undefined;
+    const action = active === this.refresh ? this.refresh : active === this.retry ? this.retry : undefined;
+    if (selectedURL || action) this.close.focus();
+    const focusVersion = this.focusVersion;
     this.cancel();
     const request = this.request;
     const controller = new AbortController(); this.controller = controller;
@@ -71,6 +94,11 @@ export class ServerInfo {
       this.render({ rootPath: info.rootPath, workingDirectory: info.workingDirectory, version: info.version, instances, instancesError });
       this.refresh.hidden = false;
       this.message.textContent = '';
+      if (focusVersion === this.focusVersion && document.activeElement === this.close) {
+        const links = [...this.list.querySelectorAll('a')];
+        if (focusFirst || selectedURL) (links.find((link) => link.href === selectedURL) ?? links[0] ?? this.close).focus();
+        else if (action && !action.hidden) action.focus();
+      }
     } catch {
       if (this.disposed || !this.dialog.open || request !== this.request) return;
       this.message.textContent = 'Cannot load server info. Please try again.'; this.retry.hidden = false;

@@ -1,15 +1,19 @@
 type Binding = { key: string; mod?: boolean };
-export type ShortcutId = 'search' | 'sidebar' | 'help' | 'close' | 'nextChange' | 'previousChange' | 'reviewNext' | 'treeNext' | 'treePrevious' | 'treeFirst' | 'treeLast' | 'treeOpen' | 'treeClear' | 'tabSwitch' | 'tabFirst' | 'tabLast';
+export type ShortcutId = 'serverInfo' | 'serverNext' | 'serverPrevious' | 'serverOpen' | 'search' | 'sidebar' | 'help' | 'close' | 'nextChange' | 'previousChange' | 'reviewNext' | 'treeNext' | 'treePrevious' | 'treeFirst' | 'treeLast' | 'treeOpen' | 'treeClear' | 'tabSwitch' | 'tabFirst' | 'tabLast';
 type Shortcut = { id: ShortcutId; description: string; group: string; bindings: Binding[] };
 
 export const shortcuts: Shortcut[] = [
   { id: 'search', description: 'Search files', group: 'General', bindings: [{ key: '/' }, { key: 'k', mod: true }] },
   { id: 'sidebar', description: 'Toggle file list', group: 'General', bindings: [{ key: 'b', mod: true }] },
+  { id: 'serverInfo', description: 'Open server info', group: 'General', bindings: [{ key: 'i', mod: true }] },
   { id: 'help', description: 'Show keyboard shortcuts', group: 'General', bindings: [{ key: '?' }] },
   { id: 'close', description: 'Close a dialog or menu', group: 'General', bindings: [{ key: 'Escape' }] },
   { id: 'nextChange', description: 'Next changed file', group: 'Git review', bindings: [{ key: 'n' }] },
   { id: 'previousChange', description: 'Previous changed file', group: 'Git review', bindings: [{ key: 'p' }] },
   { id: 'reviewNext', description: 'Mark reviewed and open next unreviewed', group: 'Git review', bindings: [{ key: 'r' }] },
+  { id: 'serverNext', description: 'Next running server', group: 'Server info', bindings: [{ key: 'ArrowDown' }] },
+  { id: 'serverPrevious', description: 'Previous running server', group: 'Server info', bindings: [{ key: 'ArrowUp' }] },
+  { id: 'serverOpen', description: 'Open selected server in the same tab', group: 'Server info', bindings: [{ key: 'Enter' }] },
   { id: 'treeNext', description: 'Next file or folder', group: 'File tree', bindings: [{ key: 'ArrowDown' }] },
   { id: 'treePrevious', description: 'Previous file or folder', group: 'File tree', bindings: [{ key: 'ArrowUp' }] },
   { id: 'treeFirst', description: 'First file or folder', group: 'File tree', bindings: [{ key: 'Home' }] },

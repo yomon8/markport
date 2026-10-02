@@ -191,6 +191,8 @@ test('keeps global shortcuts out of Markdown and editable text', async ({ page }
   await expect(editor).toBeFocused();
   await page.keyboard.press('Control+k');
   await page.keyboard.press('Control+b');
+  await page.keyboard.press('Control+i');
+  await expect(page.locator('#server-info-dialog')).toBeHidden();
   await expect(editor).toBeFocused();
   const editable = page.locator('#content').evaluate((content) => {
     const node = document.createElement('div'); node.contentEditable = 'true'; node.id = 'shortcut-editable'; content.append(node);
@@ -199,6 +201,8 @@ test('keeps global shortcuts out of Markdown and editable text', async ({ page }
   await page.locator('#shortcut-editable').focus();
   await page.keyboard.type('a/b');
   await expect(page.locator('#shortcut-editable')).toHaveText('a/b');
+  await page.keyboard.press('Control+i');
+  await expect(page.locator('#server-info-dialog')).toBeHidden();
   await expect(page.locator('#shortcut-editable')).toBeFocused();
   await page.locator('#file-title').click();
   await page.keyboard.press('/');
@@ -216,6 +220,8 @@ test('shortcut help opens by keyboard and mouse without interrupting editing', a
   const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText('⌘K');
+  await expect(dialog).toContainText('⌘I');
+  await expect(dialog).toContainText('Open selected server in the same tab');
   await expect(dialog).toContainText('Next changed file');
   await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused();
   await page.keyboard.press('Escape');
@@ -260,7 +266,14 @@ test('server info shows actual startup details and returns keyboard focus', asyn
   await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
   const button = page.getByRole('button', { name: 'Server info', exact: true });
   const dialog = page.getByRole('dialog', { name: 'Server info', exact: true });
-  await button.focus(); await page.keyboard.press('Enter');
+  await page.getByRole('searchbox', { name: 'Search files' }).focus();
+  await page.keyboard.press('Control+i'); await expect(dialog).toBeHidden();
+  await page.locator('#search').blur();
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', ctrlKey: true, isComposing: true, bubbles: true })));
+  await expect(dialog).toBeHidden();
+  await page.keyboard.press('Control+i');
+  await expect(dialog.getByRole('link').first()).toBeFocused();
+  await expect(button).toHaveAttribute('title', /Ctrl\+I/);
   await expect(dialog.locator('dd')).toHaveText([
     await realpath(directory), process.cwd(), execFileSync(resolve('../dist/markport'), ['--version'], { encoding: 'utf8' }).trim(), `http://127.0.0.1:${port}`,
   ]);
@@ -286,12 +299,20 @@ test('server info navigates to another running server and refreshes after shutdo
       try { return (await fetch(`http://127.0.0.1:${otherPort}/api/instance`)).ok; } catch { return false; }
     }).toBe(true);
     await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
-    await page.getByRole('button', { name: 'Server info', exact: true }).click();
+    await page.keyboard.press('Control+i');
     const dialog = page.getByRole('dialog', { name: 'Server info', exact: true });
     const link = dialog.getByRole('link', { name: otherRoot, exact: true });
     await expect(link).toHaveAttribute('href', `http://127.0.0.1:${otherPort}/`);
     await page.screenshot({ path: testInfo.outputPath('running-servers.png') });
-    await link.focus(); await page.keyboard.press('Enter');
+    const currentLink = dialog.getByRole('link', { name: await realpath(directory), exact: true });
+    await expect(currentLink).toBeFocused();
+    await page.keyboard.press('ArrowUp'); await expect(currentLink).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(link).toBeFocused();
+    await page.keyboard.press('ArrowUp'); await expect(currentLink).toBeFocused();
+    await page.keyboard.press('ArrowDown'); await expect(link).toBeFocused();
+    await page.keyboard.press('ArrowDown'); await expect(link).toBeFocused();
+    await page.keyboard.press('Enter');
     await expect(page).toHaveURL((url) => url.origin === `http://127.0.0.1:${otherPort}`);
     await expect(page.locator('#content h1')).toHaveText('Other server');
     await page.getByRole('button', { name: 'Server info', exact: true }).click();

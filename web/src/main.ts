@@ -73,7 +73,7 @@ helpToggle.setAttribute('aria-label', `Keyboard shortcuts (${shortcutText('help'
 reload.before(helpToggle);
 const shortcutHelp = createShortcutHelp(helpToggle);
 const infoToggle = document.createElement('button'); infoToggle.id = 'server-info-toggle'; infoToggle.type = 'button';
-infoToggle.setAttribute('aria-label', 'Server info'); infoToggle.title = 'Server info'; setIcon(infoToggle, 'info');
+infoToggle.setAttribute('aria-label', 'Server info'); infoToggle.title = `Server info (${shortcutText('serverInfo')})`; setIcon(infoToggle, 'info');
 helpToggle.before(infoToggle);
 const serverInfo = new ServerInfo(infoToggle);
 const pasteToggle = document.querySelector<HTMLButtonElement>('#paste-toggle')!;
@@ -1418,6 +1418,7 @@ window.addEventListener('keydown', (event) => {
   }
   if (matchesShortcut(event, 'search')) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
   if (matchesShortcut(event, 'sidebar')) { event.preventDefault(); if (window.innerWidth <= 700) drawerToggle.click(); else sidebarToggle.click(); }
+  if (matchesShortcut(event, 'serverInfo')) { event.preventDefault(); serverInfo.open(); }
   if (matchesShortcut(event, 'help')) { event.preventDefault(); shortcutHelp.open(); }
   if (matchesShortcut(event, 'close')) { sidebar.classList.remove('open'); outline.classList.remove('open'); diagramOverlay.close(); tableOverlay.close(); shortcutHelp.close(); }
 });

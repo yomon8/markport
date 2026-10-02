@@ -104,4 +104,68 @@ describe('server info', () => {
     expect(dialog().textContent).toContain('Server discovery is unavailable');
   });
 
+  const current = { rootPath: '/self', version: 'dev', url: 'http://127.0.0.1:3000/', current: true };
+  const other = { rootPath: '/other', version: 'dev', url: 'http://127.0.0.1:4000/', current: false };
+  const press = (key: string, options: KeyboardEventInit = {}) => {
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options });
+    document.activeElement!.dispatchEvent(event);
+    return event;
+  };
+
+  it('selects links with arrows, skips unavailable servers and stops at the ends', async () => {
+    vi.stubGlobal('fetch', async () => response({ ...info, instances: [current,
+      { ...other, url: '', unavailableReason: 'Local access only' }, other] }));
+    controller.open(); await flush();
+    const links = [...dialog().querySelectorAll('a')];
+    expect(document.activeElement).toBe(links[0]);
+    expect(press('ArrowUp').defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(links[0]);
+    press('ArrowDown'); expect(document.activeElement).toBe(links[1]);
+    press('ArrowDown'); expect(document.activeElement).toBe(links[1]);
+    press('ArrowUp'); expect(document.activeElement).toBe(links[0]);
+    const close = dialog().querySelector<HTMLButtonElement>('.server-info-actions button:last-child')!;
+    close.focus(); press('ArrowUp'); expect(document.activeElement).toBe(links[1]);
+    close.focus(); press('ArrowDown'); expect(document.activeElement).toBe(links[0]);
+    for (const options of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { shiftKey: true }, { isComposing: true }, { keyCode: 229 }]) {
+      expect(press('ArrowDown', options).defaultPrevented).toBe(false);
+      expect(document.activeElement).toBe(links[0]);
+    }
+  });
+
+  it('does not replace a focus choice made while the initial request is pending', async () => {
+    let resolve!: (value: Response) => void;
+    vi.stubGlobal('fetch', () => new Promise<Response>((done) => { resolve = done; }));
+    controller.open();
+    dialog().tabIndex = -1; dialog().focus();
+    const close = dialog().querySelector<HTMLButtonElement>('.server-info-actions button:last-child')!;
+    close.focus();
+    resolve(response({ ...info, instances: [current] })); await flush();
+    expect(document.activeElement).toBe(close);
+  });
+
+  it('restores the selected URL on refresh, then falls back to the first link or Close', async () => {
+    const fetch = vi.fn().mockResolvedValueOnce(response({ ...info, instances: [current, other] }))
+      .mockResolvedValueOnce(response({ ...info, instances: [other, current] }))
+      .mockResolvedValueOnce(response({ ...info, instances: [current] }))
+      .mockResolvedValueOnce(response({ ...info, instances: [] }))
+      .mockRejectedValue(new Error('offline'));
+    vi.stubGlobal('fetch', fetch);
+    controller.open(); await flush(); press('ArrowDown');
+    await controller.reloadIfOpen(); expect((document.activeElement as HTMLAnchorElement).href).toBe(other.url);
+    await controller.reloadIfOpen(); expect((document.activeElement as HTMLAnchorElement).href).toBe(current.url);
+    await controller.reloadIfOpen(); expect(document.activeElement?.textContent).toBe('Close');
+    expect(press('ArrowDown').defaultPrevented).toBe(false);
+    await controller.reloadIfOpen(); expect(document.activeElement?.textContent).toBe('Close');
+    expect(press('ArrowUp').defaultPrevented).toBe(false);
+  });
+
+  it('preserves Refresh focus and leaves text editing alone', async () => {
+    vi.stubGlobal('fetch', async () => response({ ...info, instances: [current, other] }));
+    controller.open(); await flush();
+    const refresh = [...dialog().querySelectorAll('button')].find((item) => item.textContent === 'Refresh')!;
+    refresh.focus(); await controller.reloadIfOpen(); expect(document.activeElement).toBe(refresh);
+    const input = document.createElement('input'); dialog().append(input); input.focus();
+    expect(press('ArrowDown').defaultPrevented).toBe(false); expect(document.activeElement).toBe(input);
+  });
+
 });
