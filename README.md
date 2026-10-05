@@ -70,7 +70,7 @@ Instance records are stored under `markport/instances` in the OS user cache dire
 
 ### Color themes
 
-Use **Theme** in the header (under **App settings** on mobile) to choose **Auto**, **Light**, **Dark**, **Sepia**, or **Nord**. Auto follows your operating system's light/dark preference. Sepia uses warm colors for reading; Nord uses a dark blue-gray palette. Themes also apply to code highlighting, Git diffs, and Mermaid diagrams.
+Use **Theme** in the header (under **App settings** on mobile) to choose **Auto**, **Light**, **Dark**, **Sepia**, **Nord**, **Catppuccin Mocha**, **Solarized Light**, **Rosé Pine Dawn**, **Tokyo Night**, or **Tokyo Night Light**. Auto follows your operating system's light/dark preference. Sepia uses warm colors for reading; Nord uses a dark blue-gray palette. Catppuccin Mocha adds pastel accents on a dark background; Solarized Light uses cream and teal; Rosé Pine Dawn uses warm paper tones; Tokyo Night uses deep blue with purple and blue accents; Tokyo Night Light uses the cool gray Day palette with blue and purple accents. Themes also apply to code highlighting, Git diffs, and Mermaid diagrams.
 
 The choice is saved in this browser for the same host and port and restored after reloads. HTML previews keep the document's colors; PDFs and images keep their original appearance.
 

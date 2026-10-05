@@ -403,7 +403,7 @@ test('header controls stay aligned and theme choices work by keyboard on mobile'
   await page.keyboard.press('Home');
   await expect(page.getByRole('menuitemradio', { name: 'Auto' })).toBeFocused();
   await page.keyboard.press('ArrowDown');
-  await expect(page.getByRole('menuitemradio', { name: 'Light' })).toBeFocused();
+  await expect(page.getByRole('menuitemradio', { name: 'Light', exact: true })).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
   await page.getByRole('button', { name: 'Paste Markdown' }).click();

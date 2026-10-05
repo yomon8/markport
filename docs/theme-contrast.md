@@ -33,3 +33,17 @@ Both presets meet a 4.5:1 minimum for body and muted text, links (including sele
 Nord is based on the [official Nord palettes](https://www.nordtheme.com/docs/colors-and-palettes/). Muted text, purple, red, and orange are brightened where needed, and highlight backgrounds are adjusted to meet the readability target. Sepia uses a warm paper palette with darker green, brown, and purple syntax colors.
 
 Theme palettes live in `web/src/themes.css`. HTML preview backgrounds remain white in all themes; PDF and image content keeps its original appearance.
+
+## Additional named themes
+
+These palettes also meet the 4.5:1 text contrast target checked in `web/tests/themeContrast.test.ts`, including normal and selected code lines, hovered and selected links, search marks, and diff text.
+
+| Theme | Body on background | Muted text on sidebar | Link on background | Minimum syntax contrast |
+| --- | ---: | ---: | ---: | ---: |
+| Catppuccin Mocha | 11.34:1 | 9.91:1 | 9.17:1 | 5.43:1 |
+| Solarized Light | 7.15:1 | 5.02:1 | 5.66:1 | 4.57:1 |
+| Rosé Pine Dawn | 6.66:1 | 4.82:1 | 5.59:1 | 4.58:1 |
+| Tokyo Night | 10.59:1 | 8.52:1 | 6.79:1 | 5.30:1 |
+| Tokyo Night Light | 7.97:1 | 4.78:1 | 4.92:1 | 4.53:1 |
+
+Sources: [Catppuccin Mocha](https://catppuccin.com/palette/), [Solarized](https://ethanschoonover.com/solarized/), [Rosé Pine Dawn](https://rosepinetheme.com/palette/), and [Tokyo Night](https://github.com/folke/tokyonight.nvim) (Night and Day variants). Backgrounds and primary accents follow the source palettes; muted text, some syntax colors, and highlight/diff backgrounds are adapted for readability. Solarized Light and Rosé Pine Dawn use darker syntax accents to preserve contrast on light backgrounds. Tokyo Night comments and line numbers are brightened. Tokyo Night Light uses the Day background with darker blue, purple, green, and cyan foregrounds. HTML previews retain a white iframe background and each document's own colors.

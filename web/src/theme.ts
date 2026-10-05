@@ -1,6 +1,6 @@
 import { setIcon, type IconName } from './icons';
 
-export type ThemeId = 'light' | 'dark' | 'sepia' | 'nord';
+export type ThemeId = 'light' | 'dark' | 'sepia' | 'nord' | 'catppuccin-mocha' | 'solarized-light' | 'rose-pine-dawn' | 'tokyo-night' | 'tokyo-night-light';
 export type Theme = 'auto' | ThemeId;
 export type ColorScheme = 'light' | 'dark';
 
@@ -10,6 +10,11 @@ const themes: { id: Theme; label: string; scheme?: ColorScheme; icon: IconName }
   { id: 'dark', label: 'Dark', scheme: 'dark', icon: 'moon' },
   { id: 'sepia', label: 'Sepia', scheme: 'light', icon: 'sun' },
   { id: 'nord', label: 'Nord', scheme: 'dark', icon: 'moon' },
+  { id: 'catppuccin-mocha', label: 'Catppuccin Mocha', scheme: 'dark', icon: 'moon' },
+  { id: 'solarized-light', label: 'Solarized Light', scheme: 'light', icon: 'sun' },
+  { id: 'rose-pine-dawn', label: 'Rosé Pine Dawn', scheme: 'light', icon: 'sun' },
+  { id: 'tokyo-night', label: 'Tokyo Night', scheme: 'dark', icon: 'moon' },
+  { id: 'tokyo-night-light', label: 'Tokyo Night Light', scheme: 'light', icon: 'sun' },
 ];
 let sessionPreference: Theme | undefined;
 

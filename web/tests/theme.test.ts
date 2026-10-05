@@ -27,6 +27,9 @@ function select(label: string): void {
 describe('theme preferences', () => {
   it.each([
     ['light', 'light', 'light'], ['dark', 'dark', 'dark'], ['sepia', 'sepia', 'light'], ['nord', 'nord', 'dark'],
+    ['catppuccin-mocha', 'catppuccin-mocha', 'dark'], ['solarized-light', 'solarized-light', 'light'],
+    ['rose-pine-dawn', 'rose-pine-dawn', 'light'], ['tokyo-night', 'tokyo-night', 'dark'],
+    ['tokyo-night-light', 'tokyo-night-light', 'light'],
     ['auto', 'light', 'light'], ['unknown', 'light', 'light'], ['', 'light', 'light'],
   ])('restores %s as %s / %s', async (saved, id, scheme) => {
     if (saved) localStorage.setItem('markport-theme', saved);
@@ -35,6 +38,20 @@ describe('theme preferences', () => {
     expect(effectiveThemeId()).toBe(id); expect(effectiveTheme()).toBe(scheme);
     expect(document.documentElement.dataset.theme).toBe(id);
     expect(document.documentElement.dataset.colorScheme).toBe(scheme);
+  });
+
+  it.each([
+    ['Catppuccin Mocha', 'catppuccin-mocha', 'dark'], ['Solarized Light', 'solarized-light', 'light'],
+    ['Rosé Pine Dawn', 'rose-pine-dawn', 'light'], ['Tokyo Night', 'tokyo-night', 'dark'], ['Tokyo Night Light', 'tokyo-night-light', 'light'],
+  ])('selects %s and ignores later OS changes', async (label, id, scheme) => {
+    const { button, redraw } = await setup(); select(label);
+    expect(localStorage.getItem('markport-theme')).toBe(id);
+    expect(button.getAttribute('aria-label')).toBe(`Theme: ${label}`);
+    expect(document.documentElement.dataset.colorScheme).toBe(scheme);
+    dark = true; media.dispatchEvent(new Event('change'));
+    expect(document.documentElement.dataset.theme).toBe(id);
+    expect(redraw).toHaveBeenCalledTimes(1);
+    select(label); expect(redraw).toHaveBeenCalledTimes(1);
   });
 
   it('tracks OS changes only for Auto and redraws only when the effective theme changes', async () => {
@@ -59,15 +76,15 @@ describe('theme preferences', () => {
     select('Nord'); expect(effectiveThemeId()).toBe('nord'); expect(save).toHaveBeenCalledWith('markport-theme', 'nord');
   });
 
-  it('offers all five choices and supports keyboard navigation, selection, and Escape', async () => {
+  it('offers all ten choices and supports keyboard navigation, selection, and Escape', async () => {
     const { button } = await setup(); button.click();
     const items = [...document.querySelectorAll<HTMLButtonElement>('#theme-menu button')];
-    expect(items.map((item) => item.textContent)).toEqual(['Auto', 'Light', 'Dark', 'Sepia', 'Nord']);
+    expect(items.map((item) => item.textContent)).toEqual(['Auto', 'Light', 'Dark', 'Sepia', 'Nord', 'Catppuccin Mocha', 'Solarized Light', 'Rosé Pine Dawn', 'Tokyo Night', 'Tokyo Night Light']);
     expect(document.activeElement).toBe(items[0]);
     const key = (key: string): void => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })); };
-    key('End'); expect(document.activeElement).toBe(items[4]);
+    key('End'); expect(document.activeElement).toBe(items[9]);
     key('ArrowDown'); expect(document.activeElement).toBe(items[0]);
-    key('ArrowUp'); expect(document.activeElement).toBe(items[4]);
+    key('ArrowUp'); expect(document.activeElement).toBe(items[9]);
     key('Home'); key('ArrowDown'); expect(document.activeElement).toBe(items[1]);
     items[3].click();
     expect(items[3].getAttribute('aria-checked')).toBe('true');

@@ -18,7 +18,7 @@ function contrast(a: string, b: string): number {
   return (high + 0.05) / (low + 0.05);
 }
 
-describe.each(['sepia', 'nord'])('%s contrast', (theme) => {
+describe.each(['sepia', 'nord', 'catppuccin-mocha', 'solarized-light', 'rose-pine-dawn', 'tokyo-night', 'tokyo-night-light'])('%s contrast', (theme) => {
   const colors = palette(`[data-theme=${theme}]`);
   const pairs: string[][] = [];
   for (const foreground of ['--text', '--text-muted', '--accent']) {
@@ -28,7 +28,7 @@ describe.each(['sepia', 'nord'])('%s contrast', (theme) => {
     ['--text', '--diff-added-bg'], ['--text', '--diff-deleted-bg'], ['--text', '--line-highlight-bg'],
     ['--icon-image', '--sidebar'], ['--icon-code', '--sidebar'],
     ['--syntax-added', '--syntax-added-bg'], ['--syntax-deleted', '--syntax-deleted-bg']);
-  if (theme === 'sepia') pairs.push(['--syntax-error-text', '--syntax-deleted']);
+  if (['sepia', 'solarized-light', 'rose-pine-dawn', 'tokyo-night-light'].includes(theme)) pairs.push(['--syntax-error-text', '--syntax-deleted']);
   else pairs.push(['--syntax-error-text', '--code-bg']);
   for (const token of Object.keys(colors).filter((name) => name.startsWith('--syntax-') && !name.endsWith('-bg') && name !== '--syntax-error-text')) {
     pairs.push([token, '--code-bg'], [token, '--line-highlight-bg']);

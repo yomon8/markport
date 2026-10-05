@@ -70,7 +70,7 @@ Mermaid 図には **Source** と **Expand** があります。拡大表示では
 
 ### カラーテーマ
 
-ヘッダーの **Theme**（モバイルでは **App settings** 内）から **Auto**、**Light**、**Dark**、**Sepia**、**Nord** を選択できます。Auto は OS のライト／ダーク設定に追従します。Sepia は読書向けの暖色系、Nord は青灰色を基調としたダーク配色です。コードの構文色、Git 差分、Mermaid 図にもテーマが適用されます。
+ヘッダーの **Theme**（モバイルでは **App settings** 内）から **Auto**、**Light**、**Dark**、**Sepia**、**Nord**、**Catppuccin Mocha**、**Solarized Light**、**Rosé Pine Dawn**、**Tokyo Night**、**Tokyo Night Light** を選択できます。Auto は OS のライト／ダーク設定に追従します。Sepia は読書向けの暖色系、Nord は青灰色を基調としたダーク配色です。Catppuccin Mocha は暗い背景にパステル色、Solarized Light はクリーム色と青緑、Rosé Pine Dawn は暖かな紙の色、Tokyo Night は深い青に紫と青、Tokyo Night Light は Day 配色の涼しげなグレーに青と紫のアクセントを使います。コードの構文色、Git 差分、Mermaid 図にもテーマが適用されます。
 
 選択は同じホスト・ポートのブラウザに保存され、再読み込み後も復元されます。HTML プレビューは文書の配色を維持し、PDF と画像は元の見た目を保ちます。
 
