@@ -1,2 +1,10 @@
 plugins:
   - jekyll-sitemap
+
+exclude:
+  - AGENTS.md
+  - CLAUDE.md
+  - spec.md
+  - docs/theme-contrast.md
+  - testdata
+  - web
