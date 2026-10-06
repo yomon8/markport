@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/markport/markport/internal/discovery"
 	"github.com/markport/markport/internal/files"
 	"github.com/markport/markport/internal/server"
 	"github.com/markport/markport/internal/update"
@@ -26,15 +27,18 @@ type Options struct {
 	Directory           string
 	Host                string
 	Port                int
+	AutoPort            bool
 	Title               string
 	Help, ShowVersion   bool
 	Update, CheckUpdate bool
+	ListServers, JSON   bool
 }
 
 func Parse(args []string) (Options, error) {
 	o := Options{Directory: ".", Host: "127.0.0.1", Port: 3000}
 	seenDir, seenHost, seenPort := false, false, false
 	seenTitle := false
+	seenLAN := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		switch {
@@ -42,12 +46,33 @@ func Parse(args []string) (Options, error) {
 			o.Help = true
 		case a == "--version":
 			o.ShowVersion = true
+		case a == "--list-servers":
+			if o.ListServers {
+				return o, errors.New("--list-servers specified more than once")
+			}
+			o.ListServers = true
+		case a == "--json":
+			if o.JSON {
+				return o, errors.New("--json specified more than once")
+			}
+			o.JSON = true
 		case a == "--update" || a == "--check-update":
 			if o.Update || o.CheckUpdate {
 				return o, errors.New("specify only one update flag, once")
 			}
 			o.Update = a == "--update"
 			o.CheckUpdate = a == "--check-update"
+		case a == "--lan":
+			if seenLAN {
+				return o, errors.New("--lan specified more than once")
+			}
+			seenLAN = true
+			o.Host = "0.0.0.0"
+		case a == "--auto-port":
+			if o.AutoPort {
+				return o, errors.New("--auto-port specified more than once")
+			}
+			o.AutoPort = true
 		case a == "--host" || strings.HasPrefix(a, "--host="):
 			if seenHost {
 				return o, errors.New("--host specified more than once")
@@ -112,8 +137,20 @@ func Parse(args []string) (Options, error) {
 			o.Directory = a
 		}
 	}
-	if !o.Help && (o.Update || o.CheckUpdate) && (seenDir || seenHost || seenPort || seenTitle || o.ShowVersion) {
-		return o, errors.New("update flags must be used without a directory, --host, --port, --title, or --version")
+	if seenLAN && seenHost {
+		return o, errors.New("--lan and --host cannot be used together")
+	}
+	if o.AutoPort && seenPort {
+		return o, errors.New("--auto-port and --port cannot be used together")
+	}
+	if !o.Help && o.JSON && !o.ListServers {
+		return o, errors.New("--json requires --list-servers")
+	}
+	if !o.Help && o.ListServers && (seenDir || seenHost || seenLAN || seenPort || o.AutoPort || seenTitle || o.ShowVersion || o.Update || o.CheckUpdate) {
+		return o, errors.New("--list-servers must be used without a directory, startup options, update flags, or --version")
+	}
+	if !o.Help && (o.Update || o.CheckUpdate) && (seenDir || seenHost || seenLAN || seenPort || o.AutoPort || seenTitle || o.ShowVersion) {
+		return o, errors.New("update flags must be used without a directory, --host, --lan, --port, --auto-port, --title, or --version")
 	}
 	return o, nil
 }
@@ -125,12 +162,22 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if o.Help {
-		fmt.Fprintln(stdout, "Usage: markport [directory] [--host IPv4] [--port PORT] [--title TEXT]\n       markport --help\n       markport --version\n       markport --check-update\n       markport --update\n\n--title TEXT  Set a fixed browser tab title (overridden by browser settings).")
+		fmt.Fprintln(stdout, "Usage: markport [directory] [--host IPv4 | --lan] [--port PORT | --auto-port] [--title TEXT]\n       markport --help\n       markport --version\n       markport --list-servers [--json]\n       markport --check-update\n       markport --update\n\n--lan        Listen on all IPv4 interfaces (alias for --host 0.0.0.0).\n--auto-port  Let the OS assign an available port; cannot be combined with --port.\n--title TEXT  Set a fixed browser tab title (overridden by browser settings).\n--list-servers  List running Markport servers for this OS user on this host.\n--json         Output the server list as JSON (requires --list-servers).")
 		return 0
 	}
 	if o.ShowVersion {
 		fmt.Fprintln(stdout, Version)
 		return 0
+	}
+	if o.ListServers {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		registry, err := discovery.Default()
+		if err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+		return listServers(ctx, registry, o.JSON, stdout, stderr)
 	}
 	if o.Update || o.CheckUpdate {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -173,11 +220,15 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer store.Close()
+	if o.AutoPort {
+		o.Port = 0
+	}
 	listener, err := net.Listen("tcp", net.JoinHostPort(o.Host, strconv.Itoa(o.Port)))
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	o.Port = listener.Addr().(*net.TCPAddr).Port
 	app, err := server.New(store, o.Host, o.Port)
 	if err != nil {
 		listener.Close()

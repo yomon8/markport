@@ -77,6 +77,15 @@ func TestListChecksIdentityAndLiveness(t *testing.T) {
 			t.Fatalf("unexpected metadata: %+v", item)
 		}
 	}
+	discovered, err := registry.Discover(context.Background())
+	if err != nil || len(discovered) != 3 {
+		t.Fatalf("discovered: %+v %v", discovered, err)
+	}
+	for i, item := range discovered {
+		if item.Current || item != list[i+1] {
+			t.Fatalf("CLI and browser disagree: %+v %+v", item, list[i+1])
+		}
+	}
 }
 
 func TestRegistrationConcurrentAndCleanup(t *testing.T) {
@@ -141,6 +150,10 @@ func TestDiscoveryDeadlineAndNoRedirects(t *testing.T) {
 	if err != nil || len(list) != 1 || redirected.Load() != 0 {
 		t.Fatalf("redirect followed: %+v %v %d", list, err, redirected.Load())
 	}
+	discovered, err := registry.Discover(context.Background())
+	if err != nil || len(discovered) != 0 || redirected.Load() != 0 {
+		t.Fatalf("CLI redirect followed: %+v %v %d", discovered, err, redirected.Load())
+	}
 	cleanup()
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
 	defer slow.Close()
@@ -150,6 +163,58 @@ func TestDiscoveryDeadlineAndNoRedirects(t *testing.T) {
 	list, err = registry.List(ctx, self, Info{RootPath: "/self"}, "localhost:3000")
 	if err == nil || len(list) != 1 {
 		t.Fatalf("deadline: %+v %v", list, err)
+	}
+}
+
+func TestDiscoverLocalLinks(t *testing.T) {
+	registry := &Registry{Directory: t.TempDir()}
+	for i, host := range []string{"127.0.0.1", "0.0.0.0"} {
+		id := i + 1
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Markport-Instance", fmt.Sprintf("%032x", id))
+			_ = json.NewEncoder(w).Encode(Info{RootPath: "/作業 ノート", Version: "dev"})
+		}))
+		defer server.Close()
+		record := recordFor(t, id, server)
+		record.Host = host
+		register(t, registry, record)
+	}
+	items, err := registry.Discover(context.Background())
+	if err != nil || len(items) != 2 {
+		t.Fatalf("discovered: %+v %v", items, err)
+	}
+	for _, item := range items {
+		if item.Current || item.UnavailableReason != "" || item.RootPath != "/作業 ノート" || item.URL != "http://127.0.0.1:"+strconv.Itoa(item.Port)+"/" {
+			t.Fatalf("local instance: %+v", item)
+		}
+	}
+	if items[0].Port > items[1].Port {
+		t.Fatalf("not sorted by port: %+v", items)
+	}
+}
+
+func TestDiscoverEmptyAndErrors(t *testing.T) {
+	registry := &Registry{Directory: filepath.Join(t.TempDir(), "missing")}
+	items, err := registry.Discover(context.Background())
+	if err != nil || items == nil || len(items) != 0 {
+		t.Fatalf("missing registry: %+v %v", items, err)
+	}
+	registry.Directory = t.TempDir()
+	items, err = registry.Discover(context.Background())
+	if err != nil || len(items) != 0 {
+		t.Fatalf("empty registry: %+v %v", items, err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if items, err := registry.Discover(ctx); err == nil || len(items) != 0 {
+		t.Fatalf("cancellation: %+v %v", items, err)
+	}
+	registry.Directory = filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(registry.Directory, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if items, err := registry.Discover(context.Background()); err == nil || len(items) != 0 {
+		t.Fatalf("invalid registry: %+v %v", items, err)
 	}
 }
 

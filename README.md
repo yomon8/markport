@@ -77,13 +77,24 @@ Open the `http://127.0.0.1:3000/` URL printed at startup. Omit the directory to 
 | --- | --- |
 | `[directory]` | Folder to browse. Defaults to the current directory. |
 | `--host IPv4` | Address to listen on. Defaults to `127.0.0.1`. See [LAN access](#lan-access-and-security). |
+| `--lan` | Alias for `--host 0.0.0.0`. Cannot be combined with `--host`. |
 | `--port PORT` | Port to listen on. Defaults to `3000`. |
+| `--auto-port` | Let the OS assign an available port. Cannot be combined with `--port`. |
 | `--title TEXT` | Fixed browser tab title. See [Browser tab title](#browser-tab-title). |
 | `--help` | Show usage. |
 | `--version` | Show the version. |
+| `--list-servers` | List running Markport servers for this OS user on this host. |
+| `--json` | Output the server list as JSON. Requires `--list-servers`. |
 | `--check-update`, `--update` | Check for or install a newer release. See [Updating](#updating). |
 
-Options also accept the `--name=value` form, for example `--port=8080`.
+Options that take a value also accept the `--name=value` form, for example `--port=8080`.
+
+To start without choosing a port, use `--auto-port` and open the URL printed at startup. The port may change each time you start Markport. Combine it with `--lan` to allow LAN access:
+
+```sh
+markport ./notes --auto-port
+markport ./notes --lan --auto-port
+```
 
 ## Using Markport
 
@@ -164,6 +175,21 @@ Click **Server info** (ⓘ) in the header or press `Ctrl+I` to see the browsing 
 - Discovery needs servers that support this feature and share the same user cache directory and network. Other OS users, separate containers, reverse proxies, and tunnels are not supported.
 - Records are stored under `markport/instances` in the OS user cache directory (never in the browsed folder) and removed on normal shutdown. Stopped servers are filtered out by a live check. If discovery fails, the current server's details are still shown along with the error.
 
+You can also retrieve the list from the CLI without starting a server:
+
+```sh
+markport --list-servers
+markport --list-servers --json
+```
+
+The default output is a table with `URL`, `VERSION`, and `DIRECTORY` columns. JSON output is an array of objects:
+
+```json
+[{"rootPath":"/home/user/notes","url":"http://127.0.0.1:3000/","version":"v0.11.0"}]
+```
+
+Both formats sort servers by browsing directory, port, and URL. CLI URLs connect from this machine; servers listening on `0.0.0.0` use `127.0.0.1` in the URL. With no running servers, the command prints `No running Markport servers found.` (or `[]` with `--json`) and exits successfully. Discovery failures are reported on standard error with exit code `1`, without printing a partial list. `--list-servers` cannot be combined with a directory, startup options, update flags, or `--version`.
+
 ### Color themes
 
 Choose **Theme** in the header (under **App settings** on mobile):
@@ -240,10 +266,10 @@ Download and verification failures leave the installed executable in place. On W
 
 ## LAN access and security
 
-By default, Markport listens only on `127.0.0.1`. To let devices on the same LAN connect, start it with `--host 0.0.0.0` (or a specific IPv4 address) and open `http://<this-machine-LAN-IP>:<port>/` on those devices:
+By default, Markport listens only on `127.0.0.1`. To let devices on the same LAN connect, start it with `--lan`, `--host 0.0.0.0`, or a specific IPv4 address and open `http://<this-machine-LAN-IP>:<port>/` on those devices:
 
 ```sh
-markport ./notes --host 0.0.0.0 --port 3000
+markport ./notes --lan --port 3000
 ```
 
 > [!WARNING]

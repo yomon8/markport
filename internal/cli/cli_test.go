@@ -17,7 +17,7 @@ func TestParse(t *testing.T) {
 		if len(args) > 0 && o.Port != 4321 {
 			t.Fatalf("%v: %+v", args, o)
 		}
-		if o.Host != "127.0.0.1" {
+		if o.Host != "127.0.0.1" || o.AutoPort || (len(args) == 0 && o.Port != 3000) {
 			t.Fatalf("%v: %+v", args, o)
 		}
 	}
@@ -70,6 +70,7 @@ func TestUpdateFlags(t *testing.T) {
 			for _, args := range [][]string{
 				{flag, flag}, {flag, "."}, {"update", flag}, {flag, "--host", "127.0.0.1"},
 				{flag, "--port=3000"}, {flag, "--version"}, {"--update", "--check-update"},
+				{flag, "--auto-port"}, {flag, "--lan"},
 			} {
 				var out, errout bytes.Buffer
 				if code := Run(args, &out, &errout); code != 2 || errout.Len() == 0 {
@@ -85,6 +86,42 @@ func TestUpdateFlags(t *testing.T) {
 	o, err := Parse([]string{"update"})
 	if err != nil || o.Directory != "update" || o.Update || o.CheckUpdate {
 		t.Fatalf("update folder: %+v, %v", o, err)
+	}
+}
+
+func TestNetworkOptions(t *testing.T) {
+	for _, tc := range []struct {
+		args     []string
+		host     string
+		autoPort bool
+	}{
+		{[]string{"--auto-port"}, "127.0.0.1", true},
+		{[]string{"notes", "--auto-port"}, "127.0.0.1", true},
+		{[]string{"--auto-port", "notes", "--host=192.168.1.10"}, "192.168.1.10", true},
+		{[]string{"--lan"}, "0.0.0.0", false},
+		{[]string{"--lan", "notes", "--port=4321"}, "0.0.0.0", false},
+		{[]string{"notes", "--lan", "--auto-port"}, "0.0.0.0", true},
+		{[]string{"--auto-port", "--lan", "notes"}, "0.0.0.0", true},
+	} {
+		o, err := Parse(tc.args)
+		if err != nil || o.Host != tc.host || o.AutoPort != tc.autoPort {
+			t.Fatalf("%v: %+v, %v", tc.args, o, err)
+		}
+	}
+	for _, args := range [][]string{
+		{"--auto-port", "--auto-port"}, {"--lan", "--lan"},
+		{"--auto-port", "--port", "3000"}, {"--port=3000", "--auto-port"},
+		{"--lan", "--host", "0.0.0.0"}, {"--host=127.0.0.1", "--lan"},
+		{"--auto-port=true"}, {"--auto-port=false"}, {"--lan=true"}, {"--lan=false"},
+	} {
+		var out, errout bytes.Buffer
+		if code := Run(args, &out, &errout); code != 2 || errout.Len() == 0 || out.Len() != 0 {
+			t.Fatalf("%v: code=%d output=%s error=%s", args, code, out.String(), errout.String())
+		}
+	}
+	var out, errout bytes.Buffer
+	if code := Run([]string{"--help"}, &out, &errout); code != 0 || !strings.Contains(out.String(), "--auto-port") || !strings.Contains(out.String(), "--lan") {
+		t.Fatalf("help: %d %s %s", code, out.String(), errout.String())
 	}
 }
 

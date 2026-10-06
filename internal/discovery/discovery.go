@@ -116,9 +116,20 @@ func Link(record Record, info Info, current bool, requestHost string) Instance {
 	return item
 }
 
-// List only probes registered local addresses; it never follows redirects or proxies.
+// List includes the current server first and links servers for the browser's host.
 func (r *Registry) List(ctx context.Context, self Record, info Info, requestHost string) ([]Instance, error) {
-	result := []Instance{Link(self, info, true, requestHost)}
+	others, err := r.discover(ctx, self.ID, requestHost)
+	return append([]Instance{Link(self, info, true, requestHost)}, others...), err
+}
+
+// Discover lists running servers for a local client without a current server.
+func (r *Registry) Discover(ctx context.Context) ([]Instance, error) {
+	return r.discover(ctx, "", "127.0.0.1")
+}
+
+// discover only probes registered local addresses; it never follows redirects or proxies.
+func (r *Registry) discover(ctx context.Context, skipID, requestHost string) ([]Instance, error) {
+	result := make([]Instance, 0)
 	directory, err := os.Stat(r.Directory)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -201,7 +212,7 @@ scan:
 		var record Record
 		err = json.NewDecoder(io.LimitReader(file, 4096)).Decode(&record)
 		file.Close()
-		if err != nil || !validRecord(record) || entry.Name() != record.ID+".json" || record.ID == self.ID {
+		if err != nil || !validRecord(record) || entry.Name() != record.ID+".json" || record.ID == skipID {
 			continue
 		}
 		addr, _ := netip.ParseAddr(record.Host)
@@ -216,8 +227,8 @@ scan:
 	}
 	close(jobs)
 	workers.Wait()
-	sort.Slice(result[1:], func(i, j int) bool {
-		a, b := result[i+1], result[j+1]
+	sort.Slice(result, func(i, j int) bool {
+		a, b := result[i], result[j]
 		if a.RootPath != b.RootPath {
 			return a.RootPath < b.RootPath
 		}
