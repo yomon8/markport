@@ -130,7 +130,7 @@ $$
 - KaTeX supports common commands such as fractions, integrals, matrices, and `aligned`. It does not compile `.tex` documents or load arbitrary packages.
 - HTML previews and `math` code blocks are outside this feature.
 
-Display formulas have **Copy** to copy their original TeX, including the `$$…$$` or `\[…\]` delimiters. If a diagram or formula cannot be rendered, its source is shown with an error and remains copyable, and the rest of the document stays readable. Copy briefly shows **Copied** or **Copy failed**; these controls are omitted from print output.
+Display formulas have **Copy** to copy their original TeX, including the `$$…$$` or `\[…\]` delimiters. If a diagram or formula cannot be rendered, its source is shown with an error and remains copyable, and the rest of the document stays readable. Code, diagram, table, formula, and expanded-view tools use icon buttons; hover over or focus a button to see its action name. Wrapping buttons are highlighted when enabled. Copy briefly shows a checkmark with **Copied**, or a cross with **Copy failed**, and announces the result to screen readers. These controls are omitted from print output.
 
 ### HTML and PDF previews
 

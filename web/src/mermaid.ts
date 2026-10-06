@@ -1,5 +1,6 @@
 import { effectiveTheme, effectiveThemeId } from './theme';
 import { createCopyButton } from './copyControls';
+import { createToolButton } from './toolButtons';
 import type { MermaidConfig } from 'mermaid';
 
 let serial = 0;
@@ -40,7 +41,11 @@ export function drawMermaid(container: HTMLElement, current: () => boolean, rend
   });
   const actions = (element: HTMLElement, ready: boolean): HTMLElement => {
     const toolbar = document.createElement('div'); toolbar.className = 'diagram-actions';
-    if (ready) toolbar.innerHTML = '<button type="button" data-diagram-action="source">Source</button><button type="button" data-diagram-action="expand">Expand</button>';
+    if (ready && !print) {
+      const source = createToolButton('code', 'Source'); source.dataset.diagramAction = 'source';
+      const expand = createToolButton('maximize', 'Expand'); expand.dataset.diagramAction = 'expand';
+      toolbar.append(source, expand);
+    }
     if (!print) toolbar.append(createCopyButton(() => element.dataset.source ?? ''));
     return toolbar;
   };

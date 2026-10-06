@@ -21,7 +21,7 @@ describe('Mermaid themes', () => {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     const { drawMermaid } = await import('../src/mermaid');
     const drawing = drawMermaid(container(), () => true);
-    const copy = (): HTMLButtonElement => [...container().querySelectorAll('button')].find((button) => button.textContent === 'Copy')!;
+    const copy = (): HTMLButtonElement => container().querySelector<HTMLButtonElement>('button[aria-label="Copy"]')!;
     copy().click(); await drawing;
     expect(writeText).toHaveBeenLastCalledWith('flowchart LR; A --> B');
     await drawMermaid(container(), () => true);
@@ -36,7 +36,7 @@ describe('Mermaid themes', () => {
   it('does not add Copy controls to print rendering', async () => {
     const { drawMermaid } = await import('../src/mermaid');
     await drawMermaid(container(), () => true, undefined, true);
-    expect([...container().querySelectorAll('button')].some((button) => button.textContent === 'Copy')).toBe(false);
+    expect(container().querySelectorAll('button')).toHaveLength(0);
   });
   it('prints in a neutral theme despite display theme changes and restores the display config on the next render', async () => {
     localStorage.setItem('markport-theme', 'dark');
@@ -88,7 +88,7 @@ describe('Mermaid themes', () => {
     localStorage.setItem('markport-theme', 'sepia'); const third = drawMermaid(container(), () => true);
     expect(mermaid.render).toHaveBeenCalledTimes(1);
     finish(svg('stale')); await first;
-    expect(container().querySelector('svg')).toBeNull();
+    expect(container().querySelector('.diagram-image svg')).toBeNull();
     await Promise.all([second, third]);
     expect(mermaid.render).toHaveBeenCalledTimes(2); expect(container().textContent).toContain('diagram'); expect(container().textContent).not.toContain('stale');
   });
@@ -97,9 +97,9 @@ describe('Mermaid themes', () => {
     let current = true;
     mermaid.render.mockImplementationOnce(async () => { current = false; return svg('old file'); });
     const { drawMermaid } = await import('../src/mermaid');
-    await drawMermaid(container(), () => current); expect(container().querySelector('svg')).toBeNull();
+    await drawMermaid(container(), () => current); expect(container().querySelector('.diagram-image svg')).toBeNull();
     mermaid.render.mockRejectedValueOnce(new Error('invalid diagram'));
     await drawMermaid(container(), () => true); expect(container().textContent).toContain('Cannot display diagram');
-    await drawMermaid(container(), () => true); expect(container().querySelector('svg')).not.toBeNull();
+    await drawMermaid(container(), () => true); expect(container().querySelector('.diagram-image svg')).not.toBeNull();
   });
 });

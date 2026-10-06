@@ -1,10 +1,16 @@
-import { createCopyButton } from './copyControls';
+import { createCopyButton, resetCopyButton } from './copyControls';
+import { setToolButton } from './toolButtons';
 
 export function createDiagramOverlay(): { open: (source: SVGSVGElement, opener: HTMLButtonElement) => void; close: () => void; refresh: () => void } {
   document.querySelector('#diagram-overlay')?.remove();
   const dialog = document.createElement('dialog'); dialog.id = 'diagram-overlay'; dialog.setAttribute('aria-label', 'Expanded Mermaid diagram');
   dialog.innerHTML = `<div class="overlay-toolbar"><button type="button" id="overlay-close">Close ×</button><button type="button" id="overlay-zoom-out" aria-label="Zoom out">−</button><button type="button" id="overlay-zoom-in" aria-label="Zoom in">+</button><button type="button" id="overlay-fit">Fit diagram</button><button type="button" id="overlay-actual">100%</button><output id="overlay-zoom-status" aria-live="polite"></output></div><div id="overlay-viewport" aria-label="Diagram canvas"><div id="overlay-content"></div></div>`;
   document.body.append(dialog);
+  setToolButton(dialog.querySelector<HTMLButtonElement>('#overlay-close')!, 'close', 'Close');
+  setToolButton(dialog.querySelector<HTMLButtonElement>('#overlay-zoom-out')!, 'zoomOut', 'Zoom out');
+  setToolButton(dialog.querySelector<HTMLButtonElement>('#overlay-zoom-in')!, 'zoomIn', 'Zoom in');
+  setToolButton(dialog.querySelector<HTMLButtonElement>('#overlay-fit')!, 'fit', 'Fit diagram');
+  setToolButton(dialog.querySelector<HTMLButtonElement>('#overlay-actual')!, 'actualSize', '100%');
   const viewport = dialog.querySelector<HTMLElement>('#overlay-viewport')!;
   const content = dialog.querySelector<HTMLElement>('#overlay-content')!;
   const status = dialog.querySelector<HTMLOutputElement>('#overlay-zoom-status')!;
@@ -74,7 +80,7 @@ export function createDiagramOverlay(): { open: (source: SVGSVGElement, opener: 
   }
   return {
     open(source, button) {
-      opener = button; copyButton.textContent = 'Copy';
+      opener = button; resetCopyButton(copyButton);
       copy(source);
       dialog.showModal(); dialog.querySelector<HTMLButtonElement>('#overlay-close')!.focus();
       requestAnimationFrame(fit);

@@ -1,22 +1,40 @@
 import { copyText } from './clipboard';
 import { setIcon, type IconName } from './icons';
+import { announceToolResult, createToolButton, toolFeedback } from './toolButtons';
 
-const copyTimers = new WeakMap<HTMLButtonElement, ReturnType<typeof setTimeout>>();
+type CopyState = { icon?: IconName; timer?: ReturnType<typeof setTimeout> };
+const copyStates = new WeakMap<HTMLButtonElement, CopyState>();
+export function resetCopyButton(button: HTMLButtonElement, label = 'Copy'): void {
+  const state = copyStates.get(button);
+  clearTimeout(state?.timer);
+  const icon = state?.icon ?? button.dataset.icon as IconName | undefined;
+  copyStates.set(button, { icon });
+  if (button.classList.contains('tool-icon')) {
+    setIcon(button, icon ?? 'copy'); toolFeedback(button);
+  } else if (button.classList.contains('title-icon')) {
+    setIcon(button, icon ?? 'copy'); button.title = label;
+  } else button.textContent = label;
+}
 export function copyWithFeedback(button: HTMLButtonElement, text: string, label: string): void {
+  const previous = copyStates.get(button);
+  clearTimeout(previous?.timer);
+  const state: CopyState = { icon: previous?.icon ?? button.dataset.icon as IconName | undefined };
+  copyStates.set(button, state);
   void copyText(text).then((copied) => {
-    clearTimeout(copyTimers.get(button));
-    const iconic = button.classList.contains('title-icon');
-    const restore = button.dataset.icon as IconName | undefined;
-    if (iconic) { setIcon(button, copied ? 'check' : 'close'); button.title = copied ? 'Copied' : 'Copy failed'; }
-    else button.textContent = copied ? 'Copied' : 'Copy failed';
-    copyTimers.set(button, setTimeout(() => {
-      if (iconic) { setIcon(button, restore ?? 'copy'); button.title = label; } else button.textContent = label;
-      copyTimers.delete(button);
-    }, 2000));
+    if (copyStates.get(button) !== state || !button.isConnected) return;
+    const tool = button.classList.contains('tool-icon');
+    const iconic = tool || button.classList.contains('title-icon');
+    const message = copied ? 'Copied' : 'Copy failed';
+    if (iconic) {
+      setIcon(button, copied ? 'check' : 'close');
+      if (tool) { toolFeedback(button, message); announceToolResult(button, message); }
+      else button.title = message;
+    } else button.textContent = message;
+    state.timer = setTimeout(() => resetCopyButton(button, label), 2000);
   });
 }
 export function createCopyButton(source: () => string): HTMLButtonElement {
-  const button = document.createElement('button'); button.type = 'button'; button.className = 'component-copy'; button.textContent = 'Copy';
+  const button = createToolButton('copy', 'Copy'); button.classList.add('component-copy');
   button.addEventListener('click', () => copyWithFeedback(button, source(), 'Copy'));
   return button;
 }

@@ -23,7 +23,7 @@ test('prints Markdown with Mermaid, math, images and paginated text without chan
   await open.click(); const dialog = page.getByRole('dialog', { name: 'Print view', exact: true });
   const frame = page.frameLocator('#print-view iframe');
   await expect(dialog.getByRole('button', { name: 'Print / Save as PDF' })).toBeEnabled({ timeout: 30000 });
-  await expect(frame.locator('[data-mermaid] svg')).toHaveCount(2);
+  await expect(frame.locator('[data-mermaid] .diagram-image svg')).toHaveCount(2);
   await expect(frame.locator('.katex')).toHaveCount(1); await expect(frame.getByRole('heading', { name: 'Document end' })).toBeVisible();
   expect(await frame.locator('img').evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
   expect(await frame.locator('body').evaluate((body) => getComputedStyle(body).backgroundColor)).toBe('rgb(255, 255, 255)');
@@ -80,7 +80,7 @@ test('prints latest pasted input from all paste views and includes individual di
     await page.getByRole('button', { name: 'Print / Save as PDF', exact: true }).click();
     await expect(page.locator('#print-submit')).toBeEnabled({ timeout: 15000 });
     await expect(page.frameLocator('#print-view iframe').getByRole('heading', { name: `Latest ${view}` })).toBeVisible();
-    await expect(page.frameLocator('#print-view iframe').locator('[data-mermaid] svg')).toHaveCount(1);
+    await expect(page.frameLocator('#print-view iframe').locator('[data-mermaid] .diagram-image svg')).toHaveCount(1);
     await page.locator('#print-close').click();
     if (view !== 'Text') await page.getByRole('button', { name: 'Text', exact: true }).click();
   }
@@ -111,7 +111,7 @@ test('fits wide and tall Mermaid diagrams to print pages and closes with Escape 
   await page.goto(`http://127.0.0.1:${port}/?path=print-large.md`);
   const open = page.locator('#file-title').getByRole('button', { name: 'Print / Save as PDF' }); await open.click();
   await expect(page.locator('#print-submit')).toBeEnabled({ timeout: 15000 });
-  const frame = page.frameLocator('#print-view iframe'); await expect(frame.locator('[data-mermaid] svg')).toHaveCount(2);
+  const frame = page.frameLocator('#print-view iframe'); await expect(frame.locator('[data-mermaid] .diagram-image svg')).toHaveCount(2);
   const html = await frame.locator('html').evaluate((element) => element.outerHTML);
   const pdfPage = await context.newPage(); await pdfPage.setContent(html); await pdfPage.emulateMedia({ media: 'print' });
   const geometry = await pdfPage.locator('.diagram-image svg').evaluateAll((diagrams) => diagrams.map((svg) => {
@@ -1280,7 +1280,7 @@ test('renders GFM, Mermaid and code, then tracks files', async ({ page }) => {
   await expect(page.locator('article h1')).toHaveText('Demo');
   await expect(page.locator('article table')).toContainText('1');
   await expect(page.locator('article input[type=checkbox]')).toBeChecked();
-  await expect(page.locator('.mermaid-source svg')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.mermaid-source .diagram-image svg')).toBeVisible({ timeout: 15000 });
   await page.locator('article a', { hasText: 'Jump' }).click();
   await expect(page).toHaveURL(/#section$/);
   await expect(page.locator('article h2#section')).toHaveText('Section');
@@ -1479,13 +1479,13 @@ test('keeps browsing after a Mermaid parse error', async ({ page }) => {
 
 test('desktop and mobile views in both themes', async ({ page }, testInfo) => {
   await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
-  await expect(page.locator('.mermaid-source svg')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('.mermaid-source .diagram-image svg')).toBeVisible({ timeout: 15000 });
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: 800 });
     for (const theme of ['light', 'dark']) {
       await page.evaluate((value) => { localStorage.setItem('markport-theme', value); }, theme);
       await page.reload();
-      await expect(page.locator('.mermaid-source svg')).toBeVisible({ timeout: 15000 });
+      await expect(page.locator('.mermaid-source .diagram-image svg')).toBeVisible({ timeout: 15000 });
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
       const brand = page.locator('.brand-symbol');
       await expect(brand).toBeVisible();
@@ -1568,6 +1568,80 @@ test('highlights linked code lines and keeps wrapped line numbers aligned', asyn
   await expect(page.locator('#content .line.selected-code-line')).toHaveCount(4);
 });
 
+test('shows accessible icon tools and unclipped tooltips in documents and expanded views', async ({ page, context }, testInfo) => {
+  const wide = `| ${Array.from({ length: 8 }, (_, i) => `Column ${i}`).join(' | ')} |\n|${'---|'.repeat(8)}\n|${' long cell value |'.repeat(8)}\n`;
+  await writeFile(join(directory, 'icon-tools.md'), '# Icon tools\n\n```mermaid\nflowchart LR\n A[Start] --> B[Done]\n```\n\n```typescript\nconst message = "Hello";\n```\n\n' + wide + '\n$$x^2$$\n');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto(`http://127.0.0.1:${port}/?path=icon-tools.md&right=icon-tools.md`);
+  const tooltipFor = async (selector: string, label: string): Promise<void> => {
+    const button = page.locator(selector); await button.focus();
+    const tooltip = page.locator(`#${await button.getAttribute('aria-describedby')}`);
+    await expect(tooltip).toBeVisible(); await expect(tooltip).toHaveText(label);
+    expect(await tooltip.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight && element.matches(':popover-open');
+    })).toBe(true);
+  };
+  for (const pane of ['#content', '#right-content']) {
+    await expect(page.locator(`${pane} .diagram-image svg`)).toBeVisible();
+    await expect(page.locator(`${pane} .math-frame .katex`)).toBeVisible();
+    const buttons = page.locator(`${pane} .tool-icon`);
+    expect(await buttons.evaluateAll((elements) => elements.every((button) => button.getAttribute('aria-label') && !button.textContent?.trim() && button.querySelector('svg[aria-hidden="true"]')))).toBe(true);
+    await expect(page.locator(`${pane} .code-wrap-toggle`)).toHaveAttribute('aria-pressed', pane === '#content' ? 'false' : 'true');
+    await tooltipFor(`${pane} .code-wrap-toggle`, 'Wrap lines');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#content .code-wrap-toggle')).toHaveAttribute('aria-pressed', pane === '#content' ? 'true' : 'false');
+    await expect(page.locator('#right-content .code-wrap-toggle')).toHaveAttribute('aria-pressed', pane === '#content' ? 'true' : 'false');
+  }
+  await page.locator('#right-content .code-wrap-toggle').evaluate((element: HTMLButtonElement) => element.blur());
+  const hover = page.locator('#content .code-wrap-toggle'); await hover.hover();
+  const hoverTooltip = page.locator(`#${await hover.getAttribute('aria-describedby')}`);
+  const hoverBox = (await hoverTooltip.boundingBox())!;
+  await page.mouse.move(hoverBox.x + hoverBox.width / 2, hoverBox.y + hoverBox.height / 2, { steps: 8 });
+  await expect(hoverTooltip).toBeVisible();
+  await page.mouse.move(0, 0); await expect(hoverTooltip).toHaveCount(0);
+  await tooltipFor('#content [data-diagram-action="source"]', 'Source');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#content .diagram-source')).toBeVisible();
+  await expect(page.locator('#content [data-diagram-action="source"]')).toHaveAttribute('aria-label', 'Diagram');
+  await expect(page.locator('#content [data-diagram-action="source"]')).toHaveAttribute('data-icon', 'diagram');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Escape'); await expect(page.locator('.tool-tooltip')).toHaveCount(0);
+  const expand = page.locator('#content [data-diagram-action="expand"]');
+  await expand.click();
+  await tooltipFor('#overlay-fit', 'Fit diagram');
+  await page.keyboard.press('Enter');
+  const fitted = await page.locator('#overlay-zoom-status').textContent();
+  await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
+  await expect(page.locator('#overlay-zoom-status')).not.toHaveText(fitted!);
+  await page.getByRole('button', { name: '100%', exact: true }).click();
+  await expect(page.locator('#overlay-zoom-status')).toHaveText('100%');
+  await page.locator('#diagram-overlay').screenshot({ path: testInfo.outputPath('diagram-icons.png') });
+  await page.keyboard.press('Escape'); await expect(expand).toBeFocused();
+  await page.locator('#content .table-expand').click();
+  await tooltipFor('#table-overlay .component-copy', 'Copy');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('#table-overlay .tool-status')).toHaveText('Copied');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#content .table-expand')).toBeFocused();
+  await page.locator('#content .table-expand').click();
+  await expect(page.locator('#table-overlay .component-copy')).toHaveAttribute('data-icon', 'copy');
+  await expect(page.locator('#table-overlay .component-copy')).not.toHaveAttribute('data-feedback');
+  await page.keyboard.press('Escape');
+  for (const theme of ['Light', 'Dark', 'Nord']) {
+    await page.getByRole('button', { name: /^Theme:/ }).click();
+    await page.getByRole('menuitemradio', { name: theme, exact: true }).click();
+    await page.screenshot({ path: testInfo.outputPath(`tools-${theme.toLowerCase()}.png`) });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await tooltipFor('#content .code-wrap-toggle', 'Wrap lines');
+  const button = page.locator('#content .code-wrap-toggle');
+  const dimensions = await button.evaluate((element) => ({ width: element.getBoundingClientRect().width, height: element.getBoundingClientRect().height }));
+  expect(dimensions).toEqual({ width: 40, height: 40 });
+  await page.screenshot({ path: testInfo.outputPath('tools-mobile.png'), animations: 'disabled' });
+});
+
 test('copies component sources in both panes, expanded views, and after refresh', async ({ page, context }) => {
   test.setTimeout(60000);
   const diagram = 'flowchart LR\n A[日本語] --> B[Done]\n';
@@ -1581,11 +1655,11 @@ test('copies component sources in both panes, expanded views, and after refresh'
   await page.goto(`http://127.0.0.1:${port}/?path=copy-components.md&right=copy-components.md`);
   const copy = async (selector: string, expected: string): Promise<void> => {
     const button = page.locator(selector).locator('.component-copy');
-    await button.click(); await expect(button).toHaveText('Copied');
+    await button.click(); await expect(button).toHaveAttribute('data-feedback', 'Copied');
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(expected);
   };
   for (const pane of ['#content', '#right-content']) {
-    await expect(page.locator(`${pane} [data-mermaid] svg`)).toBeVisible();
+    await expect(page.locator(`${pane} [data-mermaid] .diagram-image svg`)).toBeVisible();
     await expect(page.locator(`${pane} .math-frame .katex`)).toHaveCount(1);
     await expect(page.locator(`${pane} .math-frame`)).toHaveCount(1);
     await copy(`${pane} [data-mermaid]`, diagram);
@@ -1626,7 +1700,7 @@ test('copies pasted component sources and rendering errors without duplicating c
   await expect(page.locator('.paste-preview .math-error')).toBeVisible();
   for (const [selector, expected] of [['[data-mermaid]', diagram], ['.table-frame', table], ['.math-frame', formula]]) {
     const button = page.locator(`.paste-preview ${selector} .component-copy`);
-    await button.focus(); await page.keyboard.press('Enter'); await expect(button).toHaveText('Copied');
+    await button.focus(); await page.keyboard.press('Enter'); await expect(button).toHaveAttribute('data-feedback', 'Copied');
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(expected);
   }
   for (const view of ['Text', 'Rendered', 'Split']) await page.getByRole('button', { name: view, exact: true }).click();
@@ -1646,11 +1720,11 @@ test('copies components with the fallback inside expanded modals and reports fai
   await writeFile(join(directory, 'copy-fallback-components.md'), `\`\`\`mermaid\n${diagram}\`\`\`\n\n${table}\n${formula}`);
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto(`http://127.0.0.1:${port}/?path=copy-fallback-components.md`);
-  await expect(page.locator('[data-mermaid] svg')).toBeVisible();
+  await expect(page.locator('[data-mermaid] .diagram-image svg')).toBeVisible();
   const copy = async (selector: string, expected: string): Promise<void> => {
     await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }));
     const button = page.locator(selector).locator('.component-copy'); await button.click();
-    await expect(button).toHaveText('Copied'); await expect(button).toBeFocused();
+    await expect(button).toHaveAttribute('data-feedback', 'Copied'); await expect(button).toBeFocused();
     expect(await page.evaluate(() => { Reflect.deleteProperty(navigator, 'clipboard'); return navigator.clipboard.readText(); })).toBe(expected);
   };
   await copy('#content [data-mermaid]', diagram);
@@ -1664,7 +1738,7 @@ test('copies components with the fallback inside expanded modals and reports fai
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }); document.execCommand = () => false;
   });
   await page.locator('#table-overlay .component-copy').click();
-  await expect(page.locator('#table-overlay .component-copy')).toHaveText('Copy failed');
+  await expect(page.locator('#table-overlay .component-copy')).toHaveAttribute('data-feedback', 'Copy failed');
   await expect(page.locator('#table-overlay textarea')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
@@ -1688,29 +1762,29 @@ test('copies Markdown blocks, code files, and paths without the Clipboard API', 
   await expect(copyButtons).toHaveCount(2);
   await hideClipboard();
   await copyButtons.first().click();
-  await expect(page.locator('.code-toolbar').first().getByRole('button', { name: 'Copied' })).toBeVisible();
+  await expect(page.locator('.code-toolbar').first().getByRole('button', { name: 'Copy', exact: true })).toHaveAttribute('data-feedback', 'Copied');
   expect(await readClipboard()).toBe('print("markdown")\n');
 
   await hideClipboard();
   await copyButtons.last().click();
-  await expect(page.locator('.code-toolbar').last().getByRole('button', { name: 'Copied' })).toBeVisible();
+  await expect(page.locator('.code-toolbar').last().getByRole('button', { name: 'Copy', exact: true })).toHaveAttribute('data-feedback', 'Copied');
   expect(await readClipboard()).toBe('plain <text>\n');
 
   await page.goto(`http://127.0.0.1:${port}/?path=copy.py`);
   await hideClipboard();
   await page.locator('.code-toolbar').getByRole('button', { name: 'Copy', exact: true }).click();
-  await expect(page.locator('.code-toolbar').getByRole('button', { name: 'Copied' })).toBeVisible();
+  await expect(page.locator('.code-toolbar').getByRole('button', { name: 'Copy', exact: true })).toHaveAttribute('data-feedback', 'Copied');
   expect(await readClipboard()).toBe('print("code file")\n');
 
   await hideClipboard();
   await page.getByRole('button', { name: 'Copy path' }).click();
-  await expect(page.getByRole('button', { name: 'Copied' }).last()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Copy path', exact: true })).toHaveAttribute('title', 'Copied');
   expect(await readClipboard()).toBe('copy.py');
 
   await hideClipboard();
   await page.evaluate(() => { document.execCommand = () => false; });
   await page.locator('.code-toolbar').getByRole('button', { name: 'Copy', exact: true }).click();
-  await expect(page.locator('.code-toolbar').getByRole('button', { name: 'Copy failed' })).toBeVisible();
+  await expect(page.locator('.code-toolbar').getByRole('button', { name: 'Copy', exact: true })).toHaveAttribute('data-feedback', 'Copy failed');
   expect(pageErrors).toEqual([]);
 });
 

@@ -9,6 +9,7 @@ import { comparisonBase, comparisonOptions, comparisonURL, historyURL, renderCom
 import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
 import { copyWithFeedback, createCopyButton } from './copyControls';
+import { createToolButton, setToolButton } from './toolButtons';
 import { createPasteEditor } from './pasteEditor';
 import { TabTitle } from './tabTitle';
 import { ServerInfo } from './serverInfo';
@@ -827,7 +828,7 @@ function decorateContent(target = content, path = displayedPath): void {
     const frame = document.createElement('div'); frame.className = 'code-frame';
     const toolbar = document.createElement('div'); toolbar.className = 'code-toolbar';
     const label = document.createElement('span'); label.textContent = element.closest<HTMLElement>('[data-language]')?.dataset.language || (target.dataset.kind === 'code' ? path.split('.').at(-1) : 'text') || 'text';
-    const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Copy';
+    const button = createToolButton('copy', 'Copy');
     button.addEventListener('click', () => {
       const lines = [...element.querySelectorAll<HTMLElement>('.lntd:last-child .line')];
       if (lines.length) {
@@ -837,7 +838,7 @@ function decorateContent(target = content, path = displayedPath): void {
         copyWithFeedback(button, text + (trailing ? '\n' : ''), 'Copy');
       } else copyWithFeedback(button, element.textContent ?? '', 'Copy');
     });
-    const wrap = document.createElement('button'); wrap.type = 'button'; wrap.textContent = 'Wrap lines'; wrap.setAttribute('aria-pressed', String(wrapCodeLines));
+    const wrap = createToolButton('wrap', 'Wrap lines'); wrap.setAttribute('aria-pressed', String(wrapCodeLines));
     wrap.addEventListener('click', () => {
       wrapCodeLines = !wrapCodeLines;
       try { localStorage.setItem('markport-wrap-code', String(wrapCodeLines)); } catch { /* Storage may be unavailable. */ }
@@ -848,10 +849,10 @@ function decorateContent(target = content, path = displayedPath): void {
       highlightCodeLines(false);
       highlightCodeLines(false, rightContent, rightLineHash);
     });
-    wrap.className = 'code-wrap-toggle';
+    wrap.classList.add('code-wrap-toggle');
     const controls = document.createElement('div'); controls.className = 'code-toolbar-actions'; controls.append(wrap, button);
     if (target === content && element.querySelector('.lntable')) {
-      const copyLink = document.createElement('button'); copyLink.type = 'button'; copyLink.className = 'copy-line-link'; copyLink.textContent = 'Copy line link'; copyLink.hidden = true;
+      const copyLink = createToolButton('link', 'Copy line link'); copyLink.classList.add('copy-line-link'); copyLink.hidden = true;
       copyLink.addEventListener('click', () => copyWithFeedback(copyLink, location.href, 'Copy line link'));
       controls.prepend(copyLink);
     }
@@ -900,7 +901,7 @@ function decorateContent(target = content, path = displayedPath): void {
 function wrapTable(table: HTMLTableElement): HTMLElement {
   const frame = document.createElement('div'); frame.className = 'table-frame'; frame.classList.toggle('table-nowrap', !wrapTableCells);
   const actions = document.createElement('div'); actions.className = 'table-actions';
-  const wrapButton = document.createElement('button'); wrapButton.type = 'button'; wrapButton.className = 'table-wrap-toggle'; wrapButton.textContent = 'Wrap cells'; wrapButton.setAttribute('aria-pressed', String(wrapTableCells));
+  const wrapButton = createToolButton('wrap', 'Wrap cells'); wrapButton.classList.add('table-wrap-toggle'); wrapButton.setAttribute('aria-pressed', String(wrapTableCells));
   wrapButton.addEventListener('click', () => {
     wrapTableCells = !wrapTableCells;
     try { localStorage.setItem('markport-wrap-tables', String(wrapTableCells)); } catch { /* Storage may be unavailable. */ }
@@ -911,7 +912,7 @@ function wrapTable(table: HTMLTableElement): HTMLElement {
     }
     updateTableHeaders();
   });
-  const expand = document.createElement('button'); expand.type = 'button'; expand.className = 'table-expand'; expand.textContent = 'Expand';
+  const expand = createToolButton('maximize', 'Expand'); expand.classList.add('table-expand');
   expand.addEventListener('click', () => tableOverlay.open(table, expand, !wrapTableCells));
   actions.append(wrapButton, expand);
   if (table.dataset.tableSource !== undefined) {
@@ -1339,7 +1340,7 @@ function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
       const image = diagram.querySelector<HTMLElement>('.diagram-image')!; const showing = image.hidden; image.hidden = !showing;
       let source = diagram.querySelector<HTMLElement>('.diagram-source');
       if (!source) { source = document.createElement('pre'); source.className = 'diagram-source'; source.textContent = diagram.dataset.source ?? ''; diagram.append(source); }
-      source.hidden = showing; action.textContent = showing ? 'Source' : 'Diagram';
+      source.hidden = showing; setToolButton(action, showing ? 'code' : 'diagram', showing ? 'Source' : 'Diagram');
     } else {
       const svg = diagram.querySelector<SVGSVGElement>('.diagram-image svg');
       if (svg) diagramOverlay.open(svg, action);

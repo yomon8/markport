@@ -338,3 +338,13 @@ article[data-kind=paste][data-paste-view=split] .paste-preview{grid-column:2;gri
 .diagram-actions{flex-wrap:wrap;color:var(--text)}
 
 .mermaid-source:not([data-rendered]):has(.diagram-actions):after{top:52px}.mermaid-source:not([data-rendered]):has(.diagram-actions):before{top:80px}
+
+/* Shared icon controls in document components and expanded views. */
+button.tool-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;padding:0;line-height:1}
+button.tool-icon[hidden]{display:none}
+.tool-icon .icon{display:block;margin:0;vertical-align:0}
+.tool-icon[aria-pressed=true]{background:var(--accent-soft);color:var(--accent)}
+.tool-tooltip{position:fixed;inset:auto;margin:0;z-index:100;padding:5px 8px;max-width:calc(100vw - 16px);border:1px solid var(--border);border-radius:5px;background:var(--text);color:var(--surface);font:12px/1.4 system-ui,sans-serif;overflow:visible;overflow-wrap:anywhere;box-shadow:0 2px 8px #0003}
+.tool-tooltip:before{content:"";position:absolute;inset:-6px 0;z-index:-1}
+.tool-status{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+@media(max-width:700px),(pointer:coarse){button.tool-icon{width:40px;height:40px}}

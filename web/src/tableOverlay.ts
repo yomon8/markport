@@ -1,10 +1,12 @@
-import { createCopyButton } from './copyControls';
+import { createCopyButton, resetCopyButton } from './copyControls';
+import { setToolButton } from './toolButtons';
 
 export function createTableOverlay(): { open: (source: HTMLTableElement, opener: HTMLButtonElement, nowrap: boolean) => void; close: () => void } {
   document.querySelector('#table-overlay')?.remove();
   const dialog = document.createElement('dialog'); dialog.id = 'table-overlay'; dialog.setAttribute('aria-label', 'Expanded table');
   dialog.innerHTML = '<div class="overlay-toolbar"><button type="button" id="table-overlay-close">Close ×</button></div><div id="table-overlay-viewport" tabindex="0" role="region" aria-label="Table"><article></article></div>';
   document.body.append(dialog);
+  setToolButton(dialog.querySelector<HTMLButtonElement>('#table-overlay-close')!, 'close', 'Close');
   const content = dialog.querySelector<HTMLElement>('article')!;
   let opener: HTMLButtonElement | undefined;
   let source: HTMLTableElement | undefined;
@@ -23,7 +25,7 @@ export function createTableOverlay(): { open: (source: HTMLTableElement, opener:
   return {
     open(table, button, nowrap) {
       opener = button; source = table;
-      copyButton.hidden = table.dataset.tableSource === undefined; copyButton.textContent = 'Copy';
+      copyButton.hidden = table.dataset.tableSource === undefined; resetCopyButton(copyButton);
       const clone = table.cloneNode(true) as HTMLTableElement;
       clone.tHead?.style.removeProperty('transform');
       content.classList.toggle('table-nowrap', nowrap); content.replaceChildren(clone);
