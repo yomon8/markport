@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { createPasteEditor } from '../src/pasteEditor';
 let editor: ReturnType<typeof createPasteEditor>;
 let version: number; let input: HTMLTextAreaElement;
+const onPrint = vi.fn();
 const flush = async () => { await new Promise((resolve) => setTimeout(resolve, 0)); };
 const change = (text: string) => { input.value = text; input.dispatchEvent(new Event('input')); };
 const click = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === name)!.click();
@@ -10,11 +11,12 @@ async function mount(): Promise<void> {
   document.body.innerHTML = '<div class="layout"><main><div id="title"></div><article></article></main></div>';
   version = 0;
   const { createPasteEditor } = await import('../src/pasteEditor');
-  editor = createPasteEditor({ content: document.querySelector('article')!, title: document.querySelector('#title')!, main: document.querySelector('main')!,
+  editor = createPasteEditor({ content: document.querySelector('article')!, title: document.querySelector('#title')!, main: document.querySelector('main')!, onPrint,
     isActive: () => true, nextVersion: () => ++version, version: () => version, onPreview: vi.fn(), onText: vi.fn() });
   input = document.querySelector('textarea')!;
 }
 beforeEach(() => {
+  onPrint.mockClear();
   vi.resetModules(); sessionStorage.clear(); localStorage.clear();
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => window.setTimeout(() => callback(0), 0));
   vi.stubGlobal('cancelAnimationFrame', clearTimeout);
@@ -22,6 +24,14 @@ beforeEach(() => {
 });
 afterEach(() => { editor?.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 describe('paste editor', () => {
+  it('prints current input from Text view and rejects empty or oversized input', async () => {
+    await mount(); click('Print / Save as PDF'); expect(onPrint).not.toHaveBeenCalled();
+    change('# Latest input'); click('Print / Save as PDF'); expect(onPrint).toHaveBeenCalledOnce();
+    change('# Next input'); await onPrint.mock.calls[0][0].load(new AbortController().signal);
+    expect(fetch).toHaveBeenLastCalledWith('/api/render', expect.objectContaining({ body: JSON.stringify({ markdown: '# Latest input' }) }));
+    change('x'.repeat((1 << 20) + 1)); click('Print / Save as PDF'); expect(onPrint).toHaveBeenCalledOnce();
+    expect(document.querySelector('.paste-notice')!.textContent).toContain('1 MiB');
+  });
   it('restores the draft, caret and focus while using accessible native input', async () => {
     sessionStorage.setItem('markport-pasted-markdown', '# Restored'); sessionStorage.setItem('markport-pasted-markdown-caret', '[3,5,0]');
     await mount(); expect(input.value).toBe('# Restored'); expect(input.selectionStart).toBe(3); expect(input.selectionEnd).toBe(5); expect(document.activeElement).toBe(input);

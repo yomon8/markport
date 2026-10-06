@@ -24,6 +24,8 @@ Markport opens a folder in your browser so you can read and review Markdown, HTM
 
 HTML previews can load relative CSS and images from the selected directory, plus external CSS and images. JavaScript is off by default. For an HTML file you trust, click **Enable JavaScript** to run inline and local scripts, including interactive controls and printing. The choice applies to that file in the current browser tab until you disable it, close the tab, or restart Markport. Scripts run in an isolated preview; external scripts, fetch and WebSocket calls, forms, and access to the Markport UI remain blocked.
 
+To save Markdown as PDF, choose **Print / Save as PDF** in the file actions, in either split pane, or under **Paste options** in Paste Markdown. It also works from Source and Text views. A dialog shows the printable document with a white background, rendered Mermaid diagrams, and formulas. Once it is ready, click **Print / Save as PDF** and select **Save as PDF** in your browser's print dialog. Adjust paper size, orientation, and headers or footers there; the browser's print preview shows the actual page breaks. Each operation prints one document, fixed when it is loaded for printing (or the current input for Paste Markdown). Display errors are included with a warning. Closing the dialog returns to your original view.
+
 ## Get started
 
 After installing or downloading the executable, run:

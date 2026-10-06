@@ -2,6 +2,7 @@ import { copyText } from './clipboard';
 import { applyTextEdit, continueList, indentLines } from './pasteEditing';
 import { highlightMarkdown, maxHighlightBytes, maxPasteBytes, pasteBytes } from './pasteHighlight';
 import { matchesShortcut } from './shortcuts';
+import { printMarkdown } from './printView';
 
 let sessionDraft: string | undefined;
 const draftKey = 'markport-pasted-markdown';
@@ -13,6 +14,7 @@ type Options = {
   isActive: () => boolean; nextVersion: () => number; version: () => number;
   onPreview: (preview: HTMLElement, current: () => boolean) => void;
   onText: () => void;
+  onPrint: (input: ReturnType<typeof printMarkdown>, button: HTMLButtonElement) => void;
 };
 export function createPasteEditor(options: Options): { refresh: () => void; dispose: () => void } {
   const { content, title, main } = options;
@@ -49,6 +51,11 @@ export function createPasteEditor(options: Options): { refresh: () => void; disp
     const url = URL.createObjectURL(new Blob([input.value], { type: 'text/markdown;charset=utf-8' }));
     const link = document.createElement('a'); link.href = url; link.download = 'pasted-markdown.md'; document.body.append(link); link.click(); link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  menuButton('Print / Save as PDF', () => {
+    if (!input.value.trim()) { actionError = 'Paste Markdown text to print.'; updateNotice(); return; }
+    if (pasteBytes(input.value) > maxPasteBytes) { actionError = 'Markdown exceeds the 1 MiB limit.'; updateNotice(); return; }
+    options.onPrint(printMarkdown(input.value), more);
   });
   const setting = (label: string, checked: boolean, change: (checked: boolean) => void): HTMLInputElement => {
     const row = document.createElement('label'); const box = document.createElement('input'); box.type = 'checkbox'; box.checked = checked;

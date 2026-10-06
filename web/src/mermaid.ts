@@ -25,19 +25,19 @@ function config(): MermaidConfig {
   };
 }
 
-export function drawMermaid(container: HTMLElement, current: () => boolean, rendered?: () => void): Promise<void> {
+export function drawMermaid(container: HTMLElement, current: () => boolean, rendered?: () => void, print = false): Promise<void> {
   const elements = [...container.querySelectorAll<HTMLElement>('[data-mermaid="true"]')];
   if (!elements.length) return Promise.resolve();
   const generation = Symbol();
   generations.set(container, generation);
   const theme = effectiveThemeId();
-  const options = config();
+  const options: MermaidConfig = print ? { securityLevel: 'strict', startOnLoad: false, theme: 'neutral' } : config();
   const definitions = elements.map((element) => {
     const definition = element.dataset.source ?? element.textContent ?? '';
     element.dataset.source = definition;
     return definition;
   });
-  const valid = (): boolean => generations.get(container) === generation && effectiveThemeId() === theme && current();
+  const valid = (): boolean => generations.get(container) === generation && (print || effectiveThemeId() === theme) && current();
   // Mermaid has global configuration. Keep initialization and rendering in one queue.
   const task = queue.then(async () => {
     if (!valid()) return;

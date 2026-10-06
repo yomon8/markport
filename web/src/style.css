@@ -1,5 +1,14 @@
 @import './themes.css';
 @import './chroma.css';
+
+#print-view{width:min(1000px,calc(100vw - 24px));height:calc(100dvh - 32px);max-width:none;max-height:none;padding:0;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}
+#print-view[open]{display:flex;flex-direction:column}
+#print-view::backdrop{background:#0008}
+#print-view .print-title{flex:1;min-width:0;overflow-wrap:anywhere}
+#print-view .print-status,#print-view .print-help{margin:6px 14px;font-size:13px;flex:none}
+#print-view .print-help{color:var(--text-muted)}
+#print-view .print-document{flex:1;min-height:0;margin:8px 14px 14px}
+#print-view iframe{width:100%;height:100%;border:1px solid var(--border);background:#fff}
 :root :is(input,textarea)::placeholder{color:var(--text-muted);opacity:1}
 .math-source{white-space:pre-wrap}.math-source[data-math=display]{display:block;max-width:100%;overflow-x:auto;margin:1em 0}.math-source[data-math-rendered=true]{white-space:normal}.math-source .katex-display{margin:0;padding:2px 0}.math-error{color:var(--danger);font:12px/1.5 var(--mono);margin-left:8px}.math-original{font-family:var(--mono);white-space:pre-wrap}
 :root{font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic UI",system-ui,sans-serif;--sidebar-width:280px;--titlebar-h:62px;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Noto Sans Mono",monospace}

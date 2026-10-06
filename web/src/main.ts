@@ -15,6 +15,7 @@ import { ServerInfo } from './serverInfo';
 import { createDiagramOverlay } from './diagramOverlay';
 import { createShortcutHelp } from './shortcutHelp';
 import { createTableOverlay } from './tableOverlay';
+import { createPrintView, printFile } from './printView';
 import { editingShortcutTarget, matchesShortcut, shortcutText } from './shortcuts';
 import symbolLight from '../../logo/markport-symbol-light.svg';
 import symbolDark from '../../logo/markport-symbol-dark.svg';
@@ -30,6 +31,7 @@ if (!app) throw new Error('app missing');
 app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">${iconSVG('menu')}</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">${iconSVG('panelLeft')}</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><div id="header-extras"><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button" aria-label="Paste Markdown" title="Paste Markdown">${iconSVG('clipboard')}</button></div><button id="header-more" type="button" aria-label="App settings" title="App settings" aria-expanded="false" aria-controls="header-extras">${iconSVG('settings')}</button><button id="reload" type="button" aria-label="Refresh" title="Refresh now"><span class="reload-icon" aria-hidden="true">${iconSVG('refresh')}</span></button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button><button id="history-tab" type="button" role="tab" aria-controls="history-tree">History</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><div class="files-search-heading"><label for="search">Search files</label><button id="collapse-all" type="button" aria-label="Collapse all folders" title="Collapse all folders" disabled>Collapse all</button></div><input id="search" type="search" placeholder="Path or file name, e.g. file.md:123"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav><nav id="history-tree" role="tabpanel" aria-labelledby="history-tab" aria-label="Commit history" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><div id="right-path" class="breadcrumbs"></div><div class="right-actions"><span id="right-kind" class="kind-badge"></span><div id="right-views" class="view-segment" role="group" aria-label="Preview or Source"><button id="right-rendered" type="button" aria-pressed="true">Preview</button><button id="right-source" type="button" aria-pressed="false">Source</button></div><button id="right-interactive" type="button" hidden>Enable JavaScript</button><button id="right-copy" type="button" class="title-icon" aria-label="Copy path" title="Copy path">${iconSVG('copy')}</button><button id="right-contents" type="button" class="title-icon" aria-label="Contents" title="Contents" hidden>${iconSVG('list')}</button><button id="right-swap" type="button" class="title-icon" aria-label="Swap panes" title="Swap panes">${iconSVG('swap')}</button><button id="right-only" type="button" class="title-icon" aria-label="Show this file only" title="Show this file only">${iconSVG('maximize')}</button><button id="right-close" type="button" class="title-icon" aria-label="Close split view" title="Close split view">${iconSVG('close')}</button></div></div><article id="right-content" aria-busy="false"></article><nav id="right-outline" aria-label="Right table of contents" hidden></nav></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
 const diagramOverlay = createDiagramOverlay();
 const tableOverlay = createTableOverlay();
+const printView = createPrintView();
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
 if (!icon.isConnected) document.head.append(icon);
@@ -105,6 +107,10 @@ const rightOpenPDF = document.createElement('button');
 rightOpenPDF.type = 'button'; rightOpenPDF.className = 'title-icon'; setIcon(rightOpenPDF, 'external');
 rightOpenPDF.setAttribute('aria-label', 'Open PDF in new tab'); rightOpenPDF.title = 'Open PDF in new tab'; rightOpenPDF.hidden = true;
 rightDownload.before(rightOpenPDF);
+const rightPrint = document.createElement('button');
+rightPrint.type = 'button'; rightPrint.className = 'title-icon'; setIcon(rightPrint, 'printer');
+rightPrint.setAttribute('aria-label', 'Print / Save as PDF'); rightPrint.title = 'Print / Save as PDF'; rightPrint.hidden = true;
+rightDownload.before(rightPrint);
 let rightShownPath = ''; let rightShownKey = ''; let rightSourceMode = false; let rightRequest = 0;
 let pendingRightScroll: number | undefined;
 let rightTag = ''; let rightTagCheckedAt = 0;
@@ -613,6 +619,7 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
   };
   addAux('Open on right', 'panelRight', () => openRight(path), selectedMode() === 'file');
   addAux('Open PDF in new tab', 'external', () => openPDF(path), kind === 'pdf');
+  addAux('Print / Save as PDF', 'printer', (button) => printView.open(printFile(path), menu.contains(button) ? menuButton : button), kind === 'markdown' && selectedMode() === 'file' && !missing);
   addAux('Download', 'download', () => downloadFile(path), canDownload && !missing && (selectedMode() !== 'diff' || currentChanges?.changes.find((change) => change.path === path)?.status !== 'deleted'));
   addAux('Copy path', 'copy', (button) => copyWithFeedback(button, path, 'Copy path'));
   addAux('Contents', 'list', () => outline.classList.toggle('open'), !outline.hidden);
@@ -763,6 +770,7 @@ function showPaste(): void {
     isActive: () => selectedMode() === 'paste',
     nextVersion: () => ++pasteVersion,
     version: () => pasteVersion,
+    onPrint: (markdown, button) => printView.open(markdown, button),
     onText: () => { outlineObserver?.disconnect(); outline.replaceChildren(); outline.hidden = true; },
     onPreview: (preview, current) => {
       decorateContent(); updateOutline();
@@ -1065,8 +1073,8 @@ async function refreshRight(): Promise<void> {
     pendingRightLineJump = false;
   };
   rightPane.hidden = !path; layout.classList.toggle('split', Boolean(path));
-  if (!path) { rightShownPath = ''; rightShownKey = ''; rightDownload.hidden = true; rightOpenPDF.hidden = true; return; }
-  if (path !== rightShownPath) { rightPane.scrollTop = 0; rightShownKey = ''; rightTag = ''; rightDownload.hidden = true; rightOpenPDF.hidden = true; }
+  if (!path) { rightShownPath = ''; rightShownKey = ''; rightDownload.hidden = true; rightOpenPDF.hidden = true; rightPrint.hidden = true; return; }
+  if (path !== rightShownPath) { rightPane.scrollTop = 0; rightShownKey = ''; rightTag = ''; rightDownload.hidden = true; rightOpenPDF.hidden = true; rightPrint.hidden = true; }
   rightContent.setAttribute('aria-busy', 'true');
   try {
     const headers: Record<string, string> = {};
@@ -1101,6 +1109,7 @@ async function refreshRight(): Promise<void> {
       showRightTitle(path, file.type);
     }
     rightKind.hidden = false; rightDownload.hidden = false; rightOpenPDF.hidden = file.type !== 'pdf';
+    rightPrint.hidden = file.type !== 'markdown';
     rightInteractive.hidden = file.type !== 'html';
     rightInteractive.textContent = interactivePaths.has(path) ? 'Disable JavaScript' : 'Enable JavaScript';
     rightInteractive.setAttribute('aria-pressed', String(interactivePaths.has(path)));
@@ -1112,6 +1121,7 @@ async function refreshRight(): Promise<void> {
     showRightTitle(path, 'code'); rightKind.hidden = true;
     rightDownload.hidden = !(error instanceof RequestError && ['binary', 'too_large', 'invalid_asset', 'invalid_pdf'].includes(error.code));
     rightOpenPDF.hidden = true;
+    rightPrint.hidden = true;
     rightContent.replaceChildren(); const message = document.createElement('div'); message.className = 'file-error'; message.setAttribute('role', 'alert');
     message.textContent = error instanceof RequestError && error.code === 'not_found' ? 'File not found.' : 'Cannot display file. Please try again.'; rightContent.append(message);
     rightInteractive.hidden = true; rightViews.hidden = true; rightOutline.hidden = true; rightContents.hidden = true;
@@ -1350,6 +1360,7 @@ rightRendered.addEventListener('click', () => { rightLineHash = ''; pendingRight
 rightContents.addEventListener('click', () => rightOutline.classList.toggle('open'));
 document.querySelector('#right-copy')!.addEventListener('click', (event) => { const path = rightSelected(); if (path) copyWithFeedback(event.currentTarget as HTMLButtonElement, path, 'Copy path'); });
 rightDownload.addEventListener('click', () => { const path = rightSelected(); if (path) downloadFile(path); });
+rightPrint.addEventListener('click', () => { const path = rightSelected(); if (path) printView.open(printFile(path), rightPrint); });
 rightOpenPDF.addEventListener('click', () => { const path = rightSelected(); if (path) openPDF(path); });
 document.querySelector('#right-swap')!.addEventListener('click', swapPanes);
 document.querySelector('#right-only')!.addEventListener('click', showRightOnly);
@@ -1393,7 +1404,7 @@ updateBrand();
 status(liveMessage, 'ok');
 requestRefresh();
 const pollTimer = setInterval(() => { if (!document.hidden) requestRefresh(false); }, 3000);
-window.addEventListener('pagehide', () => { pasteEditor?.dispose(); clearInterval(pollTimer); onSearchChange(''); tabTitle.dispose(); serverInfo.dispose(); });
+window.addEventListener('pagehide', () => { printView.close(); pasteEditor?.dispose(); clearInterval(pollTimer); onSearchChange(''); tabTitle.dispose(); serverInfo.dispose(); });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     requestRefresh(false);

@@ -10,6 +10,120 @@ let cacheDirectory: string;
 let port: number;
 let serverProcess: ChildProcess;
 
+test('prints Markdown with Mermaid, math, images and paginated text without changing the display theme', async ({ page, context }, testInfo) => {
+  test.setTimeout(60000);
+  const markdown = '# 日本語 Print document\n\n```mermaid\nflowchart LR\n A[開始] --> B[完了]\n```\n\n```mermaid\nsequenceDiagram\n Alice->>Bob: Hello\n```\n\n$$x^2 + y^2 = z^2$$\n\n![Relative image](image.png)\n\n'
+    + '| Heading | Value |\n|---|---|\n' + '| Long table row | readable value |\n'.repeat(65)
+    + '\n```typescript\nconst readableLongLine = "' + 'long '.repeat(80) + '";\n```\n\n'
+    + ('Paragraph with searchable text.\n\n'.repeat(50)) + '## Document end\n\nFinal paragraph.\n';
+  await writeFile(join(directory, 'print-document.md'), markdown);
+  await page.goto(`http://127.0.0.1:${port}/?path=print-document.md`);
+  await page.getByRole('button', { name: /^Theme:/ }).click(); await page.getByRole('menuitemradio', { name: 'Dark', exact: true }).click();
+  const open = page.locator('#file-title').getByRole('button', { name: 'Print / Save as PDF' });
+  await open.click(); const dialog = page.getByRole('dialog', { name: 'Print view', exact: true });
+  const frame = page.frameLocator('#print-view iframe');
+  await expect(dialog.getByRole('button', { name: 'Print / Save as PDF' })).toBeEnabled({ timeout: 30000 });
+  await expect(frame.locator('[data-mermaid] svg')).toHaveCount(2);
+  await expect(frame.locator('.katex')).toHaveCount(1); await expect(frame.getByRole('heading', { name: 'Document end' })).toBeVisible();
+  expect(await frame.locator('img').evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
+  expect(await frame.locator('body').evaluate((body) => getComputedStyle(body).backgroundColor)).toBe('rgb(255, 255, 255)');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(frame.locator('button, textarea')).toHaveCount(0);
+  // Register from the parent: scripts inside the printable frame are disabled.
+  await page.evaluate(() => {
+    const iframe = document.querySelector<HTMLIFrameElement>('#print-view iframe')!;
+    iframe.contentWindow!.addEventListener('beforeprint', () => { iframe.contentDocument!.body.dataset.printCalled = 'true'; });
+  });
+  await dialog.screenshot({ path: testInfo.outputPath('print-view.png') });
+  await dialog.getByRole('button', { name: 'Print / Save as PDF' }).click();
+  await expect(frame.locator('body')).toHaveAttribute('data-print-called', 'true'); await expect(dialog).toBeVisible();
+  // Use the exact printable document as a top-level page for Chromium's PDF API.
+  const printableHTML = await frame.locator('html').evaluate((html) => html.outerHTML);
+  const pdfPage = await context.newPage(); await pdfPage.setContent(printableHTML);
+  await pdfPage.evaluate(async () => { await document.fonts.ready; await Promise.all([...document.images].map((image) => image.decode())); });
+  await pdfPage.emulateMedia({ media: 'print' });
+  expect(await pdfPage.locator('article').evaluate((article) => article.scrollWidth <= article.clientWidth)).toBe(true);
+  await pdfPage.screenshot({ path: testInfo.outputPath('print-document.png'), fullPage: true });
+  const pdf = await pdfPage.pdf({ path: testInfo.outputPath('print-document.pdf'), format: 'A4', printBackground: true });
+  expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+  expect((pdf.toString('latin1').match(/\/Type \/Page\b/g) ?? []).length).toBeGreaterThan(2);
+  await pdfPage.close();
+  await dialog.getByRole('button', { name: 'Close' }).click(); await expect(open).toBeFocused();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+});
+
+test('prints each split pane from Source and exposes the action in the mobile file menu', async ({ page }) => {
+  await writeFile(join(directory, 'print-left.md'), '# Left snapshot\n'); await writeFile(join(directory, 'print-right.md'), '# Right snapshot\n');
+  await page.goto(`http://127.0.0.1:${port}/?path=print-left.md&right=print-right.md&source=1`);
+  await page.locator('#right-source').click();
+  for (const [selector, heading] of [['#file-title', 'Left snapshot'], ['#right-title', 'Right snapshot']]) {
+    await page.locator(selector).getByRole('button', { name: 'Print / Save as PDF' }).click();
+    await expect(page.frameLocator('#print-view iframe').getByRole('heading', { name: heading })).toBeVisible();
+    await expect(page.locator('#print-submit')).toBeEnabled(); await page.locator('#print-close').click();
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`http://127.0.0.1:${port}/?path=print-left.md`);
+  const actions = page.getByRole('button', { name: 'File actions' }); await actions.click();
+  await page.getByRole('menuitem', { name: 'Print / Save as PDF' }).click();
+  await expect(page.frameLocator('#print-view iframe').getByRole('heading', { name: 'Left snapshot' })).toBeVisible();
+  await expect(page.locator('#print-submit')).toBeEnabled(); await page.locator('#print-close').click(); await expect(actions).toBeFocused();
+});
+
+test('prints latest pasted input from all paste views and includes individual display errors', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`http://127.0.0.1:${port}/?view=paste`);
+  const input = page.getByLabel('Markdown Text');
+  for (const view of ['Text', 'Split', 'Rendered']) {
+    await input.fill(`# Latest ${view}\n\n\`\`\`mermaid\nflowchart LR\n A --> B\n\`\`\`\n`);
+    if (view !== 'Text') await page.getByRole('button', { name: view, exact: true }).click();
+    await page.getByRole('button', { name: 'Paste options' }).click();
+    await page.getByRole('button', { name: 'Print / Save as PDF', exact: true }).click();
+    await expect(page.locator('#print-submit')).toBeEnabled({ timeout: 15000 });
+    await expect(page.frameLocator('#print-view iframe').getByRole('heading', { name: `Latest ${view}` })).toBeVisible();
+    await expect(page.frameLocator('#print-view iframe').locator('[data-mermaid] svg')).toHaveCount(1);
+    await page.locator('#print-close').click();
+    if (view !== 'Text') await page.getByRole('button', { name: 'Text', exact: true }).click();
+  }
+  await input.fill('# Errors\n\n```mermaid\nflowchart LR\n A -->\n```\n\n![Missing](https://missing.example.test/image.png)');
+  await page.route('https://missing.example.test/**', (route) => route.abort());
+  await page.getByRole('button', { name: 'Paste options' }).click(); await page.getByRole('button', { name: 'Print / Save as PDF', exact: true }).click();
+  await expect(page.locator('#print-submit')).toBeEnabled({ timeout: 15000 });
+  await expect(page.locator('.print-status')).toContainText('errors are included');
+  await expect(page.frameLocator('#print-view iframe').locator('.diagram-error')).toBeVisible();
+  await expect(page.frameLocator('#print-view iframe').locator('details pre')).toContainText('A -->');
+  await expect(page.frameLocator('#print-view iframe').locator('.image-error')).toContainText('Missing');
+});
+
+test('shows print request failures and retries the original file', async ({ page }) => {
+  await writeFile(join(directory, 'print-retry.md'), '# Retry document\n');
+  await page.goto(`http://127.0.0.1:${port}/?path=print-retry.md`);
+  await expect(page.locator('#content h1')).toHaveText('Retry document');
+  await page.route('**/api/file?path=print-retry.md', (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ message: 'Temporarily unavailable' }) }), { times: 1 });
+  await page.locator('#file-title').getByRole('button', { name: 'Print / Save as PDF' }).click();
+  await expect(page.locator('.print-status')).toHaveText('Temporarily unavailable'); await expect(page.locator('#print-submit')).toBeDisabled();
+  await page.getByRole('button', { name: 'Retry', exact: true }).click(); await expect(page.locator('#print-submit')).toBeEnabled();
+  await expect(page.frameLocator('#print-view iframe').getByRole('heading', { name: 'Retry document' })).toBeVisible();
+});
+
+test('fits wide and tall Mermaid diagrams to print pages and closes with Escape from the document', async ({ page, context }, testInfo) => {
+  const chain = Array.from({ length: 25 }, (_, index) => `N${index}[Node ${index}]`).join(' --> ');
+  await writeFile(join(directory, 'print-large.md'), `# Large diagrams\n\n\`\`\`mermaid\nflowchart LR\n${chain}\n\`\`\`\n\n\`\`\`mermaid\nflowchart TD\n${chain}\n\`\`\`\n\n## Final heading\n`);
+  await page.goto(`http://127.0.0.1:${port}/?path=print-large.md`);
+  const open = page.locator('#file-title').getByRole('button', { name: 'Print / Save as PDF' }); await open.click();
+  await expect(page.locator('#print-submit')).toBeEnabled({ timeout: 15000 });
+  const frame = page.frameLocator('#print-view iframe'); await expect(frame.locator('[data-mermaid] svg')).toHaveCount(2);
+  const html = await frame.locator('html').evaluate((element) => element.outerHTML);
+  const pdfPage = await context.newPage(); await pdfPage.setContent(html); await pdfPage.emulateMedia({ media: 'print' });
+  const geometry = await pdfPage.locator('.diagram-image svg').evaluateAll((diagrams) => diagrams.map((svg) => {
+    const bounds = svg.getBoundingClientRect(); const parent = svg.closest('article')!.getBoundingClientRect();
+    return { fits: bounds.width <= parent.width, height: bounds.height, maxHeight: parseFloat(getComputedStyle(svg).maxHeight) };
+  }));
+  for (const diagram of geometry) { expect(diagram.fits).toBe(true); expect(diagram.height).toBeLessThanOrEqual(diagram.maxHeight); }
+  await pdfPage.pdf({ path: testInfo.outputPath('large-diagrams.pdf'), format: 'A4', printBackground: true }); await pdfPage.close();
+  await frame.locator('body').click(); await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Print view', exact: true })).not.toBeVisible(); await expect(open).toBeFocused();
+});
+
 function pdfFixture(label: string): Buffer {
   const stream = `BT /F1 24 Tf 72 720 Td (${label}) Tj ET`;
   const objects = [

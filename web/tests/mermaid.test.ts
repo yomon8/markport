@@ -16,6 +16,18 @@ afterEach(() => { vi.restoreAllMocks(); });
 const container = (): HTMLElement => document.querySelector('article')!;
 
 describe('Mermaid themes', () => {
+  it('prints in a neutral theme despite display theme changes and restores the display config on the next render', async () => {
+    localStorage.setItem('markport-theme', 'dark');
+    const { drawMermaid } = await import('../src/mermaid');
+    let done!: (value: { svg: string }) => void;
+    mermaid.render.mockImplementationOnce(() => new Promise((resolve) => { done = resolve; }));
+    const printed = drawMermaid(container(), () => true, undefined, true); await flush();
+    expect(mermaid.initialize).toHaveBeenLastCalledWith({ securityLevel: 'strict', startOnLoad: false, theme: 'neutral' });
+    localStorage.setItem('markport-theme', 'light'); done(svg('print')); await printed;
+    expect(container().textContent).toContain('print');
+    localStorage.setItem('markport-theme', 'dark'); await drawMermaid(container(), () => true);
+    expect(mermaid.initialize).toHaveBeenLastCalledWith({ securityLevel: 'strict', startOnLoad: false, theme: 'dark' });
+  });
   it.each(['light', 'dark'])('preserves the existing %s configuration', async (theme) => {
     localStorage.setItem('markport-theme', theme);
     const { drawMermaid } = await import('../src/mermaid');
