@@ -1568,6 +1568,107 @@ test('highlights linked code lines and keeps wrapped line numbers aligned', asyn
   await expect(page.locator('#content .line.selected-code-line')).toHaveCount(4);
 });
 
+test('copies component sources in both panes, expanded views, and after refresh', async ({ page, context }) => {
+  test.setTimeout(60000);
+  const diagram = 'flowchart LR\n A[日本語] --> B[Done]\n';
+  const table = '| Name | Value |\n| :--- | ---: |\n| **bold** | [original](small.md) |\n| a\\|b | $x_1$ |\n';
+  const wide = `| ${Array.from({ length: 8 }, (_, i) => `Column ${i}`).join(' | ')} |\n|${'---|'.repeat(8)}\n|${' long cell value |'.repeat(8)}\n`;
+  const formula = '\\[\nx_1 + \\frac{1}{2}\n\\]';
+  const markdown = `# Copy components\n\n\`\`\`mermaid\n${diagram}\`\`\`\n\n${table}\n${wide}\n${formula}\n\nInline $x_2$.\n`;
+  await writeFile(join(directory, 'copy-components.md'), markdown);
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto(`http://127.0.0.1:${port}/?path=copy-components.md&right=copy-components.md`);
+  const copy = async (selector: string, expected: string): Promise<void> => {
+    const button = page.locator(selector).locator('.component-copy');
+    await button.click(); await expect(button).toHaveText('Copied');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(expected);
+  };
+  for (const pane of ['#content', '#right-content']) {
+    await expect(page.locator(`${pane} [data-mermaid] svg`)).toBeVisible();
+    await expect(page.locator(`${pane} .math-frame .katex`)).toHaveCount(1);
+    await expect(page.locator(`${pane} .math-frame`)).toHaveCount(1);
+    await copy(`${pane} [data-mermaid]`, diagram);
+    await copy(`${pane} .table-frame >> nth=0`, table);
+    await copy(`${pane} .math-frame`, formula);
+    await page.locator(`${pane} [data-mermaid]`).getByRole('button', { name: 'Source', exact: true }).click();
+    await copy(`${pane} [data-mermaid]`, diagram);
+    await page.locator(`${pane} [data-mermaid]`).getByRole('button', { name: 'Expand', exact: true }).click();
+    await copy('#diagram-overlay', diagram);
+    await page.keyboard.press('Escape');
+    await page.locator(`${pane} .table-frame`).nth(1).getByRole('button', { name: 'Expand', exact: true }).click();
+    await copy('#table-overlay', wide);
+    await page.keyboard.press('Escape');
+  }
+  await page.getByRole('button', { name: /^Theme:/ }).click();
+  await page.getByRole('menuitemradio', { name: 'Nord', exact: true }).click();
+  await expect(page.locator('#content .diagram-source')).toBeVisible();
+  await copy('#content [data-mermaid]', diagram);
+  await expect(page.locator('#content .diagram-actions .component-copy')).toHaveCount(1);
+  await writeFile(join(directory, 'copy-components.md'), markdown.replace('**bold**', '**updated**'));
+  for (const pane of ['#content', '#right-content']) {
+    await expect(page.locator(`${pane} .table-frame`).first()).toContainText('updated');
+    await copy(`${pane} .table-frame >> nth=0`, table.replace('**bold**', '**updated**'));
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await copy('#content .table-frame >> nth=0', table.replace('**bold**', '**updated**'));
+});
+
+test('copies pasted component sources and rendering errors without duplicating controls', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  const diagram = 'flowchart LR\n A -->\n';
+  const table = '| A | B |\n|---|---|\n| [local](other.md) | **bold** |\n';
+  const formula = '$$\\notARealCommand{x}$$';
+  await page.goto(`http://127.0.0.1:${port}/?view=paste`);
+  await page.getByLabel('Markdown Text').fill(`\`\`\`mermaid\n${diagram}\`\`\`\n\n${table}\n${formula}`);
+  await page.getByRole('button', { name: 'Rendered', exact: true }).click();
+  await expect(page.locator('.paste-preview .diagram-error')).toBeVisible();
+  await expect(page.locator('.paste-preview .math-error')).toBeVisible();
+  for (const [selector, expected] of [['[data-mermaid]', diagram], ['.table-frame', table], ['.math-frame', formula]]) {
+    const button = page.locator(`.paste-preview ${selector} .component-copy`);
+    await button.focus(); await page.keyboard.press('Enter'); await expect(button).toHaveText('Copied');
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(expected);
+  }
+  for (const view of ['Text', 'Rendered', 'Split']) await page.getByRole('button', { name: view, exact: true }).click();
+  await expect(page.locator('.paste-preview .component-copy')).toHaveCount(3);
+  await page.setViewportSize({ width: 390, height: 844 });
+  // Paste Split falls back to Text on narrow screens; reopen its preview.
+  await page.getByRole('button', { name: 'Rendered', exact: true }).click();
+  await expect(page.locator('.paste-preview .table-frame .component-copy')).toBeVisible();
+});
+
+test('copies components with the fallback inside expanded modals and reports failures', async ({ page, context }) => {
+  test.setTimeout(60000);
+  const diagram = 'flowchart LR\n A --> B\n';
+  const table = `| ${Array.from({ length: 8 }, (_, i) => `Column ${i}`).join(' | ')} |\n|${'---|'.repeat(8)}\n|${' long cell value |'.repeat(8)}\n`;
+  const formula = '$$x^2$$';
+  const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.message));
+  await writeFile(join(directory, 'copy-fallback-components.md'), `\`\`\`mermaid\n${diagram}\`\`\`\n\n${table}\n${formula}`);
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto(`http://127.0.0.1:${port}/?path=copy-fallback-components.md`);
+  await expect(page.locator('[data-mermaid] svg')).toBeVisible();
+  const copy = async (selector: string, expected: string): Promise<void> => {
+    await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }));
+    const button = page.locator(selector).locator('.component-copy'); await button.click();
+    await expect(button).toHaveText('Copied'); await expect(button).toBeFocused();
+    expect(await page.evaluate(() => { Reflect.deleteProperty(navigator, 'clipboard'); return navigator.clipboard.readText(); })).toBe(expected);
+  };
+  await copy('#content [data-mermaid]', diagram);
+  await copy('#content .table-frame', table);
+  await copy('#content .math-frame', formula);
+  await page.locator('[data-mermaid]').getByRole('button', { name: 'Expand' }).click();
+  await copy('#diagram-overlay', diagram); await page.keyboard.press('Escape');
+  await page.locator('.table-frame').getByRole('button', { name: 'Expand' }).click();
+  await copy('#table-overlay', table);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }); document.execCommand = () => false;
+  });
+  await page.locator('#table-overlay .component-copy').click();
+  await expect(page.locator('#table-overlay .component-copy')).toHaveText('Copy failed');
+  await expect(page.locator('#table-overlay textarea')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('copies Markdown blocks, code files, and paths without the Clipboard API', async ({ page, context }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));

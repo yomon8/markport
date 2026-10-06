@@ -27,6 +27,27 @@ beforeEach(() => {
 afterEach(() => { window.dispatchEvent(new Event('pagehide')); vi.unstubAllGlobals(); });
 
 describe('lazy browsing and refresh', () => {
+  it('copies only standalone math source and keeps its toolbar outside rendered output', async () => {
+    history.replaceState(null, '', '/?path=math.md&right=math.md');
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    stubFetch(async (url) => url === '/api/tree' ? reply(page([entry('math.md')])) : reply({
+      path: 'math.md', type: 'markdown', html: '<p>Inline <span class="math-source" data-math="inline">$x_1$</span></p><div class="math-source" data-math="display">$$x^2$$</div><div class="math-source" data-math="display">\\[\\badCommand{x}\\]</div>',
+    }));
+    try {
+      await import('../src/main'); await flush();
+      await vi.waitFor(() => expect(document.querySelectorAll('.math-error')).toHaveLength(2));
+      for (const pane of ['#content', '#right-content']) {
+        expect(document.querySelectorAll(`${pane} .math-frame`)).toHaveLength(2);
+        expect(document.querySelector(`${pane} span.math-source .component-copy`)).toBeNull();
+        const controls = document.querySelectorAll<HTMLButtonElement>(`${pane} .math-frame .component-copy`);
+        controls[0].click(); await flush(); expect(writeText).toHaveBeenLastCalledWith('$$x^2$$');
+        controls[1].click(); await flush(); expect(writeText).toHaveBeenLastCalledWith('\\[\\badCommand{x}\\]');
+        expect(document.querySelector(`${pane} .math-source .component-copy`)).toBeNull();
+      }
+    } finally { Reflect.deleteProperty(navigator, 'clipboard'); }
+  });
+
   it('closes only the theme menu on Escape and keeps focus inside mobile settings', async () => {
     stubFetch(async () => reply(page([])));
     await import('../src/main'); await flush();

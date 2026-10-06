@@ -1,3 +1,5 @@
+import { createCopyButton } from './copyControls';
+
 export function createTableOverlay(): { open: (source: HTMLTableElement, opener: HTMLButtonElement, nowrap: boolean) => void; close: () => void } {
   document.querySelector('#table-overlay')?.remove();
   const dialog = document.createElement('dialog'); dialog.id = 'table-overlay'; dialog.setAttribute('aria-label', 'Expanded table');
@@ -6,6 +8,8 @@ export function createTableOverlay(): { open: (source: HTMLTableElement, opener:
   const content = dialog.querySelector<HTMLElement>('article')!;
   let opener: HTMLButtonElement | undefined;
   let source: HTMLTableElement | undefined;
+  const copyButton = createCopyButton(() => source?.dataset.tableSource ?? '');
+  dialog.querySelector('.overlay-toolbar')!.append(copyButton);
   dialog.querySelector<HTMLButtonElement>('#table-overlay-close')!.addEventListener('click', () => dialog.close());
   dialog.addEventListener('close', () => { if (opener?.isConnected) opener.focus(); opener = undefined; source = undefined; content.replaceChildren(); });
   // Forward link clicks to the original table so in-app navigation keeps working.
@@ -19,6 +23,7 @@ export function createTableOverlay(): { open: (source: HTMLTableElement, opener:
   return {
     open(table, button, nowrap) {
       opener = button; source = table;
+      copyButton.hidden = table.dataset.tableSource === undefined; copyButton.textContent = 'Copy';
       const clone = table.cloneNode(true) as HTMLTableElement;
       clone.tHead?.style.removeProperty('transform');
       content.classList.toggle('table-nowrap', nowrap); content.replaceChildren(clone);

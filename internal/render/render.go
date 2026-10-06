@@ -95,6 +95,7 @@ func markdown(filename, content string, pasted bool) (string, error) {
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
 		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
+		goldmark.WithParserOptions(parser.WithParagraphTransformers(util.Prioritized(tableSourceTransformer{}, 199))),
 		goldmark.WithParserOptions(parser.WithInlineParsers(util.Prioritized(mathInlineParser{}, 150)), parser.WithBlockParsers(util.Prioritized(mathBlockParser{}, 850))),
 		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(codeRenderer{}, 100))),
 		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(mathRenderer{}, 100))),

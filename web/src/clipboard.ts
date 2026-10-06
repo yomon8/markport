@@ -6,7 +6,7 @@ function legacyCopy(text: string): boolean {
   input.value = text;
   input.readOnly = true;
   input.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0';
-  document.body.append(input);
+  (active?.closest('dialog[open]') ?? document.body).append(input);
   try {
     input.focus();
     input.select();

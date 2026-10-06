@@ -55,9 +55,11 @@ The Changes overview shows file counts, added and deleted lines, and review prog
 
 ### Reading code, tables, and diagrams
 
-Use **Wrap lines** in a code block or source view to wrap long lines, and **Copy** to copy the code. Markdown tables have **Wrap cells** and **Expand** controls; wide tables scroll horizontally and show edge hints when more content is available. Code and table wrapping choices are saved in this browser and apply to both split panes and pasted Markdown.
+Use **Wrap lines** in a code block or source view to wrap long lines, and **Copy** to copy the code. Markdown tables have **Copy** to copy their original Markdown, plus **Wrap cells** and **Expand** controls for wide tables; wide tables scroll horizontally and show edge hints when more content is available. Code and table wrapping choices are saved in this browser and apply to both split panes and pasted Markdown.
 
-Mermaid diagrams have **Source** and **Expand** controls. In the expanded view, drag to pan, use the zoom buttons or a pinch gesture to zoom, and choose **Fit diagram** or **100%** to reset the scale.
+Mermaid diagrams have **Copy**, **Source**, and **Expand** controls. Copy copies the diagram definition without code fences. In the expanded view, drag to pan, use the zoom buttons or a pinch gesture to zoom, and choose **Fit diagram** or **100%** to reset the scale.
+
+Standalone formulas have **Copy** to copy their original TeX including `$$…$$` or `\[…\]` delimiters. Component Copy works in both split panes and Paste Markdown previews, and Mermaid and table expanded views also have Copy. Sources remain available when diagrams or formulas cannot be rendered. Copy shows **Copied** or **Copy failed** briefly; these controls are omitted from print and PDF output.
 
 ### Server info
 

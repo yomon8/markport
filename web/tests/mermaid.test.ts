@@ -12,10 +12,32 @@ beforeEach(() => {
   document.documentElement.removeAttribute('style');
   mermaid.render.mockResolvedValue(svg('diagram'));
 });
-afterEach(() => { vi.restoreAllMocks(); });
+afterEach(() => { vi.restoreAllMocks(); Reflect.deleteProperty(navigator, 'clipboard'); });
 const container = (): HTMLElement => document.querySelector('article')!;
 
 describe('Mermaid themes', () => {
+  it('copies the definition during loading, after redraw, and after a render failure', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const { drawMermaid } = await import('../src/mermaid');
+    const drawing = drawMermaid(container(), () => true);
+    const copy = (): HTMLButtonElement => [...container().querySelectorAll('button')].find((button) => button.textContent === 'Copy')!;
+    copy().click(); await drawing;
+    expect(writeText).toHaveBeenLastCalledWith('flowchart LR; A --> B');
+    await drawMermaid(container(), () => true);
+    expect(container().querySelectorAll('.diagram-actions')).toHaveLength(1);
+    copy().click(); await flush(); expect(writeText).toHaveBeenLastCalledWith('flowchart LR; A --> B');
+    mermaid.render.mockRejectedValueOnce(new Error('bad source'));
+    await drawMermaid(container(), () => true);
+    copy().click(); await flush(); expect(writeText).toHaveBeenLastCalledWith('flowchart LR; A --> B');
+    expect(container().textContent).toContain('Cannot display diagram');
+  });
+
+  it('does not add Copy controls to print rendering', async () => {
+    const { drawMermaid } = await import('../src/mermaid');
+    await drawMermaid(container(), () => true, undefined, true);
+    expect([...container().querySelectorAll('button')].some((button) => button.textContent === 'Copy')).toBe(false);
+  });
   it('prints in a neutral theme despite display theme changes and restores the display config on the next render', async () => {
     localStorage.setItem('markport-theme', 'dark');
     const { drawMermaid } = await import('../src/mermaid');

@@ -8,7 +8,7 @@ import { renderChanges, renderDiff, diffURL, orderedChanges, reviewButton, type 
 import { comparisonBase, comparisonOptions, comparisonURL, historyURL, renderCommit, renderCommitDiff, renderHistoryList, type Commit, type CommitDetail, type HistoryPage } from './history';
 import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
-import { copyText } from './clipboard';
+import { copyWithFeedback, createCopyButton } from './copyControls';
 import { createPasteEditor } from './pasteEditor';
 import { TabTitle } from './tabTitle';
 import { ServerInfo } from './serverInfo';
@@ -333,20 +333,6 @@ function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
     banner.append(document.createTextNode(state === 'error' ? 'Refresh failed. Check the connection and files.' : 'Checking connection.'));
     if (state === 'error') { const button = document.createElement('button'); button.textContent = 'Refresh now'; button.addEventListener('click', manualRefresh); banner.append(button); }
   }
-}
-const copyTimers = new WeakMap<HTMLButtonElement, ReturnType<typeof setTimeout>>();
-function copyWithFeedback(button: HTMLButtonElement, text: string, label: string): void {
-  void copyText(text).then((copied) => {
-    clearTimeout(copyTimers.get(button));
-    const iconic = button.classList.contains('title-icon');
-    const restore = button.dataset.icon as IconName | undefined;
-    if (iconic) { setIcon(button, copied ? 'check' : 'close'); button.title = copied ? 'Copied' : 'Copy failed'; }
-    else button.textContent = copied ? 'Copied' : 'Copy failed';
-    copyTimers.set(button, setTimeout(() => {
-      if (iconic) { setIcon(button, restore ?? 'copy'); button.title = label; } else button.textContent = label;
-      copyTimers.delete(button);
-    }, 2000));
-  });
 }
 function scheduleSearchIndexRefresh(): void {
   clearTimeout(searchIndexTimer);
@@ -884,6 +870,14 @@ function decorateContent(target = content, path = displayedPath): void {
     if (pre.matches('.paste-highlight') || pre.closest('[data-mermaid],.code-frame')) continue;
     wrapCode(pre);
   }
+  for (const formula of target.querySelectorAll<HTMLElement>('div.math-source[data-math="display"]')) {
+    if (formula.closest('.math-frame')) continue;
+    formula.dataset.mathSource ??= formula.textContent ?? '';
+    const frame = document.createElement('div'); frame.className = 'math-frame';
+    const actions = document.createElement('div'); actions.className = 'math-actions';
+    actions.append(createCopyButton(() => formula.dataset.mathSource ?? ''));
+    formula.before(frame); frame.append(actions, formula);
+  }
   for (const img of target.querySelectorAll<HTMLImageElement>('img')) {
     img.loading = 'lazy'; img.decoding = 'async';
     img.addEventListener('error', () => { const note = document.createElement('span'); note.className = 'image-error'; note.textContent = img.alt || 'Cannot load image'; img.replaceWith(note); });
@@ -898,7 +892,8 @@ function decorateContent(target = content, path = displayedPath): void {
   if (observer) tableObservers.set(target, observer);
   for (const table of target.querySelectorAll('table')) {
     if (table.closest('.chroma')) continue;
-    observer?.observe(wrapTable(table));
+    const frame = table.closest<HTMLElement>('.table-frame') ?? wrapTable(table);
+    observer?.observe(frame);
   }
   updateTableHeaders();
 }
@@ -916,9 +911,13 @@ function wrapTable(table: HTMLTableElement): HTMLElement {
     }
     updateTableHeaders();
   });
-  const expand = document.createElement('button'); expand.type = 'button'; expand.textContent = 'Expand';
+  const expand = document.createElement('button'); expand.type = 'button'; expand.className = 'table-expand'; expand.textContent = 'Expand';
   expand.addEventListener('click', () => tableOverlay.open(table, expand, !wrapTableCells));
   actions.append(wrapButton, expand);
+  if (table.dataset.tableSource !== undefined) {
+    frame.classList.add('has-copy');
+    actions.append(createCopyButton(() => table.dataset.tableSource ?? ''));
+  }
   const scroll = document.createElement('div'); scroll.className = 'table-scroll';
   const wrap = document.createElement('div'); wrap.className = 'table-wrap';
   wrap.addEventListener('scroll', () => updateTableOverflow(frame));

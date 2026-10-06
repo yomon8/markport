@@ -9,6 +9,15 @@ afterEach(() => {
 });
 
 describe('copyText', () => {
+  it('places the fallback input inside the active modal and restores button focus', async () => {
+    const dialog = document.createElement('dialog'); dialog.setAttribute('open', '');
+    const button = document.createElement('button'); dialog.append(button); document.body.append(dialog); button.focus();
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: () => {
+      expect(dialog.querySelector('textarea')).toBe(document.activeElement); return true;
+    } });
+    expect(await copyText('modal source')).toBe(true);
+    expect(document.activeElement).toBe(button); expect(dialog.querySelector('textarea')).toBeNull();
+  });
   it('copies when the Clipboard API is unavailable and restores focus and selection', async () => {
     const before = document.createElement('button');
     const selected = document.createElement('span'); selected.textContent = 'keep selected';

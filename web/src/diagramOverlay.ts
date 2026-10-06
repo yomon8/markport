@@ -1,3 +1,5 @@
+import { createCopyButton } from './copyControls';
+
 export function createDiagramOverlay(): { open: (source: SVGSVGElement, opener: HTMLButtonElement) => void; close: () => void; refresh: () => void } {
   document.querySelector('#diagram-overlay')?.remove();
   const dialog = document.createElement('dialog'); dialog.id = 'diagram-overlay'; dialog.setAttribute('aria-label', 'Expanded Mermaid diagram');
@@ -7,6 +9,8 @@ export function createDiagramOverlay(): { open: (source: SVGSVGElement, opener: 
   const content = dialog.querySelector<HTMLElement>('#overlay-content')!;
   const status = dialog.querySelector<HTMLOutputElement>('#overlay-zoom-status')!;
   let opener: HTMLButtonElement | undefined;
+  const copyButton = createCopyButton(() => opener?.closest<HTMLElement>('[data-mermaid]')?.dataset.source ?? '');
+  dialog.querySelector('.overlay-toolbar')!.append(copyButton);
   let width = 1; let height = 1; let scale = 1; let panX = 0; let panY = 0; let fitMode = true;
   const pointers = new Map<number, { x: number; y: number }>();
   let pinchDistance = 0;
@@ -70,7 +74,7 @@ export function createDiagramOverlay(): { open: (source: SVGSVGElement, opener: 
   }
   return {
     open(source, button) {
-      opener = button;
+      opener = button; copyButton.textContent = 'Copy';
       copy(source);
       dialog.showModal(); dialog.querySelector<HTMLButtonElement>('#overlay-close')!.focus();
       requestAnimationFrame(fit);

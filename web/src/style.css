@@ -330,3 +330,11 @@ article[data-kind=paste][data-paste-view=split] .paste-preview{grid-column:2;gri
   .paste-title-actions button{min-height:36px}
   article[data-kind=paste] #paste-input,article[data-kind=paste] .paste-highlight{font-size:16px;padding:12px}
 }
+
+/* Component Copy remains available regardless of content width. */
+.table-frame.has-copy .table-actions{display:flex;flex-wrap:wrap}
+.table-frame.has-copy:not(.wide) .table-wrap-toggle,.table-frame.has-copy:not(.wide) .table-expand{display:none}
+.math-frame{max-width:100%;margin:1em 0}.math-actions{display:flex;justify-content:flex-end;gap:6px;margin-bottom:6px}.math-actions button{font-size:12px}.math-frame>.math-source[data-math=display]{margin:0}
+.diagram-actions{flex-wrap:wrap;color:var(--text)}
+
+.mermaid-source:not([data-rendered]):has(.diagram-actions):after{top:52px}.mermaid-source:not([data-rendered]):has(.diagram-actions):before{top:80px}

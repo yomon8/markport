@@ -11,7 +11,7 @@ func TestMarkdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"<table>", "checkbox", "id=\"hello-world\"", "/?path=other.md#part", "/api/asset?path=docs%2Fimage.png", "https://example.com", "data-mermaid=\"true\"", "graph TD; A--&gt;B", "print"} {
+	for _, want := range []string{"<table data-table-source=", "checkbox", "id=\"hello-world\"", "/?path=other.md#part", "/api/asset?path=docs%2Fimage.png", "https://example.com", "data-mermaid=\"true\"", "graph TD; A--&gt;B", "print"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in %s", want, out)
 		}

@@ -1,4 +1,5 @@
 import { effectiveTheme, effectiveThemeId } from './theme';
+import { createCopyButton } from './copyControls';
 import type { MermaidConfig } from 'mermaid';
 
 let serial = 0;
@@ -37,11 +38,35 @@ export function drawMermaid(container: HTMLElement, current: () => boolean, rend
     element.dataset.source = definition;
     return definition;
   });
+  const actions = (element: HTMLElement, ready: boolean): HTMLElement => {
+    const toolbar = document.createElement('div'); toolbar.className = 'diagram-actions';
+    if (ready) toolbar.innerHTML = '<button type="button" data-diagram-action="source">Source</button><button type="button" data-diagram-action="expand">Expand</button>';
+    if (!print) toolbar.append(createCopyButton(() => element.dataset.source ?? ''));
+    return toolbar;
+  };
+  for (const element of elements) {
+    if (!element.querySelector('.diagram-actions') && !print) element.prepend(actions(element, false));
+  }
+  const failure = (element: HTMLElement, index: number, error: unknown): void => {
+    element.replaceChildren(actions(element, false));
+    const heading = document.createElement('strong'); heading.textContent = 'Cannot display diagram';
+    const message = document.createElement('p'); message.className = 'diagram-error'; message.textContent = String(error).replace(/^Error:\s*/, '');
+    const details = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = 'Show source';
+    const source = document.createElement('pre'); source.textContent = definitions[index]; details.append(summary, source);
+    element.append(heading, message, details); element.dataset.rendered = 'true';
+  };
   const valid = (): boolean => generations.get(container) === generation && (print || effectiveThemeId() === theme) && current();
   // Mermaid has global configuration. Keep initialization and rendering in one queue.
   const task = queue.then(async () => {
     if (!valid()) return;
-    const { default: mermaid } = await import('mermaid');
+    let mermaid: typeof import('mermaid').default;
+    try { ({ default: mermaid } = await import('mermaid')); }
+    catch (error) {
+      for (const [index, element] of elements.entries()) {
+        if (valid() && element.isConnected && container.contains(element)) failure(element, index, error);
+      }
+      return;
+    }
     if (!valid()) return;
     mermaid.initialize(options);
     for (const [index, element] of elements.entries()) {
@@ -57,19 +82,15 @@ export function drawMermaid(container: HTMLElement, current: () => boolean, rend
           image.innerHTML = svg;
           image.scrollTop = scrollTop; image.scrollLeft = scrollLeft;
         } else {
-          element.innerHTML = `<div class="diagram-actions"><button type="button" data-diagram-action="source">Source</button><button type="button" data-diagram-action="expand">Expand</button></div><div class="diagram-image">${svg}</div>`;
+          element.innerHTML = `<div class="diagram-image">${svg}</div>`;
+          element.prepend(actions(element, true));
         }
         element.dataset.rendered = 'true';
         rendered?.();
       } catch (error) {
         if (!valid()) return;
         if (!element.isConnected || !container.contains(element)) continue;
-        element.replaceChildren();
-        const heading = document.createElement('strong'); heading.textContent = 'Cannot display diagram';
-        const message = document.createElement('p'); message.className = 'diagram-error'; message.textContent = String(error).replace(/^Error:\s*/, '');
-        const details = document.createElement('details'); const summary = document.createElement('summary'); summary.textContent = 'Show source';
-        const source = document.createElement('pre'); source.textContent = definitions[index]; details.append(summary, source);
-        element.append(heading, message, details); element.dataset.rendered = 'true';
+        failure(element, index, error);
       }
     }
   });
