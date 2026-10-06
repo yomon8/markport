@@ -115,7 +115,7 @@ test('pasted markdown', async ({ page }) => {
   await useTheme(page, 'light');
   await page.goto(url('?view=paste'));
   await page.locator('#paste-input').fill('# Release notes\n\n- **Fast:** files refresh as they change\n- **Safe:** everything stays read-only\n\n| Area | Status |\n| --- | --- |\n| Search | Done |\n| Review | Done |\n');
-  await page.getByRole('button', { name: 'Rendered view' }).click();
+  await page.getByRole('button', { name: 'Rendered' }).click();
   await expect(page.locator('.paste-preview')).toBeVisible();
   await page.screenshot({ path: join(output, 'pasted-markdown.png') });
 });
@@ -127,3 +127,13 @@ test('mobile', async ({ page }) => {
   await expect(page.locator('#content h1')).toBeVisible();
   await page.screenshot({ path: join(output, 'mobile.png') });
 });
+
+for (const theme of ['light', 'dark', 'sepia', 'nord', 'catppuccin-mocha', 'solarized-light', 'rose-pine-dawn', 'tokyo-night', 'tokyo-night-light']) {
+  test(`paste editor ${theme}`, async ({ page }) => {
+    await page.addInitScript((value) => localStorage.setItem('markport-theme', value), theme);
+    await page.goto(url('?view=paste'));
+    await page.getByLabel('Markdown Text').fill('# Markdown notes / 日本語メモ\n\n**Strong** and *emphasis*, `inline code`, $x^2 + y^2$.\n\n- [ ] Plan the next release\n- [x] Review changes\n\n> A quote with [a link](https://example.com)\n\n```ts\nconst message = "Hello, Markport";\n```\n\n| Area | Status |\n| --- | --- |\n| Editor | Ready |\n\n<!-- A private note -->\n');
+    await expect(page.locator('.paste-highlight .paste-heading')).toBeVisible();
+    await page.screenshot({ path: join(output, `paste-editor-${theme}.png`), animations: 'disabled' });
+  });
+}

@@ -159,7 +159,11 @@ By default, Markport listens only on `127.0.0.1`. To allow devices on the same L
 
 Markport excludes `.git`, `node_modules`, and `.venv` from browsing. Other dotfiles remain visible. It does not read symbolic links, Windows junctions, or special files such as FIFOs. Text files are limited to 10 MiB, and image files to 32 MiB. Binary or unreadable files show an error for that file only. Folders load when opened, 200 entries at a time; filename search covers all browsable files and shows the top 100 matches. The browser checks the open folders and selected file about every three seconds, and refreshes the filename list every ten seconds while searching. Closed folders refresh when opened. Use the refresh button to fetch the latest state immediately.
 
-To preview text from the clipboard, click **Paste Markdown**, paste into **Markdown Text**, then click **Rendered view**. Use **Markdown Text** to return to the editable text. The preview supports the usual Markdown features. Relative links and images are shown as text because pasted content has no base directory. The text stays in the current browser tab through reloads until you click **Clear** or close the tab; after a reload, it opens in Markdown Text. It is sent to the Markport server for rendering but is not saved to a file. Pasted Markdown is limited to 1 MiB.
+Click **Paste Markdown** to open the full-size editor. **Text** highlights Markdown without hiding its source; **Rendered** previews it, and **Split** shows both on screens at least 1200px wide, updating after a short typing pause. Press **Ctrl/Cmd+Enter** to switch Text and Rendered, or **Esc** to leave the editor. Enter continues lists and tasks; Tab / Shift+Tab indent selected lines by two spaces.
+
+The title shows character and line counts and the save state. **Paste options** (⋯) offers confirmed **Clear**, **Copy all**, **Save as .md**, font and width settings, and opt-in **Save in this browser**. By default, text and caret position survive reloads in the current tab; closing the tab discards the text. Browser saving retains text after closing the tab, so avoid enabling it on shared devices. Reloads open in Text view. Markdown is limited to 1 MiB for saving and rendering; above 200 KiB, highlighting pauses while plain text editing remains available.
+
+The preview supports the usual Markdown features. Relative links and images are shown as text because pasted content has no base directory. Text is sent to the Markport server for rendering and is never written to a server file.
 
 ### LaTeX math
 

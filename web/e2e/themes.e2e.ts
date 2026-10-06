@@ -140,18 +140,18 @@ test('keeps split-pane scroll positions and the right source mode when changing 
 test('switches pasted diagrams without changing input or source controls', async ({ page }) => {
   await page.goto(url('?view=paste'));
   await page.locator('#paste-input').fill(markdown);
-  await page.getByRole('button', { name: 'Rendered view' }).click();
+  await page.getByRole('button', { name: 'Rendered' }).click();
   await expect(page.locator('#content .diagram-image svg')).toBeVisible();
   await page.locator('#content [data-diagram-action=source]').click();
   await expect(page.locator('.diagram-source')).toBeVisible();
-  await page.locator('#main').evaluate((main) => { main.scrollTop = 300; });
+  await page.locator('.paste-preview').evaluate((main) => { main.scrollTop = 300; });
   for (const preset of presets.slice(2)) {
     await choose(page, preset.label);
     await expect(page.locator('#content .diagram-image .node rect').first()).toHaveCSS('fill', preset.node);
     await expect(page.locator('.diagram-source')).toBeVisible();
-    expect(await page.locator('#main').evaluate((main) => main.scrollTop)).toBe(300);
+    expect(await page.locator('.paste-preview').evaluate((main) => main.scrollTop)).toBe(300);
   }
-  await page.getByRole('button', { name: 'Markdown Text', exact: true }).click();
+  await page.getByRole('button', { name: 'Text', exact: true }).click();
   await expect(page.locator('#paste-input')).toHaveValue(markdown);
 });
 
@@ -167,4 +167,25 @@ test('updates an expanded diagram on an Auto OS change', async ({ page }) => {
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect.poll(() => page.locator('#overlay-content .node rect').first().evaluate((node) => getComputedStyle(node).fill)).not.toBe(light);
   await expect(page.locator('#diagram-overlay')).toBeVisible(); await expect(page.locator('#overlay-zoom-status')).toHaveText(zoom!);
+});
+
+test('recolors pasted Markdown immediately in every theme without rebuilding the highlight layer', async ({ page }) => {
+  await page.goto(url('?view=paste')); await page.getByLabel('Markdown Text').fill('# Heading\n\n`code` **strong** *em* ~~gone~~ $x$ <!-- comment -->');
+  await expect(page.locator('.paste-heading')).toBeVisible();
+  await page.locator('.paste-highlight').evaluate((node) => {
+    (window as unknown as { pasteHighlightMutations: number }).pasteHighlightMutations = 0;
+    new MutationObserver(() => (window as unknown as { pasteHighlightMutations: number }).pasteHighlightMutations++).observe(node, { childList: true, subtree: true });
+  });
+  for (const label of ['Light', 'Dark', ...presets.map((preset) => preset.label)]) {
+    await choose(page, label);
+    const colors = await page.locator('.paste-highlight').evaluate((node) => {
+      const pairs = [['.paste-heading', '--accent'], ['.paste-inline-code', '--syntax-string'], ['.paste-strong', '--syntax-keyword'], ['.paste-emphasis', '--syntax-constant'], ['.paste-strike', '--syntax-symbol'], ['.paste-math', '--syntax-function'], ['.paste-comment', '--syntax-comment']];
+      return pairs.map(([selector, token]) => {
+        const highlighted = node.querySelector(selector)!; const probe = document.createElement('span'); probe.style.color = `var(${token})`; document.body.append(probe);
+        const same = getComputedStyle(highlighted).color === getComputedStyle(probe).color; probe.remove(); return same;
+      });
+    });
+    expect(colors.every(Boolean)).toBe(true);
+    expect(await page.evaluate(() => (window as unknown as { pasteHighlightMutations: number }).pasteHighlightMutations)).toBe(0);
+  }
 });

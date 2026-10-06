@@ -9,6 +9,7 @@ import { comparisonBase, comparisonOptions, comparisonURL, historyURL, renderCom
 import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
 import { copyText } from './clipboard';
+import { createPasteEditor } from './pasteEditor';
 import { TabTitle } from './tabTitle';
 import { ServerInfo } from './serverInfo';
 import { createDiagramOverlay } from './diagramOverlay';
@@ -155,12 +156,9 @@ let displayedTag = '';
 let displayedTagCheckedAt = 0;
 const pageTags = new Map<string, { value: string; checkedAt: number }>();
 let rootName = ''; let outlineObserver: IntersectionObserver | undefined;
-const pasteStorageKey = 'markport-pasted-markdown';
-const maxPasteBytes = 1 << 20;
-let pastedMarkdown = '';
-try { pastedMarkdown = sessionStorage.getItem(pasteStorageKey) ?? ''; } catch { /* Storage may be unavailable. */ }
 let pasteVersion = 0;
 let refreshPastedPreview: (() => void) | undefined;
+let pasteEditor: ReturnType<typeof createPasteEditor> | undefined;
 let loadingTimer: ReturnType<typeof setTimeout> | undefined;
 let updatedTimer: ReturnType<typeof setTimeout> | undefined;
 let searchIndexTimer: ReturnType<typeof setTimeout> | undefined;
@@ -757,69 +755,21 @@ function showEmpty(): void {
   box.append(heading, detail); content.append(box); outline.hidden = true;
 }
 function showPaste(): void {
-  content.dataset.kind = 'paste';
-  const heading = document.createElement('strong'); heading.textContent = 'Pasted Markdown';
-  const titleActions = document.createElement('div'); titleActions.className = 'title-actions';
-  const toggle = document.createElement('button'); toggle.type = 'button'; toggle.id = 'paste-view-toggle'; toggle.textContent = 'Rendered view';
-  titleActions.append(toggle); title.replaceChildren(heading, titleActions);
+  pasteEditor?.dispose();
   tabTitle.setFallback('Pasted Markdown — markport');
   outline.hidden = true;
-  const editor = document.createElement('div'); editor.className = 'paste-editor';
-  const label = document.createElement('label'); label.htmlFor = 'paste-input'; label.textContent = 'Markdown Text';
-  const input = document.createElement('textarea'); input.id = 'paste-input'; input.placeholder = 'Paste Markdown here'; input.value = pastedMarkdown;
-  const actions = document.createElement('div'); actions.className = 'paste-actions';
-  const clearButton = document.createElement('button'); clearButton.type = 'button'; clearButton.textContent = 'Clear';
-  const notice = document.createElement('p'); notice.className = 'paste-notice'; notice.setAttribute('role', 'status');
-  const preview = document.createElement('div'); preview.className = 'paste-preview'; preview.hidden = true;
-  actions.append(clearButton); editor.append(label, input, actions, notice);
-  content.replaceChildren(editor, preview);
-  let rendered = false;
-  let renderedMarkdown = '';
-  const message = (text: string, error = false): void => { notice.textContent = text; notice.classList.toggle('error', error); };
-  const showText = (): void => {
-    pasteVersion++; rendered = false; editor.hidden = false; preview.hidden = true; toggle.textContent = 'Rendered view';
-    outlineObserver?.disconnect(); outline.replaceChildren(); outline.hidden = true; input.focus();
-  };
-  const renderPaste = async (force = false): Promise<void> => {
-    const markdown = input.value;
-    if (!markdown.trim()) { message('Paste Markdown text to render.', true); return; }
-    if (new TextEncoder().encode(markdown).length > maxPasteBytes) { message('Markdown exceeds the 1 MiB limit.', true); return; }
-    const current = ++pasteVersion;
-    rendered = true; editor.hidden = true; preview.hidden = false; toggle.textContent = 'Markdown Text';
-    if (!force && renderedMarkdown === markdown) { updateOutline(); void drawMath(preview, () => current === pasteVersion && selectedMode() === 'paste' && rendered); return; }
-    preview.textContent = 'Rendering…'; outline.hidden = true;
-    try {
-      const response = await fetch('/api/render', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ markdown }) });
-      const body = await response.json() as { html?: string } & ApiError;
-      if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
-      if (typeof body.html !== 'string') throw new RequestError('invalid_response', 'Invalid render response');
-      if (current !== pasteVersion || selectedMode() !== 'paste' || !rendered) return;
-      preview.innerHTML = body.html; renderedMarkdown = markdown; decorateContent(); updateOutline();
-      message('');
-      void drawMermaid(content, () => current === pasteVersion && selectedMode() === 'paste' && rendered);
-      void drawMath(preview, () => current === pasteVersion && selectedMode() === 'paste' && rendered);
-    } catch (error) {
-      if (current === pasteVersion && selectedMode() === 'paste' && rendered) {
-        showText(); message(error instanceof Error ? error.message : 'Cannot render Markdown.', true);
-      }
-    }
-  };
-  input.addEventListener('input', () => {
-    pasteVersion++; pastedMarkdown = input.value; renderedMarkdown = ''; preview.replaceChildren(); message('');
-    try {
-      if (new TextEncoder().encode(pastedMarkdown).length > maxPasteBytes) {
-        sessionStorage.removeItem(pasteStorageKey); message('Markdown exceeds the 1 MiB limit.', true);
-      } else if (pastedMarkdown) sessionStorage.setItem(pasteStorageKey, pastedMarkdown);
-      else sessionStorage.removeItem(pasteStorageKey);
-    } catch { message('This tab could not save the text for reloading.', true); }
+  pasteEditor = createPasteEditor({
+    content, title, main,
+    isActive: () => selectedMode() === 'paste',
+    nextVersion: () => ++pasteVersion,
+    version: () => pasteVersion,
+    onText: () => { outlineObserver?.disconnect(); outline.replaceChildren(); outline.hidden = true; },
+    onPreview: (preview, current) => {
+      decorateContent(); updateOutline();
+      void drawMermaid(preview, current); void drawMath(preview, current);
+    },
   });
-  toggle.addEventListener('click', () => { if (rendered) showText(); else void renderPaste(); });
-  clearButton.addEventListener('click', () => {
-    pasteVersion++; pastedMarkdown = ''; renderedMarkdown = ''; input.value = ''; preview.replaceChildren(); message('');
-    try { sessionStorage.removeItem(pasteStorageKey); } catch { message('This tab could not clear saved text.', true); }
-    input.focus();
-  });
-  refreshPastedPreview = () => { if (rendered) void renderPaste(true); };
+  refreshPastedPreview = pasteEditor.refresh;
 }
 function showError(error: unknown, path: string): void {
   const code = error instanceof RequestError ? error.code : 'network';
@@ -923,7 +873,7 @@ function decorateContent(target = content, path = displayedPath): void {
     wrapCode(block);
   }
   for (const pre of target.querySelectorAll<HTMLPreElement>('pre')) {
-    if (pre.closest('[data-mermaid],.code-frame')) continue;
+    if (pre.matches('.paste-highlight') || pre.closest('[data-mermaid],.code-frame')) continue;
     wrapCode(pre);
   }
   for (const img of target.querySelectorAll<HTMLImageElement>('img')) {
@@ -1197,6 +1147,7 @@ async function refreshLoop(): Promise<void> {
         }
         if (mode === 'file' && !path && view.firstReadme()) { history.replaceState({ scroll: 0 }, '', fileURL(view.firstReadme()!)); pending = true; pendingForeground ||= foreground; revision++; continue; }
         const pathChanged = path !== displayedPath || mode !== displayedMode;
+        if (mode !== 'paste' && pasteEditor) { pasteEditor.dispose(); pasteEditor = undefined; refreshPastedPreview = undefined; }
         if (pathChanged) { main.scrollTop = history.state?.scroll ?? 0; displayedHTML = ''; view.pruneInactive(); }
         displayedPath = path; displayedMode = mode;
         if (path && mode !== 'history') lastFilePath = path;
@@ -1442,7 +1393,7 @@ updateBrand();
 status(liveMessage, 'ok');
 requestRefresh();
 const pollTimer = setInterval(() => { if (!document.hidden) requestRefresh(false); }, 3000);
-window.addEventListener('pagehide', () => { clearInterval(pollTimer); onSearchChange(''); tabTitle.dispose(); serverInfo.dispose(); });
+window.addEventListener('pagehide', () => { pasteEditor?.dispose(); clearInterval(pollTimer); onSearchChange(''); tabTitle.dispose(); serverInfo.dispose(); });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     requestRefresh(false);

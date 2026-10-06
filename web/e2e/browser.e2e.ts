@@ -147,10 +147,10 @@ test('renders pasted math and survives cached preview toggles', async ({ page })
   await page.goto(`http://127.0.0.1:${port}/?path=sample.py`);
   await page.getByRole('button', { name: 'Paste Markdown' }).click();
   await page.getByLabel('Markdown Text').fill('$x_1$ and \\(x_2\\)\n\n$$\\frac{1}{2}$$\n\n\\[x_3\\]');
-  await page.getByRole('button', { name: 'Rendered view', exact: true }).click();
+  await page.getByRole('button', { name: 'Rendered', exact: true }).click();
   await expect(page.locator('.paste-preview .katex')).toHaveCount(4);
-  await page.getByRole('button', { name: 'Markdown Text', exact: true }).click();
-  await page.getByRole('button', { name: 'Rendered view', exact: true }).click();
+  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await page.getByRole('button', { name: 'Rendered', exact: true }).click();
   await expect(page.locator('.paste-preview .katex')).toHaveCount(4);
 });
 
@@ -840,20 +840,22 @@ test('previews pasted Markdown and restores it after reloading the tab', async (
   await page.getByRole('button', { name: 'Paste Markdown' }).click();
   await page.getByLabel('Markdown Text').fill('# Pasted\n\n[Local](sample.py) [Jump](#pasted)');
   await expect(page.locator('.paste-preview')).toBeHidden();
-  await page.getByRole('button', { name: 'Rendered view' }).click();
+  await page.getByRole('button', { name: 'Rendered' }).click();
   await expect(page.locator('.paste-preview h1')).toHaveText('Pasted');
   await expect(page.getByLabel('Markdown Text')).toBeHidden();
   await expect(page.locator('.paste-preview a', { hasText: 'Local' })).toHaveCount(0);
   await expect(page.locator('.paste-preview a', { hasText: 'Jump' })).toHaveAttribute('href', '#pasted');
-  await page.getByRole('button', { name: 'Markdown Text' }).click();
+  await page.getByRole('button', { name: 'Text' }).click();
   await expect(page.getByLabel('Markdown Text')).toBeVisible();
   await expect(page.locator('.paste-preview')).toBeHidden();
-  await page.getByRole('button', { name: 'Rendered view' }).click();
+  await page.getByRole('button', { name: 'Rendered' }).click();
   await expect(page.locator('.paste-preview h1')).toHaveText('Pasted');
   await page.reload();
   await expect(page.getByLabel('Markdown Text')).toHaveValue('# Pasted\n\n[Local](sample.py) [Jump](#pasted)');
   await expect(page.locator('.paste-preview')).toBeHidden();
-  await page.getByRole('button', { name: 'Clear' }).click();
+  await page.getByRole('button', { name: 'Paste options' }).click();
+  page.once('dialog', (dialog) => { void dialog.accept(); });
+  await page.getByRole('button', { name: 'Clear', exact: true }).click();
   await expect(page.getByLabel('Markdown Text')).toBeEmpty();
   await expect(page.locator('.paste-preview h1')).toHaveCount(0);
 });
@@ -1751,4 +1753,92 @@ test('reviews changed files in order with counts and a folder tree', async ({ pa
   await page.locator('#changes-tree .review-filter input').first().blur();
   await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', isComposing: true, bubbles: true })));
   expect(new URL(page.url()).searchParams.get('path')).toBe('a.md');
+});
+
+test('uses the available paste viewport and aligns the native editor with Markdown highlights', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`http://127.0.0.1:${port}/?view=paste`);
+  const input = page.getByLabel('Markdown Text');
+  await expect(input).toBeFocused();
+  const box = (await input.boundingBox())!;
+  expect(box.width).toBeGreaterThan(800); expect(box.height).toBeGreaterThan(690); expect(box.y + box.height).toBeLessThanOrEqual(890);
+  const markdown = '# 日本語 Heading\n\n**strong** *emphasis* `code` [link](https://example.com)\n\n```ts\nconst text = "safe";\n```\n' + '- 日本語 and long text '.repeat(30) + '\n' + 'line\n'.repeat(150);
+  await input.fill(markdown);
+  await expect(page.locator('.paste-highlight .paste-heading')).toHaveText('# 日本語 Heading');
+  await expect(page.locator('.paste-highlight .paste-code-block')).toHaveText('const text = "safe";');
+  const geometry = await input.evaluate((node) => {
+    const pre = document.querySelector<HTMLElement>('.paste-highlight')!; const a = getComputedStyle(node); const b = getComputedStyle(pre);
+    return { height: node.scrollHeight, highlightHeight: pre.scrollHeight, shared: ['font', 'lineHeight', 'padding', 'borderWidth', 'whiteSpace', 'overflowWrap', 'tabSize', 'letterSpacing'].every((key) => a.getPropertyValue(key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())) === b.getPropertyValue(key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()))) };
+  });
+  expect(geometry.shared).toBe(true); expect(Math.abs(geometry.height - geometry.highlightHeight)).toBeLessThanOrEqual(2);
+  await input.evaluate((node) => { node.scrollTop = 900; node.dispatchEvent(new Event('scroll')); });
+  expect(await page.locator('.paste-highlight').evaluate((node) => node.scrollTop)).toBe(await input.evaluate((node) => node.scrollTop));
+  await page.getByRole('button', { name: 'Paste options' }).click(); await page.getByLabel('Monospace font').uncheck(); await page.getByLabel('Readable width').check();
+  await expect(page.locator('#content')).toHaveClass(/paste-proportional/); await expect(page.locator('#content')).toHaveClass(/paste-readable/);
+  await input.focus(); await input.press('Control+Enter');
+  await expect(page.getByRole('button', { name: 'Rendered', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.paste-preview h1')).toHaveText('日本語 Heading');
+  expect((await page.locator('.paste-preview').boundingBox())!.width).toBeLessThanOrEqual(736);
+  await page.getByRole('button', { name: 'Rendered', exact: true }).press('Control+Enter');
+  await expect(page.getByRole('button', { name: 'Text', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(input).toHaveValue(markdown);
+  await expect(page.locator('.paste-editor-surface > .paste-highlight')).toBeVisible();
+  await expect(page.locator('.paste-editor .code-frame')).toHaveCount(0);
+});
+
+test('continues lists, indents selections, preserves Undo and exits the paste editor on Escape', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 800 });
+  await page.goto(`http://127.0.0.1:${port}/?view=paste`);
+  const input = page.getByLabel('Markdown Text'); await input.fill('- [x] done'); await input.press('End'); await input.press('Enter');
+  await expect(input).toHaveValue('- [x] done\n- [ ] ');
+  await input.press('Control+z'); await expect(input).toHaveValue('- [x] done');
+  await input.press('Control+Shift+z'); await expect(input).toHaveValue('- [x] done\n- [ ] ');
+  await input.press('Enter'); await expect(input).toHaveValue('- [x] done\n');
+  await input.fill('one\ntwo'); await input.press('Control+a'); await input.press('Tab'); await expect(input).toHaveValue('  one\n  two');
+  await input.press('Shift+Tab'); await expect(input).toHaveValue('one\ntwo');
+  await input.press('Escape'); await expect(input).not.toBeFocused(); await page.keyboard.press('Tab'); await expect(page.getByRole('button', { name: 'Rendered', exact: true })).toBeFocused();
+  await input.focus(); await input.evaluate((node) => (node as HTMLTextAreaElement).setSelectionRange(2, 4)); await page.reload();
+  await expect(input).toBeFocused(); expect(await input.evaluate((node) => [(node as HTMLTextAreaElement).selectionStart, (node as HTMLTextAreaElement).selectionEnd])).toEqual([2, 4]);
+});
+
+test('debounces Split preview and follows headings', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 }); await page.goto(`http://127.0.0.1:${port}/?view=paste`);
+  let requests = 0;
+  await page.route('**/api/render', async (route) => { requests++; await route.continue(); });
+  const input = page.getByLabel('Markdown Text'); await input.fill('# First'); await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await expect(page.locator('.paste-preview h1')).toHaveText('First'); await expect(input).toBeVisible();
+  await input.fill('# Second'); await input.fill('# Latest');
+  await page.waitForTimeout(150); expect(requests).toBe(1);
+  await expect(page.locator('.paste-preview h1')).toHaveText('Latest'); expect(requests).toBe(2);
+  const long = '# Top\n\n' + 'paragraph\n\n'.repeat(70) + '# Middle\n\n' + 'paragraph\n\n'.repeat(70) + '# Bottom\n';
+  await input.fill(long); await expect(page.locator('.paste-preview h1')).toHaveCount(3);
+  await input.evaluate((node) => { node.scrollTop = node.scrollHeight / 2; node.dispatchEvent(new Event('scroll')); });
+  expect(await page.locator('.paste-preview').evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
+  await page.locator('.paste-preview').evaluate((node) => { node.scrollTop = 0; node.dispatchEvent(new Event('scroll')); });
+  await expect.poll(() => input.evaluate((node) => node.scrollTop)).toBe(0);
+  await page.setViewportSize({ width: 600, height: 800 }); await expect(page.getByRole('button', { name: 'Split', exact: true })).toBeHidden(); await expect(page.getByRole('button', { name: 'Text', exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('offers confirmed Clear, copying, download and opt-in browser persistence', async ({ page, context }) => {
+  await page.goto(`http://127.0.0.1:${port}/?view=paste`); const input = page.getByLabel('Markdown Text'); await input.fill('# Private note');
+  expect(await page.evaluate(() => localStorage.getItem('markport-pasted-markdown'))).toBeNull();
+  await page.getByRole('button', { name: 'Paste options' }).click(); await page.getByLabel('Save in this browser').check();
+  const other = await context.newPage(); await other.goto(`http://127.0.0.1:${port}/?view=paste`); await expect(other.getByLabel('Markdown Text')).toHaveValue('# Private note'); await other.close();
+  await page.getByLabel('Save in this browser').uncheck(); expect(await page.evaluate(() => localStorage.getItem('markport-pasted-markdown'))).toBeNull();
+  const downloadPromise = page.waitForEvent('download'); await page.getByRole('button', { name: 'Save as .md' }).click(); const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe('pasted-markdown.md'); expect(await readFile((await download.path())!, 'utf8')).toBe('# Private note');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']); await page.getByRole('button', { name: 'Paste options' }).click(); await page.getByRole('button', { name: 'Copy all' }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('# Private note');
+  await page.getByRole('button', { name: 'Paste options' }).click(); page.once('dialog', (dialog) => { void dialog.dismiss(); }); await page.getByRole('button', { name: 'Clear', exact: true }).click(); await expect(input).toHaveValue('# Private note');
+  await page.getByRole('button', { name: 'Paste options' }).click(); page.once('dialog', (dialog) => { void dialog.accept(); }); await page.getByRole('button', { name: 'Clear', exact: true }).click(); await expect(input).toBeEmpty();
+});
+
+test('keeps the paste surface visible on mobile and when the visual viewport shrinks', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`http://127.0.0.1:${port}/?view=paste`); const input = page.getByLabel('Markdown Text');
+  await input.fill('# Mobile\n\n日本語のメモ'); await expect(input).toBeFocused();
+  const box = (await input.boundingBox())!; expect(box.width).toBeGreaterThan(340); expect(box.height).toBeGreaterThan(600);
+  await page.evaluate(() => { Object.defineProperty(window.visualViewport!, 'height', { configurable: true, value: 420 }); window.visualViewport!.dispatchEvent(new Event('resize')); });
+  await expect.poll(async () => { const visible = (await input.boundingBox())!; return visible.y + visible.height; }).toBeLessThanOrEqual(420);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await input.press('Control+Enter'); await expect(page.locator('.paste-preview h1')).toHaveText('Mobile');
 });

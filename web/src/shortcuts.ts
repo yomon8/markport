@@ -1,8 +1,12 @@
-type Binding = { key: string; mod?: boolean };
-export type ShortcutId = 'serverInfo' | 'serverNext' | 'serverPrevious' | 'serverOpen' | 'search' | 'sidebar' | 'help' | 'close' | 'nextChange' | 'previousChange' | 'reviewNext' | 'treeNext' | 'treePrevious' | 'treeFirst' | 'treeLast' | 'treeOpen' | 'treeClear' | 'tabSwitch' | 'tabFirst' | 'tabLast';
+type Binding = { key: string; mod?: boolean; shift?: boolean };
+export type ShortcutId = 'pasteView' | 'pasteEscape' | 'pasteIndent' | 'pasteUnindent' | 'serverInfo' | 'serverNext' | 'serverPrevious' | 'serverOpen' | 'search' | 'sidebar' | 'help' | 'close' | 'nextChange' | 'previousChange' | 'reviewNext' | 'treeNext' | 'treePrevious' | 'treeFirst' | 'treeLast' | 'treeOpen' | 'treeClear' | 'tabSwitch' | 'tabFirst' | 'tabLast';
 type Shortcut = { id: ShortcutId; description: string; group: string; bindings: Binding[] };
 
 export const shortcuts: Shortcut[] = [
+  { id: 'pasteView', description: 'Switch Text and Rendered views', group: 'Paste Markdown', bindings: [{ key: 'Enter', mod: true }] },
+  { id: 'pasteEscape', description: 'Leave the editor; Tab moves focus normally', group: 'Paste Markdown', bindings: [{ key: 'Escape' }] },
+  { id: 'pasteIndent', description: 'Indent selected lines (2 spaces)', group: 'Paste Markdown', bindings: [{ key: 'Tab' }] },
+  { id: 'pasteUnindent', description: 'Unindent selected lines', group: 'Paste Markdown', bindings: [{ key: 'Tab', shift: true }] },
   { id: 'search', description: 'Search files', group: 'General', bindings: [{ key: '/' }, { key: 'k', mod: true }] },
   { id: 'sidebar', description: 'Toggle file list', group: 'General', bindings: [{ key: 'b', mod: true }] },
   { id: 'serverInfo', description: 'Open server info', group: 'General', bindings: [{ key: 'i', mod: true }] },
@@ -31,8 +35,8 @@ export function shortcutText(id: ShortcutId): string {
   const shortcut = shortcuts.find((entry) => entry.id === id)!;
   const names: Record<string, string> = { ArrowDown: '↓', ArrowUp: '↑', ArrowLeft: '←', ArrowRight: '→', Escape: 'Esc' };
   return shortcut.bindings.map((binding) => {
-    const key = names[binding.key] ?? (binding.mod ? binding.key.toUpperCase() : binding.key);
-    return binding.mod ? `${onMac() ? '⌘' : 'Ctrl+'}${key}` : key;
+    const key = names[binding.key] ?? (binding.mod && binding.key.length === 1 ? binding.key.toUpperCase() : binding.key);
+    return `${binding.mod ? (onMac() ? '⌘' : 'Ctrl+') : ''}${binding.shift ? 'Shift+' : ''}${key}`;
   }).join(' or ');
 }
 
@@ -41,7 +45,7 @@ export function matchesShortcut(event: KeyboardEvent, id: ShortcutId): boolean {
   const shortcut = shortcuts.find((entry) => entry.id === id)!;
   return shortcut.bindings.some((binding) => {
     if (binding.mod ? !(event.ctrlKey || event.metaKey) : event.ctrlKey || event.metaKey) return false;
-    if (event.shiftKey && binding.key !== '?') return false;
+    if (binding.key !== '?' && event.shiftKey !== Boolean(binding.shift)) return false;
     return event.key.toLowerCase() === binding.key.toLowerCase();
   });
 }
