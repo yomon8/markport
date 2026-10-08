@@ -27,6 +27,27 @@ beforeEach(() => {
 afterEach(() => { window.dispatchEvent(new Event('pagehide')); vi.unstubAllGlobals(); });
 
 describe('lazy browsing and refresh', () => {
+  it('refreshes staging in the diff heading without changing the patch or review state', async () => {
+    history.replaceState(null, '', '/?path=a.md&view=diff');
+    let code = ' M';
+    stubFetch(async (url) => {
+      if (url === '/api/tree') return reply(page([entry('a.md')]));
+      if (url === '/api/git/changes') return reply({ available: true, rootId: 'staging-root', changes: [{ path: 'a.md', status: 'modified', revision: 'same-content', gitStatuses: [code] }] });
+      return reply({ path: 'a.md', kind: 'text', patch: '@@ -1 +1 @@\n-old\n+new\n' });
+    });
+    await import('../src/main'); await flush();
+    document.querySelector<HTMLButtonElement>('#file-title .review-toggle')!.click();
+    const diff = document.querySelector('.diff-frame');
+    expect(document.querySelector('#file-title .breadcrumbs')?.firstElementChild?.className).toBe('git-status');
+    for (const state of ['M ', 'MM', 'AM', ' M']) {
+      code = state;
+      document.querySelector<HTMLButtonElement>('#reload')!.click(); await flush();
+      expect(document.querySelector('#file-title .git-status')?.textContent).toBe(state);
+      expect(document.querySelector('#changes-tree .git-status')?.textContent).toBe(state);
+      expect(document.querySelector('#file-title .review-toggle')?.getAttribute('aria-pressed')).toBe('true');
+      expect(document.querySelector('.diff-frame')).toBe(diff);
+    }
+  });
   it('copies only standalone math source and keeps its toolbar outside rendered output', async () => {
     history.replaceState(null, '', '/?path=math.md&right=math.md');
     const writeText = vi.fn().mockResolvedValue(undefined);

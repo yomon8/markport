@@ -4,7 +4,7 @@ import { drawMermaid } from './mermaid';
 import { drawMath, mathText } from './math';
 import { TreeView, type Page } from './tree';
 import { effectiveTheme, initTheme } from './theme';
-import { renderChanges, renderDiff, diffURL, orderedChanges, reviewButton, type Change, type ChangesReply, type DiffReply } from './diff';
+import { renderChanges, renderDiff, diffURL, orderedChanges, reviewButton, gitStatusIndicator, type Change, type ChangesReply, type DiffReply } from './diff';
 import { comparisonBase, comparisonOptions, comparisonURL, historyURL, renderCommit, renderCommitDiff, renderHistoryList, type Commit, type CommitDetail, type HistoryPage } from './history';
 import { ReviewState } from './review';
 import { initContentSearch } from './contentSearch';
@@ -556,6 +556,7 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
   if (selectedMode() === 'diff') {
     const change = currentChanges?.changes.find((item) => item.path === path);
     if (change) {
+      crumbs.prepend(gitStatusIndicator(change));
       const reviewed = review.has(change.path, change.revision);
       actions.append(reviewButton(change, reviewed, () => toggleReview(change)));
       const previous = diffNeighbor(path, -1, onlyUnreviewed);
@@ -708,7 +709,8 @@ function updateChangeViews(): void {
   if (selectedMode() === 'diff' && displayedMode === 'diff' && displayedPath === path) {
     const change = currentChanges.changes.find((item) => item.path === path);
     const button = title.querySelector<HTMLButtonElement>('.review-toggle');
-    if (change && button?.getAttribute('aria-pressed') !== String(isReviewed(change))) showTitle(path, 'diff');
+    const statuses = title.querySelector<HTMLElement>('.git-status')?.dataset.statuses;
+    if (change && (button?.getAttribute('aria-pressed') !== String(isReviewed(change)) || statuses !== JSON.stringify(change.gitStatuses ?? []))) showTitle(path, 'diff');
   }
   if (selectedMode() === 'changes' && displayedHTML !== key) {
     content.dataset.kind = 'changes';

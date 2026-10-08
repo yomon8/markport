@@ -30,11 +30,15 @@ var (
 )
 
 type Change struct {
-	Path     string `json:"path"`
-	Status   string `json:"status"`
-	Revision string `json:"revision"`
-	Added    *int   `json:"added"`
-	Deleted  *int   `json:"deleted"`
+	Path        string   `json:"path"`
+	Status      string   `json:"status"`
+	Revision    string   `json:"revision"`
+	Added       *int     `json:"added"`
+	Deleted     *int     `json:"deleted"`
+	Staging     string   `json:"staging"`
+	GitStatuses []string `json:"gitStatuses"`
+	noNetChange bool
+	baseMissing bool
 }
 
 type lineCounts struct{ added, deleted *int }
@@ -244,7 +248,70 @@ func names(output []byte, withStatus bool) ([]Change, error) {
 	return changes, nil
 }
 
+type localChange struct {
+	staged, unstaged, untracked, conflicted bool
+	statuses                                []string
+}
+
+func (change localChange) staging() string {
+	switch {
+	case change.conflicted:
+		return "conflicted"
+	case change.staged && (change.unstaged || change.untracked):
+		return "mixed"
+	case change.staged:
+		return "staged"
+	case change.untracked:
+		return "untracked"
+	case change.unstaged:
+		return "unstaged"
+	default:
+		return "clean"
+	}
+}
+
+func localChanges(output []byte) (map[string]localChange, error) {
+	result := make(map[string]localChange)
+	if len(output) == 0 {
+		return result, nil
+	}
+	if output[len(output)-1] != 0 {
+		return nil, fmt.Errorf("malformed Git status")
+	}
+	for _, record := range bytes.Split(output[:len(output)-1], []byte{0}) {
+		if len(record) < 4 || record[2] != ' ' {
+			return nil, fmt.Errorf("malformed Git status")
+		}
+		x, y := record[0], record[1]
+		name := string(record[3:])
+		change := result[name]
+		change.statuses = append(change.statuses, string(record[:2]))
+		switch string(record[:2]) {
+		case "??":
+			change.untracked = true
+		case "DD", "AU", "UD", "UA", "DU", "AA", "UU":
+			change.conflicted = true
+		default:
+			if !strings.ContainsRune(" AMDT", rune(x)) || !strings.ContainsRune(" AMDT", rune(y)) || x == ' ' && y == ' ' {
+				return nil, fmt.Errorf("unexpected Git status")
+			}
+			change.staged = change.staged || x != ' '
+			change.unstaged = change.unstaged || y != ' '
+		}
+		result[name] = change
+	}
+	return result, nil
+}
+
 func collect(ctx context.Context, store *files.Store, repo repository, withStats bool) ([]Change, error) {
+	status, err := run(ctx, repo.root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames", "--", repo.scope())
+	if err != nil {
+		return nil, err
+	}
+	local, err := localChanges(status)
+	if err != nil {
+		return nil, err
+	}
 	var tracked []Change
 	if repo.unborn {
 		output, err := run(ctx, repo.root, "ls-files", "--cached", "-z", "--", repo.scope())
@@ -283,12 +350,57 @@ func collect(ctx context.Context, store *files.Store, repo repository, withStats
 		if visible(store, change.Path, change.Status == "deleted") {
 			if previous, ok := unique[change.Path]; ok && previous.Status == "deleted" && change.Status == "added" {
 				change.Status = "modified"
+				// A staged deletion followed by recreating the file can also cancel out.
+				change.noNetChange, err = restoredFile(ctx, store, repo, change.Path)
+				if err != nil {
+					return nil, err
+				}
 			}
 			unique[change.Path] = change
 		}
 	}
+	// Include index/worktree changes even when they cancel out against the base.
+	for path := range local {
+		if !strings.HasPrefix(path, repo.prefix) {
+			continue
+		}
+		name := strings.TrimPrefix(path, repo.prefix)
+		if _, exists := unique[name]; exists {
+			continue
+		}
+		change := Change{Path: name, Status: "modified", noNetChange: true}
+		file, openErr := store.Open(name)
+		if openErr == nil {
+			_ = file.Close()
+		} else if errors.Is(openErr, fs.ErrNotExist) && visible(store, name, true) {
+			change.Status = "deleted"
+			change.baseMissing = repo.unborn
+			if !repo.unborn {
+				entry, err := run(ctx, repo.root, "ls-tree", "-z", repo.head, "--", repo.path(name))
+				if err != nil {
+					return nil, err
+				}
+				change.baseMissing = len(entry) == 0
+			}
+		} else {
+			continue
+		}
+		unique[name] = change
+	}
 	result := make([]Change, 0, len(unique))
 	for _, change := range unique {
+		state := local[repo.path(change.Path)]
+		change.Staging = state.staging()
+		change.GitStatuses = append([]string{}, state.statuses...)
+		sort.Slice(change.GitStatuses, func(i, j int) bool {
+			if change.GitStatuses[i] == "??" {
+				return false
+			}
+			if change.GitStatuses[j] == "??" {
+				return true
+			}
+			return change.GitStatuses[i] < change.GitStatuses[j]
+		})
 		if err := fingerprint(ctx, store, repo, &change); err != nil {
 			return nil, err
 		}
@@ -302,10 +414,42 @@ func collect(ctx context.Context, store *files.Store, repo repository, withStats
 	return result, nil
 }
 
+func restoredFile(ctx context.Context, store *files.Store, repo repository, name string) (bool, error) {
+	old, err := run(ctx, repo.root, "cat-file", "blob", repo.head+":"+repo.path(name))
+	if errors.Is(err, ErrTooLarge) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	file, err := store.Open(name)
+	if err != nil {
+		return false, err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return false, err
+	}
+	oldHash := sha256.Sum256(old)
+	if !bytes.Equal(hash.Sum(nil), oldHash[:]) {
+		return false, nil
+	}
+	entry, err := run(ctx, repo.root, "ls-tree", "-z", repo.head, "--", repo.path(name))
+	if err != nil {
+		return false, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return false, err
+	}
+	return strings.HasPrefix(string(entry), "100755 ") == (info.Mode().Perm()&0111 != 0), nil
+}
+
 func fingerprint(ctx context.Context, store *files.Store, repo repository, change *Change) error {
 	hash := sha256.New()
 	_, _ = io.WriteString(hash, change.Status+"\x00")
-	if change.Status != "added" {
+	if change.Status != "added" && !change.baseMissing {
 		// A review is tied to this file's HEAD blob, not the HEAD commit.
 		blob, err := run(ctx, repo.root, "rev-parse", repo.head+":"+repo.path(change.Path))
 		if err != nil {
@@ -389,6 +533,9 @@ func FileAt(ctx context.Context, store *files.Store, base, name string) (Diff, e
 	if change == nil {
 		return Diff{}, ErrNoChange
 	}
+	if change.noNetChange {
+		return textDiff(name, "")
+	}
 	return changeDiff(ctx, store, repo, name, change.Status)
 }
 
@@ -432,6 +579,10 @@ func changeDiff(ctx context.Context, store *files.Store, repo repository, name, 
 }
 
 func countChange(ctx context.Context, store *files.Store, repo repository, change Change) lineCounts {
+	if change.noNetChange {
+		zero := 0
+		return lineCounts{&zero, &zero}
+	}
 	key := store.Path + "\x00" + change.Path + "\x00" + change.Revision
 	statsCache.Lock()
 	if cached, ok := statsCache.values[key]; ok {

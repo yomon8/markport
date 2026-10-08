@@ -86,6 +86,10 @@ func TestCompareCommitWithWorkingFiles(t *testing.T) {
 		if want[change.Path] != change.Status {
 			t.Errorf("change = %+v", change)
 		}
+		staging := map[string]string{"a.md": "staged", "added.md": "clean", "deleted.md": "unstaged", "untracked.md": "untracked"}
+		if change.Staging != staging[change.Path] {
+			t.Errorf("comparison used historical staging: %+v", change)
+		}
 	}
 	current, err := List(ctx, store)
 	if err != nil {

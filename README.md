@@ -163,6 +163,8 @@ Git views require Git and a browsing directory inside a Git repository. If you b
 
 The Changes overview shows file counts, added and deleted lines, and review progress. Use **Folder tree** to group changes by directory and **Unreviewed only** to focus on remaining files. **Mark reviewed** records the current revision of a file; a later change makes it unreviewed again. Marks are saved in this browser per browsing root and comparison base. In **Diff** view, use **Previous**, **Next**, or **Review and next** (or `p`, `n`, `r`) to move through the review.
 
+The main list, sidebar, and Diff heading use Lazygit-style two-character status codes: the left column describes staged changes (green), and the right column describes unstaged changes (red). For example, `M ` is a staged modification, ` M` is an unstaged modification, `MM` contains both, `A ` is a staged addition, `AM` is an addition edited after staging, `D ` / ` D` are staged / unstaged deletions, `??` is untracked, and `UU`, `AU`, or `DU` indicate conflicts. Status is always relative to the current HEAD, index, and working tree, including during older-commit comparisons; committed differences alone have blank status columns. Hover or use a screen reader for the status explanation and comparison change type. If Git returns multiple statuses for one path, each pair appears on the same row. Files whose staged and unstaged changes cancel out remain listed, with zero net lines and an explanation in Diff. Staging or unstaging alone preserves review marks.
+
 **History** lists commits that changed the current folder. Each commit's diff shows what that commit changed, while **Compare with current** compares that commit with the files on disk now.
 
 ### Server info

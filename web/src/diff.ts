@@ -1,8 +1,28 @@
-export type Change = { path: string; status: 'added' | 'modified' | 'deleted'; revision: string; added?: number | null; deleted?: number | null };
+export type Staging = 'staged' | 'unstaged' | 'mixed' | 'untracked' | 'conflicted' | 'clean';
+export type Change = { path: string; status: 'added' | 'modified' | 'deleted'; revision: string; added?: number | null; deleted?: number | null; staging?: Staging; gitStatuses?: string[] };
 export type ChangesReply = { available: boolean; reason?: 'git_unavailable' | 'not_repository'; rootId?: string; base?: string; changes: Change[] };
 export type DiffReply = { path: string; kind: 'text' | 'binary'; patch: string };
 
 const statusLabels: Record<Change['status'], string> = { added: 'Added', modified: 'Modified', deleted: 'Deleted' };
+const codeLabels: Record<string, string> = { ' ': 'none', M: 'Modified', A: 'Added', D: 'Deleted', T: 'Type changed' };
+const conflictLabels: Record<string, string> = { DD: 'both deleted', AU: 'added by us', UD: 'deleted by them', UA: 'added by them', DU: 'deleted by us', AA: 'both added', UU: 'both modified' };
+export function gitStatusIndicator(change: Change): HTMLElement {
+  const indicator = document.createElement('span'); indicator.className = 'git-status'; indicator.dataset.statuses = JSON.stringify(change.gitStatuses ?? []);
+  const statuses = change.gitStatuses?.length ? change.gitStatuses : ['  '];
+  const descriptions: string[] = [];
+  for (const code of statuses) {
+    descriptions.push(code === '??' ? 'Untracked' : code === '  ' ? 'No local changes' : conflictLabels[code] ? `Conflict (${code}): ${conflictLabels[code]}` : `Staged: ${codeLabels[code[0]]}; unstaged: ${codeLabels[code[1]]}`);
+    const pair = document.createElement('span'); pair.className = 'git-status-code'; pair.setAttribute('aria-hidden', 'true');
+    for (const [index, char] of [...code].entries()) {
+      const column = document.createElement('span'); column.className = index === 0 && char !== '?' ? 'git-status-index' : 'git-status-worktree';
+      column.textContent = char; pair.append(column);
+    }
+    indicator.append(pair);
+  }
+  const description = `${descriptions.join('; ')}. Compared with base: ${statusLabels[change.status]}. Status is relative to current HEAD, index and working tree, regardless of comparison base.`;
+  indicator.title = description; indicator.setAttribute('role', 'img'); indicator.setAttribute('aria-label', description);
+  return indicator;
+}
 export const diffURL = (path: string, base = ''): string => `/?path=${encodeURIComponent(path)}&view=diff${base ? `&base=${encodeURIComponent(base)}` : ''}`;
 type ChangeFolder = { path: string; name: string; folders: Map<string, ChangeFolder>; files: Change[] };
 const nameCollator = new Intl.Collator('ja', { numeric: true, sensitivity: 'base' });
@@ -119,9 +139,8 @@ export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed
   const fileItem = (change: Change, name: string): HTMLLIElement => {
     const item = document.createElement('li');
     const link = document.createElement('a'); link.href = diffURL(change.path, reply.base); link.title = change.path;
-    const badge = document.createElement('span'); badge.className = `change-status ${change.status}`; badge.textContent = statusLabels[change.status];
     const label = document.createElement('span'); label.className = 'change-path'; label.textContent = name;
-    link.append(badge, label);
+    link.append(gitStatusIndicator(change), label);
     const lines = document.createElement('span'); lines.className = 'change-lines';
     lines.setAttribute('aria-label', `Added ${change.added ?? 'unknown'} lines, deleted ${change.deleted ?? 'unknown'} lines`);
     lines.textContent = change.added === null || change.deleted === null || change.added === undefined || change.deleted === undefined ? 'Binary' : `+${change.added} −${change.deleted}`;
@@ -157,6 +176,10 @@ export function renderDiff(target: HTMLElement, reply: DiffReply): void {
   target.replaceChildren();
   if (reply.kind === 'binary') {
     const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'This binary file has changed. A line-by-line diff is unavailable.';
+    target.append(message); return;
+  }
+  if (!reply.patch) {
+    const message = document.createElement('p'); message.className = 'hint'; message.textContent = 'No net changes against the comparison base.';
     target.append(message); return;
   }
   const frame = document.createElement('div'); frame.className = 'diff-frame';

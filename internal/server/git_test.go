@@ -116,6 +116,28 @@ func TestGitChangesAndDiff(t *testing.T) {
 			t.Errorf("revision changed without content change: %s", change.Path)
 		}
 	}
+	// Index-only changes must invalidate the response ETag without invalidating review revisions.
+	gitCommand(t, dir, "add", "unstaged.md")
+	conditional := httptest.NewRequest("GET", "/api/git/changes", nil)
+	conditional.Host = "localhost:3000"
+	conditional.Header.Set("If-None-Match", r.Header().Get("ETag"))
+	stagedResult := httptest.NewRecorder()
+	app.ServeHTTP(stagedResult, conditional)
+	var stagedListing gitdiff.Listing
+	if stagedResult.Code != 200 || stagedResult.Header().Get("ETag") == r.Header().Get("ETag") || json.Unmarshal(stagedResult.Body.Bytes(), &stagedListing) != nil {
+		t.Fatalf("staging did not invalidate ETag: %d %s", stagedResult.Code, stagedResult.Body.String())
+	}
+	for _, change := range stagedListing.Changes {
+		if change.Revision != revisions[change.Path] || change.Path == "unstaged.md" && (change.Staging != "staged" || len(change.GitStatuses) != 1 || change.GitStatuses[0] != "M ") {
+			t.Errorf("index-only change = %+v", change)
+		}
+	}
+	gitCommand(t, dir, "restore", "--staged", "unstaged.md")
+	restoredResult := httptest.NewRecorder()
+	app.ServeHTTP(restoredResult, conditional)
+	if restoredResult.Code != http.StatusNotModified {
+		t.Fatalf("restoring index changed original response: %d %s", restoredResult.Code, restoredResult.Body.String())
+	}
 	if err := os.WriteFile(filepath.Join(dir, "unstaged.md"), []byte("another edit\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
