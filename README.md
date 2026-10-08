@@ -17,7 +17,7 @@ Markport opens a folder in your browser so you can read and review Markdown, HTM
 - **Compare two files:** open a second file in a split view; each pane scrolls and refreshes independently.
 - **Find what you need:** search by file name or path, search text inside files, and jump straight to a line with `path/to/file.md:123`.
 - **Review Git changes:** see changed files and diffs, compare against HEAD or any earlier commit, and track which files you have reviewed.
-- **Browse Git history:** inspect the commits that changed the current folder and their per-file diffs.
+- **Browse Git history and blame:** inspect folder or file history, historical source, and the last change to each working-file line.
 - **Check fresh output:** open files refresh automatically as they change. Paste Markdown from the clipboard for a quick preview without creating a file.
 - **Print or save as PDF:** print Markdown with rendered diagrams and formulas.
 - **Single executable:** no Go, Node.js, or separate web assets needed — only a browser.
@@ -166,6 +166,10 @@ The Changes overview shows file counts, added and deleted lines, and review prog
 The main list, sidebar, and Diff heading use Lazygit-style two-character status codes: the left column describes staged changes (green), and the right column describes unstaged changes (red). For example, `M ` is a staged modification, ` M` is an unstaged modification, `MM` contains both, `A ` is a staged addition, `AM` is an addition edited after staging, `D ` / ` D` are staged / unstaged deletions, `??` is untracked, and `UU`, `AU`, or `DU` indicate conflicts. Status is always relative to the current HEAD, index, and working tree, including during older-commit comparisons; committed differences alone have blank status columns. Hover or use a screen reader for the status explanation and comparison change type. If Git returns multiple statuses for one path, each pair appears on the same row. Files whose staged and unstaged changes cancel out remain listed, with zero net lines and an explanation in Diff. Staging or unstaging alone preserves review marks.
 
 **History** lists commits that changed the current folder. Each commit's diff shows what that commit changed, while **Compare with current** compares that commit with the files on disk now.
+
+For an individual file, use **File / Diff / History / Blame** above the content. **History** follows Git-detected renames within the browsing root; select a commit to switch between its **Diff** and the **Source** at that time. Older commits load in pages of 50. Historical Source is a text view with line numbers and syntax highlighting, using the available pane width.
+
+**Blame** annotates the current working-file source with commit, author, and date. Staged and unstaged edits are marked **Uncommitted**; new files have all lines marked that way. Click a commit ID to view the source at that commit and its original path. In narrow panes, author and date move into the information button’s **Last change** dialog to leave more room for source; long lines scroll horizontally within the source area. Text files only are supported, subject to the existing size limits. Both split panes have independent views, and swapping panes or showing one file preserves their selection. On mobile, use each pane's **File actions** menu.
 
 ### Server info
 

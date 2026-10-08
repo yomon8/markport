@@ -177,6 +177,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.gitDiff(w, r)
 	case "/api/git/history":
 		s.gitHistory(w, r)
+	case "/api/git/file-history":
+		s.gitFileHistory(w, r)
+	case "/api/git/file-diff":
+		s.gitFileDiff(w, r)
+	case "/api/git/file-at":
+		s.gitFileAt(w, r)
+	case "/api/git/blame":
+		s.gitBlame(w, r)
 	case "/api/git/commit":
 		s.gitCommit(w, r)
 	case "/api/git/commit-diff":
@@ -381,6 +389,80 @@ func (s *Server) gitHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	gitReply(w, r, page)
+}
+
+func (s *Server) gitFileHistory(w http.ResponseWriter, r *http.Request) {
+	name, err := queryPath(r)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	offset := 0
+	if value := r.URL.Query().Get("offset"); value != "" {
+		offset, err = strconv.Atoi(value)
+		if err != nil || offset < 0 || offset > 100000 {
+			jsonReply(w, http.StatusBadRequest, map[string]string{"error": "invalid_offset"})
+			return
+		}
+	}
+	page, err := gitdiff.FileHistory(r.Context(), s.Files, name, r.URL.Query().Get("head"), offset)
+	if err != nil {
+		gitError(w, err)
+		return
+	}
+	gitReply(w, r, page)
+}
+
+func (s *Server) gitFileDiff(w http.ResponseWriter, r *http.Request) {
+	name, err := queryPath(r)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	diff, err := gitdiff.FileCommitDiff(r.Context(), s.Files, r.URL.Query().Get("id"), name)
+	if err != nil {
+		gitError(w, err)
+		return
+	}
+	gitReply(w, r, diff)
+}
+
+func (s *Server) gitFileAt(w http.ResponseWriter, r *http.Request) {
+	name, err := queryPath(r)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	file, err := gitdiff.FileAtCommit(r.Context(), s.Files, r.URL.Query().Get("id"), name)
+	if err != nil {
+		gitError(w, err)
+		return
+	}
+	gitReply(w, r, struct {
+		gitdiff.FileRevision
+		HTML string `json:"html"`
+	}{file, render.Code(name, file.Content)})
+}
+
+func (s *Server) gitBlame(w http.ResponseWriter, r *http.Request) {
+	name, err := queryPath(r)
+	if err != nil {
+		apiError(w, err)
+		return
+	}
+	blame, err := gitdiff.Blame(r.Context(), s.Files, name)
+	if err != nil {
+		gitError(w, err)
+		return
+	}
+	lines := make([]string, len(blame.Lines))
+	for i, line := range blame.Lines {
+		lines[i] = line.Content
+	}
+	gitReply(w, r, struct {
+		gitdiff.BlameResult
+		HTML string `json:"html"`
+	}{blame, render.Code(name, strings.Join(lines, "\n"))})
 }
 
 func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {

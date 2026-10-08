@@ -1,3 +1,4 @@
+import { FileGitView, fileView, fileViewURL, swapFilePanes, rightOnlyURL, type FileView } from './fileGit';
 import { iconSVG, setIcon, type IconName } from './icons';
 import './style.css';
 import { drawMermaid } from './mermaid';
@@ -112,7 +113,7 @@ const rightPrint = document.createElement('button');
 rightPrint.type = 'button'; rightPrint.className = 'title-icon'; setIcon(rightPrint, 'printer');
 rightPrint.setAttribute('aria-label', 'Print / Save as PDF'); rightPrint.title = 'Print / Save as PDF'; rightPrint.hidden = true;
 rightDownload.before(rightPrint);
-let rightShownPath = ''; let rightShownKey = ''; let rightSourceMode = false; let rightRequest = 0;
+let rightShownPath = ''; let rightShownKey = ''; let rightSourceMode = new URL(location.href).searchParams.get('right-source') === '1'; let rightRequest = 0;
 let pendingRightScroll: number | undefined;
 let rightTag = ''; let rightTagCheckedAt = 0;
 let wrapCodeLines = false;
@@ -138,7 +139,7 @@ const view = new TreeView(tree, search, count, collapseAll, selected,
   onSearchChange);
 let revision = 0; let pending = false; let pendingForeground = false; let activeForeground = false; let running = false;
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = new URL(location.href).searchParams.get('source') === '1';
-let displayedMode: 'file' | 'diff' | 'changes' | 'paste' | 'history' = 'file'; let lastFilePath = '';
+let displayedMode: FileView | 'changes' | 'paste' | 'history' = 'file'; let lastFilePath = '';
 let sidebarPanel: 'file' | 'changes' | 'history' = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file';
 let keepTabFocus = false;
 let currentChanges: ChangesReply | undefined;
@@ -266,9 +267,60 @@ function filePreviewKey(file: FileReply, path: string): string {
   if ('previewUrl' in file) return file.type === 'pdf' ? `${file.previewUrl}&reload=${previewReload}` : previewURL(file.previewUrl, path);
   return file.html;
 }
-function selectedMode(): 'file' | 'diff' | 'changes' | 'paste' | 'history' {
+const leftFileGit = new FileGitView(content, 'left', getGit, (url) => navigate(url.href));
+const rightFileGit = new FileGitView(rightContent, 'right', getGit, navigateRight);
+function navigateRight(url: URL): void {
+  history.replaceState({ ...history.state, scroll: main.scrollTop, rightScroll: rightPane.scrollTop }, '', location.href);
+  history.pushState({ ...history.state, rightScroll: 0 }, '', url);
+  rightPane.scrollTop = 0; rightShownKey = ''; rightTag = '';
+  void refreshRight();
+}
+function selectFileView(mode: FileView): void {
+  const url = fileViewURL(new URL(location.href), 'left', mode);
+  if (mode === 'diff' && rememberedBase) url.searchParams.set('base', rememberedBase);
+  if (sourceMode) url.searchParams.set('source', '1');
+  navigate(url.href);
+}
+const rightFileViews = document.createElement('div'); rightFileViews.className = 'view-segment right-file-views';
+rightFileViews.setAttribute('role', 'group'); rightFileViews.setAttribute('aria-label', 'File or Diff or History or Blame');
+for (const [mode, label] of [['file', 'File'], ['diff', 'Diff'], ['file-history', 'History'], ['blame', 'Blame']] as const) {
+  const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.dataset.fileView = mode;
+  button.addEventListener('click', () => {
+    const url = fileViewURL(new URL(location.href), 'right', mode);
+    if (mode === 'diff' && rememberedBase) url.searchParams.set('right-base', rememberedBase);
+    navigateRight(url);
+  }); rightFileViews.append(button);
+}
+rightViews.before(rightFileViews);
+const rightMore = document.createElement('button'); rightMore.type = 'button'; rightMore.className = 'right-more title-more';
+setIcon(rightMore, 'more'); rightMore.setAttribute('aria-label', 'File actions'); rightMore.title = 'File actions'; rightMore.setAttribute('aria-haspopup', 'menu'); rightMore.setAttribute('aria-expanded', 'false');
+const rightMenu = document.createElement('div'); rightMenu.className = 'right-menu title-menu'; rightMenu.setAttribute('role', 'menu'); rightMenu.hidden = true;
+document.querySelector('#right-title .right-actions')!.append(rightMore, rightMenu);
+function closeRightMenu(): void { rightMenu.hidden = true; rightMore.setAttribute('aria-expanded', 'false'); rightMore.focus(); }
+function updateRightMenu(): void {
+  if (!rightMenu.hidden) return;
+  rightMenu.replaceChildren();
+  for (const control of document.querySelectorAll<HTMLButtonElement>('#right-title .right-actions>button:not(.right-more), #right-title .view-segment:not([hidden]) button')) {
+    if (control.hidden) continue;
+    const item = document.createElement('button'); item.type = 'button'; item.textContent = control.getAttribute('aria-label') ?? control.textContent; item.disabled = control.disabled;
+    item.setAttribute('role', control.hasAttribute('aria-pressed') ? 'menuitemradio' : 'menuitem');
+    if (control.hasAttribute('aria-pressed')) item.setAttribute('aria-checked', control.getAttribute('aria-pressed')!);
+    item.addEventListener('click', () => { closeRightMenu(); control.click(); }); rightMenu.append(item);
+  }
+}
+rightMore.addEventListener('click', () => {
+  if (!rightMenu.hidden) { closeRightMenu(); return; }
+  updateRightMenu(); rightMenu.hidden = false; rightMore.setAttribute('aria-expanded', 'true'); rightMenu.querySelector<HTMLButtonElement>('button')?.focus();
+});
+rightMenu.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') { event.preventDefault(); closeRightMenu(); return; }
+  if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
+  event.preventDefault(); const items = [...rightMenu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]; const index = items.indexOf(document.activeElement as HTMLButtonElement);
+  items[(index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
+});
+function selectedMode(): FileView | 'changes' | 'paste' | 'history' {
   const view = new URL(location.href).searchParams.get('view');
-  return view === 'history' ? 'history' : view === 'paste' ? 'paste' : view === 'changes' ? 'changes' : view === 'diff' && selected() ? 'diff' : 'file';
+  return view === 'history' ? 'history' : view === 'paste' ? 'paste' : view === 'changes' ? 'changes' : selected() ? fileView(new URL(location.href), 'left') : 'file';
 }
 function showSidebar(mode: 'file' | 'changes' | 'history'): void {
   filesPanel.hidden = mode !== 'file'; changesTree.hidden = mode !== 'changes'; historyTree.hidden = mode !== 'history';
@@ -276,17 +328,21 @@ function showSidebar(mode: 'file' | 'changes' | 'history'): void {
     tab.setAttribute('aria-selected', String(mode === value)); tab.tabIndex = mode === value ? 0 : -1;
   }
 }
-function saveScroll(): void { history.replaceState({ scroll: main.scrollTop }, '', location.href); }
+function saveScroll(): void { history.replaceState({ ...history.state, scroll: main.scrollTop, rightScroll: rightPane.scrollTop }, '', location.href); }
 function navigate(url: string): void {
   const target = new URL(url, location.href);
   const right = new URL(location.href).searchParams.get('right');
-  if (right && target.searchParams.has('path') && !target.searchParams.has('view')) target.searchParams.set('right', right);
+  if (right && target.searchParams.has('path') && !['history', 'changes', 'paste'].includes(target.searchParams.get('view') ?? '')) {
+    const previous = new URL(location.href);
+    target.searchParams.set('right', right);
+    for (const [key, value] of previous.searchParams) if (key.startsWith('right-') && !target.searchParams.has(key)) target.searchParams.set(key, value);
+  }
   if (target.href === location.href) { highlightCodeLines(true); return; }
   pendingLineJump = /^#L\d+(?:-L\d+)?$/.test(target.hash);
   if (target.searchParams.get('view') === 'changes' || target.searchParams.get('view') === 'diff') rememberedBase = target.searchParams.get('base') ?? '';
-  saveScroll(); pasteVersion++; lineRangeAnchor = 0; history.pushState({ scroll: 0 }, '', target); sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = target.searchParams.get('source') === '1'; sidebar.classList.remove('open'); requestRefresh();
+  saveScroll(); pasteVersion++; lineRangeAnchor = 0; history.pushState({ scroll: 0, rightScroll: rightPane.scrollTop }, '', target); sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = target.searchParams.get('source') === '1'; sidebar.classList.remove('open'); requestRefresh();
 }
-function rightSelected(): string { return selectedMode() === 'file' ? new URL(location.href).searchParams.get('right') ?? '' : ''; }
+function rightSelected(): string { return ['file', 'diff', 'file-history', 'blame'].includes(selectedMode()) ? new URL(location.href).searchParams.get('right') ?? '' : ''; }
 function openRight(path: string, line?: number): void {
   const source = Boolean(line) && /\.(md|markdown|html|htm)$/i.test(path);
   if (path !== rightSelected() || line) {
@@ -294,36 +350,46 @@ function openRight(path: string, line?: number): void {
     rightSourceMode = source;
   }
   rightLineHash = line ? `#L${line}` : ''; rightLinePath = path; pendingRightLineJump = Boolean(line);
-  const url = new URL(location.href); url.searchParams.set('right', path);
+  const url = new URL(location.href);
+  if (path !== rightSelected()) for (const key of [...url.searchParams.keys()]) if (key.startsWith('right-')) url.searchParams.delete(key);
+  url.searchParams.set('right', path); url.searchParams.delete('right-view');
+  for (const key of ['right-commit', 'right-revision-path', 'right-revision-view']) url.searchParams.delete(key);
+  if (rightSourceMode) url.searchParams.set('right-source', '1'); else url.searchParams.delete('right-source');
   history.pushState(history.state, '', url); sidebar.classList.remove('open'); void refreshRight();
 }
 function closeRight(): void {
   const url = new URL(location.href); url.searchParams.delete('right');
+  for (const key of [...url.searchParams.keys()]) if (key.startsWith('right-')) url.searchParams.delete(key);
+  rightFileGit.invalidate();
   history.pushState(history.state, '', url); rightRequest++; rightPane.hidden = true; layout.classList.remove('split'); rightShownPath = ''; rightShownKey = '';
   rightTag = '';
 }
 function swapPanes(): void {
-  const left = selected(); const right = rightSelected();
-  if (!left || !right) return;
+  if (!selected() || !rightSelected()) return;
   const leftScroll = main.scrollTop; const rightScroll = rightPane.scrollTop;
-  const leftSource = sourceMode;
-  const url = new URL(location.href); url.searchParams.set('path', right); url.searchParams.set('right', left);
-  history.replaceState({ scroll: leftScroll }, '', location.href);
-  history.pushState({ scroll: rightScroll }, '', url);
-  sourceMode = rightSourceMode; rightSourceMode = leftSource;
-  if (sourceMode) url.searchParams.set('source', '1'); else url.searchParams.delete('source');
-  history.replaceState({ scroll: rightScroll }, '', url);
+  const original = new URL(location.href);
+  if (sourceMode) original.searchParams.set('source', '1'); else original.searchParams.delete('source');
+  if (rightSourceMode) original.searchParams.set('right-source', '1'); else original.searchParams.delete('right-source');
+  const url = swapFilePanes(original);
+  history.replaceState({ ...history.state, scroll: leftScroll, rightScroll }, '', location.href);
+  history.pushState({ scroll: rightScroll, rightScroll: leftScroll }, '', url);
+  main.scrollTop = rightScroll;
+  sourceMode = url.searchParams.get('source') === '1'; rightSourceMode = url.searchParams.get('right-source') === '1';
   rightShownPath = ''; rightShownKey = ''; rightTag = '';
+  sidebarPanel = selectedMode() === 'diff' ? 'changes' : 'file';
   pendingRightScroll = leftScroll;
   requestRefresh();
 }
 function showRightOnly(): void {
-  const path = rightSelected(); if (!path) return;
-  const url = new URL(location.href); url.searchParams.set('path', path); url.searchParams.delete('right');
-  if (rightSourceMode) url.searchParams.set('source', '1'); else url.searchParams.delete('source');
-  history.replaceState({ scroll: main.scrollTop }, '', location.href);
+  if (!rightSelected()) return;
+  const original = new URL(location.href);
+  if (rightSourceMode) original.searchParams.set('right-source', '1'); else original.searchParams.delete('right-source');
+  const url = rightOnlyURL(original);
+  history.replaceState({ ...history.state, scroll: main.scrollTop, rightScroll: rightPane.scrollTop }, '', location.href);
   history.pushState({ scroll: rightPane.scrollTop }, '', url);
-  sourceMode = rightSourceMode; rightPane.hidden = true; layout.classList.remove('split'); requestRefresh();
+  sourceMode = url.searchParams.get('source') === '1'; rightPane.hidden = true; layout.classList.remove('split');
+  sidebarPanel = selectedMode() === 'diff' ? 'changes' : 'file';
+  requestRefresh();
 }
 const liveMessage = 'Live · auto-refresh on';
 function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
@@ -508,7 +574,7 @@ function applyDiffAvailability(button: HTMLButtonElement, path: string): void {
   if (changed) { const dot = document.createElement('span'); dot.className = 'change-dot'; dot.setAttribute('aria-hidden', 'true'); button.append(dot); }
 }
 function syncDiffButton(path: string): void {
-  const button = selectedMode() === 'file' ? title.querySelector<HTMLButtonElement>('.view-segment button[data-diff]') : null;
+  const button = ['file', 'file-history', 'blame'].includes(selectedMode()) ? title.querySelector<HTMLButtonElement>('.view-segment button[data-diff]') : null;
   if (button) applyDiffAvailability(button, path);
 }
 function showTitle(path: string, kind = '', missing = false, canDownload = true): void {
@@ -551,7 +617,7 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
     const badge = document.createElement('span'); badge.className = 'kind-badge';
     const extension = path.split('.').at(-1)?.toLowerCase() ?? '';
     const languages: Record<string, string> = { py: 'Python', go: 'Go', js: 'JavaScript', ts: 'TypeScript', tsx: 'TypeScript', jsx: 'JavaScript', rs: 'Rust', java: 'Java', sh: 'Shell', html: 'HTML', css: 'CSS', json: 'JSON', yaml: 'YAML', yml: 'YAML' };
-    badge.textContent = kind === 'diff' ? 'Git Diff' : kind === 'markdown' ? 'Markdown' : kind === 'html' ? 'HTML' : ((languages[extension] ?? extension.toUpperCase()) || 'Code'); actions.append(badge);
+    badge.textContent = kind === 'History' || kind === 'Blame' ? kind : kind === 'diff' ? 'Git Diff' : kind === 'markdown' ? 'Markdown' : kind === 'html' ? 'HTML' : ((languages[extension] ?? extension.toUpperCase()) || 'Code'); actions.append(badge);
   }
   if (selectedMode() === 'diff') {
     const change = currentChanges?.changes.find((item) => item.path === path);
@@ -574,12 +640,16 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
       actions.append(navigation);
     }
     const deleted = currentChanges?.changes.find((change) => change.path === path)?.status === 'deleted';
-    segment([{ label: 'File', selected: false, disabled: deleted, select: () => navigate(fileURL(path)) }, { label: 'Diff', selected: true, select: () => {} }]);
+    segment([{ label: 'File', selected: false, disabled: deleted, select: () => selectFileView('file') }, { label: 'Diff', selected: true, select: () => {} },
+      { label: 'History', selected: false, select: () => selectFileView('file-history') }, { label: 'Blame', selected: false, disabled: deleted, select: () => selectFileView('blame') }]);
   } else {
-    segment([{ label: 'File', selected: true, select: () => {} }, { label: 'Diff', selected: false, diff: true, select: () => navigate(diffURL(path, rememberedBase)) }]);
+    segment([{ label: 'File', selected: selectedMode() === 'file', select: () => selectFileView('file') },
+      { label: 'Diff', selected: false, diff: true, select: () => selectFileView('diff') },
+      { label: 'History', selected: selectedMode() === 'file-history', select: () => selectFileView('file-history') },
+      { label: 'Blame', selected: selectedMode() === 'blame', select: () => selectFileView('blame') }]);
   }
-  if (kind === 'markdown' || kind === 'html') {
-    segment([{ label: 'Preview', selected: !sourceMode, select: () => { if (sourceMode) { sourceMode = false; requestRefresh(); } } }, { label: 'Source', selected: sourceMode, select: () => { if (!sourceMode) { sourceMode = true; requestRefresh(); } } }]);
+  if (selectedMode() === 'file' && (kind === 'markdown' || kind === 'html')) {
+    segment([{ label: 'Preview', selected: !sourceMode, select: () => { if (sourceMode) { sourceMode = false; const url = new URL(location.href); url.searchParams.delete('source'); history.pushState({ ...history.state, scroll: main.scrollTop }, '', url); requestRefresh(); } } }, { label: 'Source', selected: sourceMode, select: () => { if (!sourceMode) { sourceMode = true; const url = new URL(location.href); url.searchParams.set('source', '1'); history.pushState({ ...history.state, scroll: main.scrollTop }, '', url); requestRefresh(); } } }]);
   }
   if (kind === 'html') {
     const interactive = document.createElement('button'); interactive.type = 'button'; interactive.className = 'interactive-toggle';
@@ -608,7 +678,7 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
   addAux('Open on right', 'panelRight', () => openRight(path), selectedMode() === 'file');
   addAux('Open PDF in new tab', 'external', () => openPDF(path), kind === 'pdf');
   addAux('Print / Save as PDF', 'printer', (button) => printView.open(printFile(path), menu.contains(button) ? menuButton : button), kind === 'markdown' && selectedMode() === 'file' && !missing);
-  addAux('Download', 'download', () => downloadFile(path), canDownload && !missing && (selectedMode() !== 'diff' || currentChanges?.changes.find((change) => change.path === path)?.status !== 'deleted'));
+  addAux('Download', 'download', () => downloadFile(path), ['file', 'diff'].includes(selectedMode()) && canDownload && !missing && (selectedMode() !== 'diff' || currentChanges?.changes.find((change) => change.path === path)?.status !== 'deleted'));
   addAux('Copy path', 'copy', (button) => copyWithFeedback(button, path, 'Copy path'));
   addAux('Contents', 'list', () => outline.classList.toggle('open'), !outline.hidden);
   const mobileChoices = [...actions.querySelectorAll<HTMLButtonElement>('.view-segment button, .review-toggle, .diff-navigation button, .interactive-toggle')].map((control) => {
@@ -996,7 +1066,7 @@ function updateRightOutline(): void {
     rightOutline.append(link);
   }
 }
-function showRightTitle(path: string, kind: FileReply['type']): void {
+function showRightTitle(path: string, kind: FileReply['type'] | 'diff' | 'History' | 'Blame'): void {
   rightPath.replaceChildren(); rightPath.title = path;
   const parts = path.split('/');
   if (parts.length > 1) {
@@ -1004,8 +1074,10 @@ function showRightTitle(path: string, kind: FileReply['type']): void {
     parent.textContent = `${parts.slice(0, -1).join('/')} / `; rightPath.append(parent);
   }
   const name = document.createElement('strong'); name.textContent = parts.at(-1) ?? path; rightPath.append(name);
-  rightKind.textContent = kind === 'markdown' ? 'Markdown' : kind === 'html' ? 'HTML' : kind === 'image' ? 'Image' : (parts.at(-1)?.split('.').at(-1)?.toUpperCase() || 'Code');
-  rightViews.hidden = kind !== 'markdown' && kind !== 'html';
+  rightKind.textContent = kind === 'History' || kind === 'Blame' ? kind : kind === 'diff' ? 'Git Diff' : kind === 'markdown' ? 'Markdown' : kind === 'html' ? 'HTML' : kind === 'image' ? 'Image' : (parts.at(-1)?.split('.').at(-1)?.toUpperCase() || 'Code');
+  const mode = fileView(new URL(location.href), 'right');
+  rightViews.hidden = mode !== 'file' || (kind !== 'markdown' && kind !== 'html');
+  for (const button of rightFileViews.querySelectorAll<HTMLButtonElement>('button')) button.setAttribute('aria-pressed', String(button.dataset.fileView === mode));
   rightRendered.textContent = 'Preview';
   rightRendered.setAttribute('aria-pressed', String(!rightSourceMode));
   rightSource.setAttribute('aria-pressed', String(rightSourceMode));
@@ -1069,16 +1141,38 @@ window.addEventListener('message', (event: MessageEvent) => {
 });
 async function refreshRight(): Promise<void> {
   const path = rightSelected(); const request = ++rightRequest;
+  const mode = fileView(new URL(location.href), 'right');
+  rightSourceMode = new URL(location.href).searchParams.get('right-source') === '1';
   if (path !== rightLinePath) { rightLineHash = ''; pendingRightLineJump = false; }
   const applyLine = (): void => {
     highlightCodeLines(pendingRightLineJump, rightContent, rightLineHash);
     pendingRightLineJump = false;
   };
   rightPane.hidden = !path; layout.classList.toggle('split', Boolean(path));
-  if (!path) { rightShownPath = ''; rightShownKey = ''; rightDownload.hidden = true; rightOpenPDF.hidden = true; rightPrint.hidden = true; return; }
+  if (!path) { rightFileGit.invalidate(); rightShownPath = ''; rightShownKey = ''; rightDownload.hidden = true; rightOpenPDF.hidden = true; rightPrint.hidden = true; return; }
   if (path !== rightShownPath) { rightPane.scrollTop = 0; rightShownKey = ''; rightTag = ''; rightDownload.hidden = true; rightOpenPDF.hidden = true; rightPrint.hidden = true; }
+  if (mode === 'file-history' || mode === 'blame') {
+    showRightTitle(path, mode === 'blame' ? 'Blame' : 'History'); rightKind.hidden = false;
+    rightDownload.hidden = true; rightPrint.hidden = true; rightOpenPDF.hidden = true; rightInteractive.hidden = true; rightOutline.hidden = true; rightContents.hidden = true;
+    rightShownPath = path; rightShownKey = ''; rightTag = '';
+    await rightFileGit.refresh(path);
+    if (request === rightRequest && pendingRightScroll !== undefined) { rightPane.scrollTop = pendingRightScroll; pendingRightScroll = undefined; }
+    return;
+  }
+  rightFileGit.invalidate();
   rightContent.setAttribute('aria-busy', 'true');
   try {
+    if (mode === 'diff') {
+      const url = new URL(location.href); const base = url.searchParams.get('right-base') ?? '';
+      const diff = await getGit<DiffReply>(`/api/git/diff?path=${encodeURIComponent(path)}${base ? `&base=${encodeURIComponent(base)}` : ''}`);
+      if (request !== rightRequest || path !== rightSelected() || fileView(new URL(location.href), 'right') !== mode) return;
+      const key = JSON.stringify(diff);
+      if (rightShownKey !== key || rightContent.dataset.kind !== 'diff') { const scroll = rightPane.scrollTop; rightContent.dataset.kind = 'diff'; renderDiff(rightContent, diff); rightShownKey = key; rightPane.scrollTop = scroll; }
+      showRightTitle(path, 'diff'); rightShownPath = path;
+      rightDownload.hidden = true; rightPrint.hidden = true; rightOpenPDF.hidden = true; rightInteractive.hidden = true; rightOutline.hidden = true; rightContents.hidden = true;
+      if (pendingRightScroll !== undefined) { rightPane.scrollTop = pendingRightScroll; pendingRightScroll = undefined; }
+      return;
+    }
     const headers: Record<string, string> = {};
     if (rightShownPath === path && rightTag && Date.now() - rightTagCheckedAt < 60000) headers['If-None-Match'] = rightTag;
     const response = await fetch(`/api/file?path=${encodeURIComponent(path)}${rightSourceMode ? '&source=1' : ''}`, { cache: 'no-store', headers });
@@ -1144,7 +1238,7 @@ async function refreshLoop(): Promise<void> {
       if (foreground) { activeForeground = true; beginLoading(); }
       const treePromise = refreshDirectories(mode === 'changes' || mode === 'paste' || mode === 'history' ? '' : path, current);
       const gitPromise = mode === 'changes' || mode === 'diff' ? getGit<ChangesReply>(`/api/git/changes${base ? `?base=${encodeURIComponent(base)}` : ''}`)
-        : mode === 'file' ? getGit<ChangesReply>(`/api/git/changes${rememberedBase ? `?base=${encodeURIComponent(rememberedBase)}` : ''}`).catch(() => undefined) : Promise.resolve(undefined);
+        : ['file', 'file-history', 'blame'].includes(mode) ? getGit<ChangesReply>(`/api/git/changes${rememberedBase ? `?base=${encodeURIComponent(rememberedBase)}` : ''}`).catch(() => undefined) : Promise.resolve(undefined);
       const historyPromise = mode === 'history' ? getGit<HistoryPage>('/api/git/history') : Promise.resolve(undefined);
       const commitPromise = mode === 'history' && commitID ? cachedCommit?.id === commitID && knownHistoryHead ? Promise.resolve(cachedCommit) : getGit<CommitDetail>(`/api/git/commit?id=${encodeURIComponent(commitID)}`) : Promise.resolve(undefined);
       const historicalDiffPromise = mode === 'history' && commitID && path ? cachedHistoricalDiff?.id === commitID && cachedHistoricalDiff.path === path && knownHistoryHead ? Promise.resolve(cachedHistoricalDiff.value) : getGit<DiffReply>(`/api/git/commit-diff?id=${encodeURIComponent(commitID)}&path=${encodeURIComponent(path)}`) : Promise.resolve(undefined);
@@ -1206,6 +1300,15 @@ async function refreshLoop(): Promise<void> {
           }
           status(liveMessage, 'ok'); continue;
         }
+        if (mode === 'file-history' || mode === 'blame') {
+          outline.hidden = true;
+          if (pathChanged || content.dataset.kind !== 'file-git') showTitle(path, mode === 'blame' ? 'Blame' : 'History');
+          await leftFileGit.refresh(path);
+          if (pathChanged) view.reveal(path);
+          if (pathChanged && !preserveTabFocus) title.focus({ preventScroll: true });
+          status(liveMessage, 'ok'); continue;
+        }
+        leftFileGit.invalidate();
         if (mode === 'changes') {
           status(liveMessage, 'ok'); continue;
         }
@@ -1321,12 +1424,14 @@ headerExtras.addEventListener('keydown', (event) => {
   event.preventDefault(); headerExtras.classList.remove('open'); headerMore.setAttribute('aria-expanded', 'false'); headerMore.focus();
 });
 function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
+  if (event.defaultPrevented) return;
   const target = event.target as HTMLElement;
-  const lineLink = pane === 'left' ? target.closest<HTMLAnchorElement>('.lnlinks, .wrapped-line-number') : null;
+  const lineLink = target.closest<HTMLAnchorElement>('.lnlinks, .wrapped-line-number');
   if (lineLink) {
     const number = Number(lineLink.hash.slice(2));
     if (Number.isSafeInteger(number) && number > 0) {
       event.preventDefault();
+      if (pane === 'right') { rightLineHash = `#L${number}`; highlightCodeLines(true, rightContent, rightLineHash); return; }
       const start = event.shiftKey && lineRangeAnchor ? Math.min(number, lineRangeAnchor) : number;
       const end = event.shiftKey && lineRangeAnchor ? Math.max(number, lineRangeAnchor) : number;
       if (!event.shiftKey) lineRangeAnchor = number;
@@ -1357,8 +1462,8 @@ function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
 content.addEventListener('click', (event) => onContentClick(event, 'left'));
 rightContent.addEventListener('click', (event) => onContentClick(event, 'right'));
 document.querySelector('#right-close')!.addEventListener('click', closeRight);
-rightSource.addEventListener('click', () => { rightSourceMode = true; rightShownKey = ''; rightTag = ''; void refreshRight(); });
-rightRendered.addEventListener('click', () => { rightLineHash = ''; pendingRightLineJump = false; rightSourceMode = false; rightShownKey = ''; rightTag = ''; void refreshRight(); });
+rightSource.addEventListener('click', () => { const url = new URL(location.href); url.searchParams.set('right-source', '1'); rightSourceMode = true; navigateRight(url); });
+rightRendered.addEventListener('click', () => { rightLineHash = ''; pendingRightLineJump = false; const url = new URL(location.href); url.searchParams.delete('right-source'); rightSourceMode = false; navigateRight(url); });
 rightContents.addEventListener('click', () => rightOutline.classList.toggle('open'));
 document.querySelector('#right-copy')!.addEventListener('click', (event) => { const path = rightSelected(); if (path) copyWithFeedback(event.currentTarget as HTMLButtonElement, path, 'Copy path'); });
 rightDownload.addEventListener('click', () => { const path = rightSelected(); if (path) downloadFile(path); });
@@ -1367,7 +1472,7 @@ rightOpenPDF.addEventListener('click', () => { const path = rightSelected(); if 
 document.querySelector('#right-swap')!.addEventListener('click', swapPanes);
 document.querySelector('#right-only')!.addEventListener('click', showRightOnly);
 rightInteractive.addEventListener('click', () => { const path = rightSelected(); if (path) setInteractive(path, !interactivePaths.has(path)); });
-window.addEventListener('popstate', () => { pasteVersion++; sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); });
+window.addEventListener('popstate', () => { pendingRightScroll = history.state?.rightScroll ?? 0; rightPane.scrollTop = pendingRightScroll ?? 0; rightShownKey = ''; rightTag = ''; pasteVersion++; sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); });
 window.addEventListener('hashchange', () => { highlightCodeLines(true); });
 window.addEventListener('keydown', (event) => {
   if (event.isComposing || event.keyCode === 229) return;

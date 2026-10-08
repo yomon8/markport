@@ -70,16 +70,18 @@ type repository struct {
 }
 
 type limitedBuffer struct {
-	bytes.Buffer
+	// A named field prevents io.Copy from selecting bytes.Buffer.ReadFrom,
+	// which would bypass the output limit enforced by Write.
+	buffer   bytes.Buffer
 	overflow bool
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
-	if b.Len()+len(p) > maxOutput {
+	if b.buffer.Len()+len(p) > maxOutput {
 		b.overflow = true
 		return 0, ErrTooLarge
 	}
-	return b.Buffer.Write(p)
+	return b.buffer.Write(p)
 }
 
 func run(ctx context.Context, dir string, args ...string) ([]byte, error) {
@@ -121,12 +123,12 @@ func runInput(ctx context.Context, dir string, allowDiffExit bool, input []byte,
 	}
 	var exit *exec.ExitError
 	if allowDiffExit && errors.As(err, &exit) && exit.ExitCode() == 1 {
-		return output.Bytes(), nil
+		return output.buffer.Bytes(), nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("git %s: %w", args[0], err)
 	}
-	return output.Bytes(), nil
+	return output.buffer.Bytes(), nil
 }
 
 func discover(ctx context.Context, store *files.Store) (repository, string, error) {

@@ -456,3 +456,81 @@ func TestSearchIndexHasNoIgnoredPathsOutsideGit(t *testing.T) {
 		t.Fatalf("paths %v ignored %v", paths, ignored)
 	}
 }
+
+func TestFileGitAPIs(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("Git unavailable")
+	}
+	dir := t.TempDir()
+	gitCommand(t, dir, "init", "-q")
+	gitCommand(t, dir, "config", "user.email", "test@example.com")
+	gitCommand(t, dir, "config", "user.name", "Test")
+	path := filepath.Join(dir, "a.go")
+	if err := os.WriteFile(path, []byte("package main\n// <old>\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	gitCommand(t, dir, "add", ".")
+	gitCommand(t, dir, "commit", "-qm", "initial")
+	app := gitServer(t, dir)
+	r := request(app, "localhost:3000", "/api/git/file-history?path=a.go")
+	var history gitdiff.FileHistoryPage
+	if r.Code != 200 || json.Unmarshal(r.Body.Bytes(), &history) != nil || len(history.Commits) != 1 {
+		t.Fatalf("history: %d %s", r.Code, r.Body.String())
+	}
+	id := history.Commits[0].ID
+	r = request(app, "localhost:3000", "/api/git/file-at?path=a.go&id="+id)
+	var file struct {
+		gitdiff.FileRevision
+		HTML string `json:"html"`
+	}
+	if r.Code != 200 || json.Unmarshal(r.Body.Bytes(), &file) != nil || file.Content != "package main\n// <old>\n" || strings.Contains(file.HTML, "<old>") || !strings.Contains(file.HTML, "&lt;old&gt;") {
+		t.Fatalf("source: %d %s", r.Code, r.Body.String())
+	}
+	r = request(app, "localhost:3000", "/api/git/file-diff?path=a.go&id="+id)
+	var diff gitdiff.Diff
+	if r.Code != 200 || json.Unmarshal(r.Body.Bytes(), &diff) != nil || !strings.Contains(diff.Patch, "+package main") {
+		t.Fatalf("diff: %d %s", r.Code, r.Body.String())
+	}
+	r = request(app, "localhost:3000", "/api/git/blame?path=a.go")
+	var blame gitdiff.BlameResult
+	if r.Code != 200 || json.Unmarshal(r.Body.Bytes(), &blame) != nil || len(blame.Lines) != 2 || blame.Lines[1].Commit != id {
+		t.Fatalf("blame: %d %s", r.Code, r.Body.String())
+	}
+	tag := r.Header().Get("ETag")
+	conditional := httptest.NewRequest("GET", "/api/git/blame?path=a.go", nil)
+	conditional.Host = "localhost:3000"
+	conditional.Header.Set("If-None-Match", tag)
+	unchanged := httptest.NewRecorder()
+	app.ServeHTTP(unchanged, conditional)
+	if unchanged.Code != 304 {
+		t.Fatalf("unchanged: %d", unchanged.Code)
+	}
+	if err := os.WriteFile(path, []byte("package main\n// new\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	changed := httptest.NewRecorder()
+	app.ServeHTTP(changed, conditional)
+	if changed.Code != 200 || changed.Header().Get("ETag") == tag || json.Unmarshal(changed.Body.Bytes(), &blame) != nil || !blame.Lines[1].Uncommitted {
+		t.Fatalf("edited blame: %d %s", changed.Code, changed.Body.String())
+	}
+	for _, endpoint := range []string{"file-history", "file-at", "file-diff", "blame"} {
+		for _, query := range []string{"path=../a.go", "path=.git/config", "path=a.go&path=b.go", ""} {
+			result := request(app, "localhost:3000", "/api/git/"+endpoint+"?id="+id+"&"+query)
+			if result.Code != 400 {
+				t.Errorf("%s %s: %d", endpoint, query, result.Code)
+			}
+		}
+	}
+	for _, offset := range []string{"-1", "100001", "invalid"} {
+		result := request(app, "localhost:3000", "/api/git/file-history?path=a.go&offset="+offset)
+		if result.Code != 400 {
+			t.Errorf("offset %s: %d", offset, result.Code)
+		}
+	}
+	for _, endpoint := range []string{"file-at", "file-diff"} {
+		result := request(app, "localhost:3000", "/api/git/"+endpoint+"?id=HEAD&path=a.go")
+		if result.Code != 404 {
+			t.Errorf("invalid commit %s: %d", endpoint, result.Code)
+		}
+	}
+}

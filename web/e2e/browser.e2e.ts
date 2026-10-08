@@ -1150,7 +1150,8 @@ test('keeps the HTML preview sandbox in the right pane and works on a narrow scr
   await page.frameLocator('#right-content .html-preview').getByRole('link', { name: 'Next HTML' }).click();
   await expect(page.locator('#right-path')).toHaveAttribute('title', 'docs/second.htm');
   await expect(page.locator('#content h1')).toHaveText('Demo');
-  await page.locator('#right-source').click();
+  await page.locator('#right-title').getByRole('button', { name: 'File actions', exact: true }).click();
+  await page.locator('#right-title').getByRole('menuitemradio', { name: 'Source', exact: true }).click();
   await expect(page.locator('#right-content .lntd:last-child pre')).toContainText('Second HTML');
   await page.getByRole('button', { name: 'Close split view' }).click();
   await expect(page.locator('#right-pane')).toBeHidden();

@@ -859,3 +859,45 @@ describe('lazy browsing and refresh', () => {
     expect(sessionStorage.getItem('markport-collapsed-selection')).toBeNull();
   });
 });
+
+describe('per-file history and blame navigation', () => {
+  const id = 'a'.repeat(40);
+  const old = { id, author: 'Author', date: '2026-10-01T00:00:00Z', subject: 'original', path: 'old.go', status: 'added' };
+  const gitFetch = async (url: string): Promise<Response> => {
+    if (url.startsWith('/api/tree')) return reply(page([entry('a.go'), entry('b.go')]));
+    if (url.startsWith('/api/git/changes')) return reply({ available: true, rootId: 'root', changes: [] });
+    if (url.startsWith('/api/git/file-history')) return reply({ available: true, head: id, commits: [old], nextOffset: null });
+    if (url.startsWith('/api/git/file-diff')) return reply({ path: 'old.go', kind: 'text', patch: '@@ -0,0 +1 @@\n+original\n' });
+    if (url.startsWith('/api/git/file-at')) return reply({ ...old, kind: 'text', content: 'original\n', html: '<pre>original</pre>' });
+    if (url.startsWith('/api/git/blame')) return reply({ available: true, head: id, path: 'a.go', html: '', lines: [{ line: 1, originalLine: 1, commit: id, author: 'Author', date: old.date, subject: 'original', path: 'old.go', content: 'original', uncommitted: false }] });
+    return reply({ path: 'a.go', type: 'code', html: '<pre>current</pre>' });
+  };
+  it('switches File, History, historical Diff and Source, and Blame while retaining the Files sidebar', async () => {
+    history.replaceState(null, '', '/?path=a.go'); stubFetch(gitFetch);
+    await import('../src/main'); await flush();
+    document.querySelector<HTMLButtonElement>('#file-title .view-segment button:nth-child(3)')!.click(); await flush();
+    expect(new URL(location.href).searchParams.get('view')).toBe('file-history'); expect(document.querySelector('#files-panel')?.hasAttribute('hidden')).toBe(false);
+    document.querySelector<HTMLAnchorElement>('.file-history-list a')!.click(); await flush();
+    expect(document.querySelector('#content .diff-frame')).not.toBeNull();
+    document.querySelector<HTMLAnchorElement>('.revision-views a:last-child')!.click(); await flush();
+    expect(document.querySelector('.historical-source')?.textContent).toBe('original');
+    document.querySelector<HTMLButtonElement>('#file-title .view-segment button:nth-child(4)')!.click(); await flush();
+    expect(document.querySelector('.blame-code')?.textContent).toBe('original');
+    document.querySelector<HTMLAnchorElement>('.blame-meta a')!.click(); await flush();
+    expect(new URL(location.href).searchParams.get('revision-path')).toBe('old.go'); expect(document.querySelector('.historical-source')).not.toBeNull();
+  });
+  it('preserves independent pane modes and original paths through swap and single-file display', async () => {
+    history.replaceState(null, '', '/?path=a.go&view=file-history&right=b.go&right-view=blame'); stubFetch(gitFetch);
+    await import('../src/main'); await flush();
+    expect(document.querySelector('#content .file-history-list')).not.toBeNull(); expect(document.querySelector('#right-content .blame-table')).not.toBeNull();
+    document.querySelector<HTMLButtonElement>('#right-swap')!.click(); await flush();
+    const swapped = new URL(location.href);
+    expect(swapped.searchParams.get('path')).toBe('b.go'); expect(swapped.searchParams.get('view')).toBe('blame'); expect(swapped.searchParams.get('right-view')).toBe('file-history');
+    document.querySelector<HTMLAnchorElement>('#right-content .file-history-list a')!.click(); await flush();
+    expect(document.querySelector('#right-content .diff-frame')).not.toBeNull(); expect(document.querySelector('#content .blame-table')).not.toBeNull();
+    document.querySelector<HTMLButtonElement>('#right-only')!.click(); await flush();
+    const only = new URL(location.href);
+    expect(only.searchParams.get('view')).toBe('file-history'); expect(only.searchParams.get('revision-path')).toBe('old.go'); expect(only.searchParams.has('right')).toBe(false);
+    expect(document.querySelector('#content .diff-frame')).not.toBeNull();
+  });
+});

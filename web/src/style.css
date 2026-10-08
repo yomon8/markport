@@ -352,3 +352,40 @@ button.tool-icon[hidden]{display:none}
 .change-list .change-path{flex:1;min-width:0}.git-status{display:inline-flex;flex:none;gap:.5ch;font:12px var(--mono);white-space:pre}.git-status-code{display:inline-grid;grid-template-columns:1ch 1ch}.git-status-index{color:var(--success-text)}.git-status-worktree{color:var(--danger)}
 
 #file-title .breadcrumbs>.git-status{margin-right:8px;flex:none}.layout:not(.split) #file-title .breadcrumbs>.git-status{flex:none;overflow:visible;white-space:pre}
+
+/* Per-file Git views use the pane width and keep source aligned with attribution. */
+.file-history-list{list-style:none;padding:0}.file-history-list li{display:grid;gap:4px;padding:12px 0;border-bottom:1px solid var(--border)}.file-history-list li>a{font-weight:650}.file-history-list li>span{color:var(--text-muted);font-size:12px;overflow-wrap:anywhere}
+.revision-views{display:flex;gap:12px;margin:16px 0}.revision-views a[aria-current=page]{font-weight:700;text-decoration:underline}
+.historical-source{overflow:auto}.blame-frame{overflow:auto;border:1px solid var(--border);border-radius:6px;max-width:100%}
+.blame-table{border-collapse:collapse;width:100%;font-size:12px}.blame-table th{text-align:left;padding:7px 10px;background:var(--sidebar);color:var(--text-muted)}.blame-table td{padding:0 8px;vertical-align:top;border:0;line-height:20px}
+.blame-meta{border-right:1px solid var(--border)!important;font-size:11px;overflow-wrap:anywhere}.blame-meta time{display:block;color:var(--text-muted);font-size:10px;line-height:16px}.blame-number{color:var(--text-muted);text-align:right;user-select:none}.blame-code{font-family:var(--mono);white-space:pre;tab-size:4;width:100%}.blame-table .uncommitted .blame-meta{background:var(--accent-soft);color:var(--accent)}
+.right-menu{position:absolute;right:0;top:100%;z-index:12;min-width:170px;max-height:calc(100vh - 120px);overflow:auto;padding:4px;background:var(--surface);border:1px solid var(--border);border-radius:7px;box-shadow:0 8px 24px #0004}.right-menu:not([hidden]){display:grid}.right-menu button{text-align:left;border:0;background:transparent}.right-menu button:hover,.right-menu button:focus-visible{background:var(--hover)}.right-actions{position:relative}
+@media(max-width:700px){.right-actions>.right-file-views,.right-actions>.view-segment{display:none}.right-actions>.right-more{display:inline-block}}
+@media(pointer:coarse){.revision-views a{min-height:40px;display:inline-flex;align-items:center}.file-history-list a{min-height:40px;display:flex;align-items:center}.right-more,.right-menu button{min-height:40px}}
+
+article[data-kind=file-git]{max-width:none;min-width:0;container-type:inline-size;container-name:file-git}
+article .historical-source{margin-left:0;margin-right:0}
+.historical-source .lntd{min-width:0;padding:0;border:0}
+.historical-source .lntd:first-child{width:1px;white-space:nowrap}
+.historical-source .lntd:last-child{width:100%}
+.historical-source .lntd:first-child pre{padding:14px 8px}
+.blame-table :is(th,td){min-width:0}
+.blame-table :is(th,td):nth-child(2){width:1px;padding-left:6px;padding-right:6px;white-space:nowrap}
+.blame-table td.blame-number{padding:0 6px}
+.blame-table td.blame-meta{width:200px;min-width:200px;max-width:200px}
+.blame-table button.blame-details-button{display:none}
+@container file-git (max-width:700px){
+  .blame-table td.blame-meta{width:120px;min-width:120px;max-width:120px;white-space:nowrap;padding:0 6px}
+  .blame-author,.blame-meta time{display:none}
+  .blame-table button.blame-details-button{display:inline-flex;width:28px;height:28px;margin-left:4px;vertical-align:middle}
+}
+@media(max-width:700px),(pointer:coarse){
+  @container file-git (max-width:700px){.blame-table button.blame-details-button{width:40px;height:40px}}
+}
+.blame-details{width:min(520px,calc(100vw - 28px));max-height:calc(100dvh - 28px);overflow:auto;padding:22px;border:1px solid var(--border);border-radius:10px;background:var(--surface);color:var(--text);box-shadow:0 15px 55px #0005}
+.blame-details::backdrop{background:#0008}
+.blame-details h2{margin:0 0 16px;font-size:20px;border:0}
+.blame-details dl{margin:0 0 20px}
+.blame-details dt{margin-top:12px;font-size:12px;color:var(--text-muted)}
+.blame-details dd{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 var(--mono)}
+@media(max-width:700px),(pointer:coarse){.blame-details>button{min-height:40px}}
