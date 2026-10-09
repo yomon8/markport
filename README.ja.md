@@ -1,4 +1,4 @@
-# markport
+# Markport — AI エージェントの出力を確認するローカル Markdown ビューア
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="logo/markport-logo-horizontal-dark.svg">
@@ -7,9 +7,9 @@
 
 [English](README.md) · [リポジトリ](https://github.com/yomon8/markport) · [リリース](https://github.com/yomon8/markport/releases)
 
-Markport は、指定したフォルダの Markdown・HTML・コード・画像・PDF をブラウザでまとめて確認できる CLI ツールです。AI エージェントが作った文書やファイルの確認にも便利です。ディレクトリを指定するだけでローカルに配信し、ファイルは読み取り専用で一切書き換えません。
+Markport は、AI エージェントの出力をブラウザで確認する、ローカル・読み取り専用の Markdown ビューアです。フォルダ内の Markdown・HTML・コード・画像・PDF を並べてプレビューし、Git 差分や履歴も確認できます。CLI にディレクトリを指定するだけで、ファイルを書き換えずに閲覧できます。
 
-![Markdown と本文検索の結果を表示した Markport](docs/screenshots/content-search.png)
+<img src="docs/screenshots/content-search.png" alt="Markdown ファイルと本文検索の結果を表示した Markport" width="1280" height="800">
 
 ## 主な機能
 
@@ -22,7 +22,20 @@ Markport は、指定したフォルダの Markdown・HTML・コード・画像�
 - **印刷・PDF 保存：** 図や数式を描画した状態で Markdown を印刷できます。
 - **単一の実行ファイル：** Go・Node.js や別置きの Web アセットは不要で、ブラウザだけで使えます。
 
-[Git の変更確認](docs/screenshots/reviewed-changes.png) · [分割表示](docs/screenshots/split-view.png) · [貼り付けた Markdown](docs/screenshots/pasted-markdown.png) · [ダークテーマ](docs/screenshots/content-search-dark.png) · [モバイル表示](docs/screenshots/mobile.png)
+<details>
+<summary>その他のスクリーンショット</summary>
+
+<p><img src="docs/screenshots/reviewed-changes.png" alt="変更ファイルと確認状態を表示した Markport の Git レビュー" width="1280" height="800" loading="lazy"></p>
+
+<p><img src="docs/screenshots/split-view.png" alt="2つの Markdown ファイルを比較する Markport の分割表示" width="1280" height="800" loading="lazy"></p>
+
+<p><img src="docs/screenshots/pasted-markdown.png" alt="ファイルを作らずに貼り付けた Markdown をプレビューする Markport" width="1280" height="800" loading="lazy"></p>
+
+<p><img src="docs/screenshots/content-search-dark.png" alt="ダークテーマで Markdown プレビューと本文検索を表示した Markport" width="1280" height="800" loading="lazy"></p>
+
+<p><img src="docs/screenshots/mobile.png" alt="幅の狭いモバイル画面で Markdown を表示した Markport" width="390" height="844" loading="lazy"></p>
+
+</details>
 
 ## 目次
 
@@ -110,7 +123,7 @@ markport ./notes --lan --auto-port
 
 サイドバーのファイルや検索結果の横にある矢印で、右側にファイルを開けます。左右は独立してスクロール・自動更新されます。**Swap panes** で左右を入れ替え、**Show this file only** で右のファイルだけを表示し、**Close split view** で左のファイルだけの表示に戻ります。狭い画面では上下に並びます。
 
-### コード・表・図・数式
+### コード・表・Mermaid 図・LaTeX 数式
 
 コードブロックやソース表示の **Wrap lines** で長い行を折り返し、**Copy** でコードをコピーできます。Markdown の表には原文の Markdown をコピーする **Copy** があり、横に長い表には **Wrap cells** と **Expand** も表示します。横に長い表は水平スクロールでき、隠れた部分がある場合は端に目印を表示します。折り返し設定はブラウザに保存され、分割表示の両ペインと貼り付けた Markdown にも適用されます。
 

@@ -1,10 +1,54 @@
+title: Markport
+description: >-
+  Local, read-only Markdown viewer for AI agent output. Preview Markdown,
+  HTML, code, PDFs, and Git diffs in your browser from a single binary.
+url: https://yomon8.github.io
+baseurl: /markport
+theme: jekyll-theme-primer
+lang: en-US
+locale: en_US
+
 plugins:
   - jekyll-sitemap
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      image:
+        path: /docs/og-image.png
+        width: 1200
+        height: 630
+      og_image_alt: Markport showing a Markdown file and content search results
+  - scope:
+      path: README.md
+    values:
+      title: Local Markdown Viewer for AI Agent Output
+      lang: en-US
+      locale: en_US
+  - scope:
+      path: README.ja.md
+    values:
+      title: AI 出力を確認するローカル Markdown ビューア
+      description: >-
+        フォルダ内の Markdown・HTML・コード・画像・PDF・Git 差分をブラウザで読み取り専用プレビュー。
+        AI エージェントの出力確認に使える、単一バイナリのローカル CLI ツール。
+      lang: ja
+      locale: ja_JP
+      og_image_alt: Markdown ファイルと本文検索の結果を表示した Markport
+  - scope:
+      path: google94b07decab1153ec.html
+    values:
+      sitemap: false
 
 exclude:
   - AGENTS.md
   - CLAUDE.md
   - spec.md
   - docs/theme-contrast.md
+  - docs/pages-seo.md
+  - scripts
+  - internal/web/dist
+  - dist
   - testdata
   - web

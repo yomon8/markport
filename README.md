@@ -1,4 +1,4 @@
-# markport
+# Markport — local Markdown viewer for AI agent output
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="logo/markport-logo-horizontal-dark.svg">
@@ -7,9 +7,9 @@
 
 [日本語](README.ja.md) · [Repository](https://github.com/yomon8/markport) · [Releases](https://github.com/yomon8/markport/releases)
 
-Markport opens a folder in your browser so you can read and review Markdown, HTML, code, images, and PDFs side by side. It is handy for checking documents and files produced by AI agents. Point the CLI at a directory and Markport serves it locally — read-only, without changing any files.
+Markport is a local, read-only Markdown viewer that opens a folder in your browser to review AI agent output. Preview Markdown, HTML, code, images, and PDFs side by side, and inspect Git diffs and history. Point the CLI at a directory to start browsing without changing any files.
 
-![Markport showing a Markdown file and content search results](docs/screenshots/content-search.png)
+<img src="docs/screenshots/content-search.png" alt="Markport showing a Markdown file and content search results" width="1280" height="800">
 
 ## Highlights
 
@@ -22,7 +22,20 @@ Markport opens a folder in your browser so you can read and review Markdown, HTM
 - **Print or save as PDF:** print Markdown with rendered diagrams and formulas.
 - **Single executable:** no Go, Node.js, or separate web assets needed — only a browser.
 
-[Git review](docs/screenshots/reviewed-changes.png) · [Split view](docs/screenshots/split-view.png) · [Pasted Markdown](docs/screenshots/pasted-markdown.png) · [Dark theme](docs/screenshots/content-search-dark.png) · [Mobile layout](docs/screenshots/mobile.png)
+<details>
+<summary>More screenshots</summary>
+
+<p><img src="docs/screenshots/reviewed-changes.png" alt="Markport Git review showing changed files and review status" width="1280" height="800" loading="lazy"></p>
+
+<p><img src="docs/screenshots/split-view.png" alt="Markport split view comparing two Markdown files" width="1280" height="800" loading="lazy"></p>
+
+<p><img src="docs/screenshots/pasted-markdown.png" alt="Markport previewing pasted Markdown without creating a file" width="1280" height="800" loading="lazy"></p>
+
+<p><img src="docs/screenshots/content-search-dark.png" alt="Markport Markdown preview and content search in the dark theme" width="1280" height="800" loading="lazy"></p>
+
+<p><img src="docs/screenshots/mobile.png" alt="Markport Markdown viewer on a narrow mobile screen" width="390" height="844" loading="lazy"></p>
+
+</details>
 
 ## Contents
 
@@ -110,7 +123,7 @@ Open **Search contents**, enter **Text to find**, and optionally set **Folder** 
 
 Use the arrow beside a file in the sidebar or a search result to open it on the right. Each pane scrolls and refreshes independently. Use **Swap panes** to exchange the files, **Show this file only** to keep only the right file, or **Close split view** to return to the left file. On narrow screens the panes stack vertically.
 
-### Code, tables, diagrams, and math
+### Code, tables, Mermaid diagrams, and LaTeX math
 
 Use **Wrap lines** in a code block or source view to wrap long lines, and **Copy** to copy the code. Markdown tables have **Copy** to copy their original Markdown, plus **Wrap cells** and **Expand** for wide tables; wide tables scroll horizontally and show edge hints when more content is available. Wrapping choices are saved in this browser and apply to both split panes and pasted Markdown.
 

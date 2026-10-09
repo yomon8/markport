@@ -1,0 +1,38 @@
+<link rel="icon" type="image/svg+xml" href="{{ '/logo/markport-favicon.svg' | relative_url }}">
+<meta property="og:image:alt" content="{{ page.og_image_alt | escape }}">
+<meta name="twitter:image:alt" content="{{ page.og_image_alt | escape }}">
+<style>
+  .markdown-body img { height: auto; }
+</style>
+{% if page.path == 'README.md' or page.path == 'README.ja.md' %}
+<link rel="alternate" hreflang="en" href="{{ '/' | absolute_url }}">
+<link rel="alternate" hreflang="ja" href="{{ '/README.ja.html' | absolute_url }}">
+<link rel="alternate" hreflang="x-default" href="{{ '/' | absolute_url }}">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      "@id": {{ '/#application' | absolute_url | jsonify }},
+      "name": "Markport",
+      "url": {{ '/' | absolute_url | jsonify }},
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Linux, macOS, Windows",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "downloadUrl": "https://github.com/yomon8/markport/releases",
+      "image": {{ '/docs/og-image.png' | absolute_url | jsonify }},
+      "description": {{ page.description | default: site.description | strip_newlines | jsonify }},
+      "inLanguage": {{ page.lang | default: site.lang | jsonify }}
+    },
+    {
+      "@type": "SoftwareSourceCode",
+      "@id": {{ '/#source-code' | absolute_url | jsonify }},
+      "name": "Markport source code",
+      "codeRepository": "https://github.com/yomon8/markport",
+      "targetProduct": { "@id": {{ '/#application' | absolute_url | jsonify }} }
+    }
+  ]
+}
+</script>
+{% endif %}
