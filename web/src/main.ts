@@ -14,6 +14,7 @@ import { initContentSearch } from './contentSearch';
 import { copyWithFeedback, createCopyButton } from './copyControls';
 import { createToolButton, setToolButton } from './toolButtons';
 import { createPasteEditor } from './pasteEditor';
+import { createContentWidth } from './contentWidth';
 import { TabTitle } from './tabTitle';
 import { ServerInfo } from './serverInfo';
 import { createDiagramOverlay } from './diagramOverlay';
@@ -36,6 +37,7 @@ app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header
 const diagramOverlay = createDiagramOverlay();
 const tableOverlay = createTableOverlay();
 const printView = createPrintView();
+const contentWidth = createContentWidth();
 const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]') ?? document.createElement('link');
 icon.rel = 'icon'; icon.type = 'image/svg+xml'; icon.href = favicon;
 if (!icon.isConnected) document.head.append(icon);
@@ -118,6 +120,8 @@ const rightPrint = document.createElement('button');
 rightPrint.type = 'button'; rightPrint.className = 'title-icon'; setIcon(rightPrint, 'printer');
 rightPrint.setAttribute('aria-label', 'Print / Save as PDF'); rightPrint.title = 'Print / Save as PDF'; rightPrint.hidden = true;
 rightDownload.before(rightPrint);
+const rightWidth = contentWidth.createButton(); rightWidth.hidden = true;
+rightPrint.before(rightWidth);
 let rightShownPath = ''; let rightShownKey = ''; let rightSourceMode = new URL(location.href).searchParams.get('right-source') === '1'; let rightRequest = 0;
 let pendingRightScroll: number | undefined;
 let rightTag = ''; let rightTagCheckedAt = 0;
@@ -328,7 +332,7 @@ function updateRightMenu(): void {
   if (!rightMenu.hidden) return;
   rightMenu.replaceChildren();
   for (const control of document.querySelectorAll<HTMLButtonElement>('#right-title .right-actions>button:not(.right-more), #right-title .view-segment:not([hidden]) button')) {
-    if (control.hidden) continue;
+    if (control.hidden || control.classList.contains('content-width-toggle')) continue;
     const item = document.createElement('button'); item.type = 'button'; item.textContent = control.getAttribute('aria-label') ?? control.textContent; item.disabled = control.disabled;
     item.setAttribute('role', control.hasAttribute('aria-pressed') ? 'menuitemradio' : 'menuitem');
     if (control.hasAttribute('aria-pressed')) item.setAttribute('aria-checked', control.getAttribute('aria-pressed')!);
@@ -688,6 +692,7 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
     interactive.addEventListener('click', () => setInteractive(path, !enabled)); actions.append(interactive);
   }
   const auxiliary = document.createElement('div'); auxiliary.className = 'title-auxiliary';
+  if (kind === 'markdown' && content.dataset.kind === 'markdown' && selectedMode() === 'file' && !missing) actions.append(contentWidth.createButton());
   const menuButton = document.createElement('button'); menuButton.type = 'button'; menuButton.className = 'title-more'; setIcon(menuButton, 'more'); menuButton.title = 'File actions'; menuButton.setAttribute('aria-label', 'File actions'); menuButton.setAttribute('aria-expanded', 'false'); menuButton.setAttribute('aria-haspopup', 'menu');
   const menu = document.createElement('div'); menu.className = 'title-menu'; menu.setAttribute('role', 'menu'); menu.hidden = true;
   const closeMenu = (): void => { menu.hidden = true; menuButton.setAttribute('aria-expanded', 'false'); menuButton.focus(); };
@@ -858,6 +863,7 @@ function showPaste(): void {
     nextVersion: () => ++pasteVersion,
     version: () => pasteVersion,
     onPrint: (markdown, button) => printView.open(markdown, button),
+    createWidthButton: contentWidth.createButton,
     onText: () => { outlineObserver?.disconnect(); outline.replaceChildren(); outline.hidden = true; },
     onPreview: (preview, current) => {
       decorateContent(); updateOutline();
@@ -948,6 +954,7 @@ function decorateContent(target = content, path = displayedPath): void {
       }
       highlightCodeLines(false);
       highlightCodeLines(false, rightContent, rightLineHash);
+      contentWidth.refresh();
     });
     wrap.classList.add('code-wrap-toggle');
     const controls = document.createElement('div'); controls.className = 'code-toolbar-actions'; controls.append(wrap, button);
@@ -997,6 +1004,7 @@ function decorateContent(target = content, path = displayedPath): void {
     observer?.observe(frame);
   }
   updateTableHeaders();
+  contentWidth.decorate(target.dataset.kind === 'paste' ? target.querySelector<HTMLElement>('.paste-preview')! : target);
 }
 function wrapTable(table: HTMLTableElement): HTMLElement {
   const frame = document.createElement('div'); frame.className = 'table-frame'; frame.classList.toggle('table-nowrap', !wrapTableCells);
@@ -1011,6 +1019,7 @@ function wrapTable(table: HTMLTableElement): HTMLElement {
       updateTableLayout(other);
     }
     updateTableHeaders();
+    contentWidth.refresh();
   });
   const expand = createToolButton('maximize', 'Expand'); expand.classList.add('table-expand');
   expand.addEventListener('click', () => tableOverlay.open(table, expand, !wrapTableCells));
@@ -1095,6 +1104,7 @@ function updateRightOutline(): void {
   }
 }
 function showRightTitle(path: string, kind: FileReply['type'] | 'diff' | 'History' | 'Blame'): void {
+  rightWidth.hidden = kind !== 'markdown' || rightContent.dataset.kind !== 'markdown' || rightSourceMode;
   rightPath.replaceChildren(); rightPath.title = path;
   const parts = path.split('/');
   if (parts.length > 1) {
@@ -1539,7 +1549,7 @@ updateBrand();
 status(liveMessage, 'ok');
 requestRefresh();
 const pollTimer = setInterval(() => { if (!document.hidden) requestRefresh(false); }, 3000);
-window.addEventListener('pagehide', () => { activePane.dispose(); splitResize.dispose(); printView.close(); pasteEditor?.dispose(); clearInterval(pollTimer); onSearchChange(''); tabTitle.dispose(); serverInfo.dispose(); });
+window.addEventListener('pagehide', () => { contentWidth.dispose(); activePane.dispose(); splitResize.dispose(); printView.close(); pasteEditor?.dispose(); clearInterval(pollTimer); onSearchChange(''); tabTitle.dispose(); serverInfo.dispose(); });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     requestRefresh(false);

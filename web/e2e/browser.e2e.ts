@@ -10,6 +10,140 @@ let cacheDirectory: string;
 let port: number;
 let serverProcess: ChildProcess;
 
+function widthMarkdown(): string {
+  const columns = Array.from({ length: 12 }, (_, index) => `Column ${index + 1}`);
+  const table = `| ${columns.join(' | ')} |\n| ${columns.map(() => '---').join(' | ')} |\n| ${columns.map(() => '横長の表セル long value').join(' | ')} |`;
+  const nodes = Array.from({ length: 14 }, (_, index) => `N${index}[横長の図 ${index}]`).join(' --> ');
+  return '# 幅の確認\n\n日本語の説明文。広い画面でも読みやすい幅を維持します。\n\n## 横長の要素\n\n'
+    + table + '\n\n```typescript\nconst wide = "' + 'long value '.repeat(90) + '";\n```\n\n```mermaid\nflowchart LR\n' + nodes + '\n```\n\n'
+    + '## 小さな要素\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n```text\nshort code\n```\n\n'
+    + '> 引用内の表\n>\n' + table.split('\n').map((line) => '> ' + line).join('\n') + '\n\n'
+    + '- リスト内のコード\n\n    ```text\n    ' + 'nested '.repeat(100) + '\n    ```\n\n'
+    + '<details><summary>Details</summary>\n\n```text\n' + 'details '.repeat(100) + '\n```\n\n</details>\n';
+}
+
+test('Markdown widths preserve prose and expand only long top-level blocks', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 2560, height: 1100 });
+  await writeFile(join(directory, 'width-fixture.md'), widthMarkdown());
+  const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto(`http://127.0.0.1:${port}/?path=width-fixture.md`);
+  const root = page.locator('#content'); const prose = root.locator(':scope > p').first();
+  const width = () => prose.evaluate((element) => element.getBoundingClientRect().width);
+  await expect.poll(width).toBe(736);
+  await expect.poll(() => root.locator(':scope > h1').evaluate((element) => element.getBoundingClientRect().width)).toBe(736);
+  await expect.poll(() => root.locator(':scope > h2').first().evaluate((element) => element.getBoundingClientRect().width)).toBe(736);
+  await expect(root.locator(':scope > .table-frame').first()).toHaveClass(/wide-content/);
+  await expect(root.locator(':scope > [data-language]').first()).toHaveClass(/wide-content/);
+  await expect(root.locator(':scope > .mermaid-source')).toHaveClass(/wide-content/);
+  await expect(root.locator(':scope > .table-frame').nth(1)).not.toHaveClass(/wide-content/);
+  await expect(root.locator(':scope > [data-language]').nth(1)).not.toHaveClass(/wide-content/);
+  await expect(root.locator('blockquote .wide-content,li .wide-content,details .wide-content')).toHaveCount(0);
+  const geometry = await page.evaluate(() => {
+    const block = document.querySelector('#content > .table-frame')!.getBoundingClientRect();
+    const outline = document.querySelector('#outline')!.getBoundingClientRect();
+    const main = document.querySelector('#main')!;
+    return { blockWidth: block.width, gap: outline.left - block.right, overflow: main.scrollWidth - main.clientWidth };
+  });
+  expect(geometry.blockWidth).toBeGreaterThan(1024); expect(geometry.gap).toBeGreaterThanOrEqual(24); expect(geometry.overflow).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: testInfo.outputPath('markdown-standard-wide-blocks.png'), fullPage: true });
+  await page.getByRole('button', { name: 'Content width: Standard', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Wide', exact: true }).click(); await expect.poll(width).toBe(1024);
+  await page.getByRole('button', { name: 'Content width: Wide', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Full', exact: true }).click(); await expect.poll(width).toBeGreaterThan(1024);
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('markport-content-width'))).toBe('full');
+  await page.reload(); await expect(page.getByRole('button', { name: 'Content width: Full', exact: true })).toBeVisible();
+  await expect.poll(width).toBeGreaterThan(1024);
+  await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
+  await expect.poll(width).toBeGreaterThan(2100);
+  await page.getByRole('button', { name: 'Source', exact: true }).first().click();
+  await expect(root).toHaveAttribute('data-kind', 'code');
+  await expect(page.locator('.content-width-toggle:visible')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('width controls synchronize split panes and stay within resized panes', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 2560, height: 1100 });
+  await writeFile(join(directory, 'width-split.md'), widthMarkdown());
+  await page.goto(`http://127.0.0.1:${port}/?path=width-split.md&right=width-split.md`);
+  await expect(page.locator('.content-width-toggle:visible')).toHaveCount(2);
+  await page.locator('#right-title .content-width-toggle').click();
+  await page.getByRole('menuitemradio', { name: 'Full', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Content width: Full', exact: true })).toHaveCount(2);
+  const fits = () => page.evaluate(() => ['#main', '#right-pane'].every((selector) => {
+    const pane = document.querySelector(selector)!; const block = pane.querySelector('.table-frame')!;
+    return pane.scrollWidth <= pane.clientWidth + 1 && block.getBoundingClientRect().right <= pane.getBoundingClientRect().right;
+  }));
+  await expect.poll(fits).toBe(true);
+  const handle = page.getByRole('separator', { name: 'Resize file panes', exact: true });
+  await handle.focus(); for (let step = 0; step < 20; step++) await handle.press('ArrowRight');
+  await expect.poll(fits).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('markdown-split-widths.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.content-width-toggle:visible')).toHaveCount(0);
+  await expect.poll(fits).toBe(true);
+  await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('.markdown-layout :is(blockquote,li) :is(.table-frame,.code-frame)')].every((element) => {
+    const parent = element.closest('blockquote,li')!.getBoundingClientRect(); const block = element.getBoundingClientRect();
+    return block.left >= parent.left - 1 && block.right <= parent.right + 1;
+  }))).toBe(true);
+  await page.setViewportSize({ width: 2560, height: 1100 });
+  await expect(page.getByRole('button', { name: 'Content width: Full', exact: true })).toHaveCount(2);
+});
+
+test('Paste previews share the width choice without changing the text editor width', async ({ page }) => {
+  await page.setViewportSize({ width: 2560, height: 1100 });
+  await page.goto(`http://127.0.0.1:${port}/?view=paste`);
+  await expect(page.locator('.content-width-toggle:visible')).toHaveCount(0);
+  await page.getByRole('textbox', { name: 'Markdown Text', exact: true }).fill(widthMarkdown());
+  const editorWidth = await page.locator('.paste-editor').evaluate((element) => element.getBoundingClientRect().width);
+  await page.getByRole('button', { name: 'Rendered', exact: true }).click();
+  const prose = page.locator('.paste-preview > p').first();
+  await expect.poll(() => prose.evaluate((element) => element.getBoundingClientRect().width)).toBe(736);
+  await expect(page.locator('.paste-preview > .table-frame').first()).toHaveClass(/wide-content/);
+  await page.getByRole('button', { name: 'Content width: Standard', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Wide', exact: true }).click();
+  await expect.poll(() => prose.evaluate((element) => element.getBoundingClientRect().width)).toBe(1024);
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Content width: Wide', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Text', exact: true }).click();
+  expect(await page.locator('.paste-editor').evaluate((element) => element.getBoundingClientRect().width)).toBe(editorWidth);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Rendered', exact: true }).click();
+  await expect(page.locator('.content-width-toggle:visible')).toHaveCount(0);
+  await expect.poll(() => page.locator('.paste-preview').evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 2560, height: 1100 });
+  await expect(page.getByRole('button', { name: 'Content width: Wide', exact: true })).toBeVisible();
+});
+
+test('width menu stays on screen, supports keyboard and touch, and retains changes through refresh', async ({ page, browser }) => {
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await writeFile(join(directory, 'width-keyboard.md'), widthMarkdown());
+  await page.goto(`http://127.0.0.1:${port}/?path=width-keyboard.md`);
+  const button = page.getByRole('button', { name: 'Content width: Standard', exact: true });
+  await button.focus(); await button.press('ArrowDown');
+  await expect(page.getByRole('menuitemradio', { name: 'Standard', exact: true })).toBeFocused();
+  await page.getByRole('menuitemradio', { name: 'Standard', exact: true }).press('End');
+  await expect(page.getByRole('menuitemradio', { name: 'Full', exact: true })).toBeFocused();
+  const rect = await page.locator('#content-width-menu').boundingBox();
+  expect(rect!.x).toBeGreaterThanOrEqual(0); expect(rect!.x + rect!.width).toBeLessThanOrEqual(1000);
+  expect(rect!.y).toBeGreaterThanOrEqual(0); expect(rect!.y + rect!.height).toBeLessThanOrEqual(800);
+  await page.getByRole('menuitemradio', { name: 'Full', exact: true }).press('Enter');
+  const full = page.getByRole('button', { name: 'Content width: Full', exact: true }); await expect(full).toBeFocused();
+  await full.press('ArrowDown'); await page.getByRole('menuitemradio', { name: 'Full', exact: true }).press('Escape');
+  await expect(full).toBeFocused(); await expect(page.locator('#content-width-menu')).toBeHidden();
+  await writeFile(join(directory, 'width-keyboard.md'), widthMarkdown() + '\nUpdated paragraph.\n');
+  await expect(page.locator('#content')).toContainText('Updated paragraph.');
+  await expect(page.getByRole('button', { name: 'Content width: Full', exact: true })).toBeVisible();
+  const touch = await browser.newContext({ viewport: { width: 1000, height: 800 }, hasTouch: true, isMobile: true });
+  try {
+    const touchPage = await touch.newPage(); await touchPage.goto(`http://127.0.0.1:${port}/?path=width-keyboard.md`);
+    const control = touchPage.getByRole('button', { name: 'Content width: Standard', exact: true });
+    expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(40); await control.tap();
+    expect(await touchPage.locator('#content-width-menu button').evaluateAll((items) => items.every((item) => item.getBoundingClientRect().height >= 40))).toBe(true);
+    await touchPage.getByRole('menuitemradio', { name: 'Wide', exact: true }).tap();
+    await expect(touchPage.getByRole('button', { name: 'Content width: Wide', exact: true })).toBeVisible();
+  } finally { await touch.close(); }
+});
+
 test('prints Markdown with Mermaid, math, images and paginated text without changing the display theme', async ({ page, context }, testInfo) => {
   test.setTimeout(60000);
   const markdown = '# 日本語 Print document\n\n```mermaid\nflowchart LR\n A[開始] --> B[完了]\n```\n\n```mermaid\nsequenceDiagram\n Alice->>Bob: Hello\n```\n\n$$x^2 + y^2 = z^2$$\n\n![Relative image](image.png)\n\n'
@@ -1242,7 +1376,8 @@ test('scrolls large tables, wraps cells on request, and expands them into an ove
     return { article: document.querySelector('#content')!.getBoundingClientRect().width, frames, mainOverflow: main.scrollWidth - main.clientWidth, cellHeight: cell.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(cell).lineHeight) };
   });
   const sizes = await measure();
-  for (const width of sizes.frames) expect(Math.abs(width - sizes.article)).toBeLessThan(1);
+  expect(Math.abs(sizes.frames[0] - 736)).toBeLessThan(1);
+  expect(Math.abs(sizes.frames[1] - sizes.article)).toBeLessThan(1);
   expect(sizes.mainOverflow).toBeLessThanOrEqual(0);
   expect(sizes.cellHeight).toBeLessThan(sizes.lineHeight * 2);
 
@@ -2215,7 +2350,8 @@ test('uses the available paste viewport and aligns the native editor with Markdo
   await input.focus(); await input.press('Control+Enter');
   await expect(page.getByRole('button', { name: 'Rendered', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.paste-preview h1')).toHaveText('日本語 Heading');
-  expect((await page.locator('.paste-preview').boundingBox())!.width).toBeLessThanOrEqual(736);
+  expect((await page.locator('.paste-preview h1').boundingBox())!.width).toBeLessThanOrEqual(736);
+  expect((await page.locator('.paste-preview').boundingBox())!.width).toBeGreaterThan(736);
   await page.getByRole('button', { name: 'Rendered', exact: true }).press('Control+Enter');
   await expect(page.getByRole('button', { name: 'Text', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(input).toHaveValue(markdown);

@@ -16,6 +16,7 @@ type Options = {
   onPreview: (preview: HTMLElement, current: () => boolean) => void;
   onText: () => void;
   onPrint: (input: ReturnType<typeof printMarkdown>, button: HTMLButtonElement) => void;
+  createWidthButton?: () => HTMLButtonElement;
 };
 export function createPasteEditor(options: Options): { refresh: () => void; dispose: () => void } {
   const { content, title, main } = options;
@@ -72,7 +73,10 @@ export function createPasteEditor(options: Options): { refresh: () => void; disp
     } catch { storageError = 'This browser could not change saved text settings.'; saveState = 'Save failed'; updateStatus(); }
   });
   const privacy = document.createElement('p'); privacy.textContent = 'Browser saving keeps text after closing this tab. Avoid it on shared devices.'; menu.append(privacy);
-  actions.append(segment, more, menu); title.replaceChildren(heading, status, actions);
+  const widthButton = options.createWidthButton?.();
+  if (widthButton) { widthButton.hidden = true; actions.append(segment, widthButton, more, menu); }
+  else actions.append(segment, more, menu);
+  title.replaceChildren(heading, status, actions);
   const editor = document.createElement('div'); editor.className = 'paste-editor';
   const label = document.createElement('label'); label.htmlFor = 'paste-input'; label.textContent = 'Markdown Text'; label.className = 'visually-hidden';
   const surface = document.createElement('div'); surface.className = 'paste-editor-surface';
@@ -142,6 +146,7 @@ export function createPasteEditor(options: Options): { refresh: () => void; disp
   }
   function updateView(): void {
     content.dataset.pasteView = view; editor.hidden = view === 'rendered'; preview.hidden = view === 'text';
+    if (widthButton) widthButton.hidden = view === 'text';
     splitResize.setActive(view === 'split');
     for (const [mode, button] of buttons) button.setAttribute('aria-pressed', String(mode === view));
   }

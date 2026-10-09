@@ -402,3 +402,26 @@ article[data-kind=paste][data-paste-view=split] #paste-resize{grid-column:2;grid
 /* The selected file destination remains visible while using the sidebar. */
 .layout.split .pane-active #file-title,.layout.split .pane-active #right-title{border-bottom-color:var(--accent)}
 .active-pane-badge{flex:none;margin-left:8px;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:600;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+
+/* Markdown prose keeps its chosen measure; wide blocks can use the whole pane. */
+:root{--reading-width:46em}
+:root[data-content-width=wide]{--reading-width:64em}
+:root[data-content-width=full]{--reading-width:100%}
+:is(article[data-kind=markdown],.paste-preview).markdown-layout{max-width:none;min-width:0;display:flow-root}
+:is(article[data-kind=markdown],.paste-preview).markdown-layout>*{width:100%;max-width:var(--reading-width);margin-inline:auto;min-width:0}
+:is(article[data-kind=markdown],.paste-preview).markdown-layout>.wide-content{max-width:none}
+:is(article[data-kind=markdown],.paste-preview).markdown-layout>img{width:auto}
+.content-width-menu{position:fixed;inset:auto;margin:0;z-index:90;width:170px;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;padding:4px;border:1px solid var(--border);border-radius:7px;background:var(--surface);color:var(--text);box-shadow:0 8px 24px #0004}
+.content-width-menu[hidden]{display:none}
+.content-width-menu button{display:block;width:100%;border:0;background:transparent;text-align:left;font-size:13px}
+.content-width-menu button[aria-checked=true]{background:var(--accent-soft);color:var(--accent);font-weight:650}
+@media(pointer:coarse){.content-width-menu button{min-height:40px}}
+@media(max-width:700px){
+  button.content-width-toggle{display:none!important}
+  article[data-kind=markdown].markdown-layout>.code-frame,
+  article[data-kind=markdown].markdown-layout>.table-frame{width:calc(100% + 32px);max-width:none;margin-inline:-16px}
+  .paste-preview.markdown-layout>.code-frame,
+  .paste-preview.markdown-layout>.table-frame{width:calc(100% + 12px);max-width:none;margin-inline:-6px}
+  .paste-preview .code-frame,.paste-preview .table-frame{margin-inline:0}
+  .markdown-layout :is(blockquote,li,details) :is(.code-frame,.table-frame){margin-inline:0;--table-bleed:0px}
+}

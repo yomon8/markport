@@ -123,6 +123,12 @@ Open **Search contents**, enter **Text to find**, and optionally set **Folder** 
 
 Use the arrow beside a file in the sidebar or a search result to open it on the right. Each pane scrolls and refreshes independently. Click a pane or focus a control inside it to select it as the file destination; its title shows **Active**. Files and file/content search results open in the selected pane. **Open on right** always opens on the right. Use **Swap panes** to exchange the files, **Show this file only** to keep only the right file, or **Close split view** to return to the left file. Drag the divider to resize the panes, or focus it and use the left/right arrow keys. Double-click it to restore equal widths. The ratio is saved in this browser. On narrow screens the panes stack vertically.
 
+### Markdown content width
+
+Use the **Content width** icon in a Markdown title bar to choose **Standard** (46em, the default), **Wide** (64em), or **Full** (the available pane width). The choice is saved in this browser per host and port and applies to both split panes and the Rendered/Split previews in **Paste Markdown**. The width control is hidden on screens 700px wide or narrower; your saved choice is retained. Paste's text editor width is a separate setting.
+
+Wide top-level tables, code blocks, and Mermaid diagrams automatically use the available space beyond the prose width, leaving room for the sidebar and Contents outline. Smaller blocks stay aligned with the text. Blocks inside lists, quotes, or details stay within their parent. Content that still does not fit scrolls inside its own block; existing wrapping and Expand controls remain available. Source views and print layouts keep their existing widths.
+
 ### Code, tables, Mermaid diagrams, and LaTeX math
 
 Use **Wrap lines** in a code block or source view to wrap long lines, and **Copy** to copy the code. Markdown tables have **Copy** to copy their original Markdown, plus **Wrap cells** and **Expand** for wide tables; wide tables scroll horizontally and show edge hints when more content is available. Wrapping choices are saved in this browser and apply to both split panes and pasted Markdown.

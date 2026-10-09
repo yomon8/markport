@@ -1,5 +1,6 @@
 // Line icons drawn in the style of Lucide (https://lucide.dev, ISC License).
 const shapes = {
+  contentWidth: '<path d="M4 4v16M20 4v16M4 12h16m-3-3 3 3-3 3M7 9l-3 3 3 3"/>',
   code: '<path d="m8 6-6 6 6 6m8-12 6 6-6 6m-3-15-2 18"/>',
   diagram: '<rect x="8" y="2" width="8" height="6" rx="1"/><rect x="2" y="16" width="8" height="6" rx="1"/><rect x="14" y="16" width="8" height="6" rx="1"/><path d="M12 8v4M6 16v-4h12v4"/>',
   wrap: '<path d="M3 5h18M3 10h13a4 4 0 0 1 0 8h-5m3-3-3 3 3 3M3 15h3"/>',
