@@ -5,11 +5,19 @@ const mermaid = vi.hoisted(() => ({ initialize: vi.fn(), render: vi.fn() }));
 vi.mock('mermaid', () => ({ default: mermaid }));
 const flush = async (): Promise<void> => { await new Promise((resolve) => setTimeout(resolve, 0)); };
 const svg = (label: string): { svg: string } => ({ svg: `<svg><text>${label}</text></svg>` });
+const colors = { '--surface': '#345678', '--text': '#eeeeee', '--text-muted': '#aabbcc', '--accent-soft': '#234567', '--sidebar': '#456789' };
+const common = {
+  securityLevel: 'strict', startOnLoad: false, fontFamily: '"Noto Sans JP", sans-serif', fontSize: 16, look: 'classic',
+  flowchart: { nodeSpacing: 48, rankSpacing: 64, padding: 16, diagramPadding: 12, curve: 'rounded' },
+  gantt: { fontSize: 16, sectionFontSize: 16 },
+};
 
 beforeEach(() => {
   vi.resetModules(); vi.clearAllMocks(); localStorage.clear();
   document.body.innerHTML = '<article><div data-mermaid="true">flowchart LR; A --> B</div></article>';
   document.documentElement.removeAttribute('style');
+  document.documentElement.style.fontFamily = common.fontFamily;
+  for (const [name, value] of Object.entries(colors)) document.documentElement.style.setProperty(name, value);
   mermaid.render.mockResolvedValue(svg('diagram'));
 });
 afterEach(() => { vi.restoreAllMocks(); Reflect.deleteProperty(navigator, 'clipboard'); });
@@ -44,17 +52,39 @@ describe('Mermaid themes', () => {
     let done!: (value: { svg: string }) => void;
     mermaid.render.mockImplementationOnce(() => new Promise((resolve) => { done = resolve; }));
     const printed = drawMermaid(container(), () => true, undefined, true); await flush();
-    expect(mermaid.initialize).toHaveBeenLastCalledWith({ securityLevel: 'strict', startOnLoad: false, theme: 'neutral' });
+    expect(mermaid.initialize).toHaveBeenLastCalledWith({ ...common, theme: 'neutral', themeVariables: { fontFamily: common.fontFamily, fontSize: '16px' } });
     localStorage.setItem('markport-theme', 'light'); done(svg('print')); await printed;
     expect(container().textContent).toContain('print');
     localStorage.setItem('markport-theme', 'dark'); await drawMermaid(container(), () => true);
-    expect(mermaid.initialize).toHaveBeenLastCalledWith({ securityLevel: 'strict', startOnLoad: false, theme: 'dark' });
+    expect(mermaid.initialize).toHaveBeenLastCalledWith(expect.objectContaining({ ...common, theme: 'base', themeVariables: expect.objectContaining({ darkMode: true }) }));
   });
-  it.each(['light', 'dark'])('preserves the existing %s configuration', async (theme) => {
+  it.each(['light', 'dark', 'sepia', 'nord', 'catppuccin-mocha', 'solarized-light', 'rose-pine-dawn', 'tokyo-night', 'tokyo-night-light'])('uses readable shared typography and CSS colors for %s', async (theme) => {
     localStorage.setItem('markport-theme', theme);
     const { drawMermaid } = await import('../src/mermaid');
     await drawMermaid(container(), () => true);
-    expect(mermaid.initialize).toHaveBeenCalledWith({ securityLevel: 'strict', startOnLoad: false, theme: theme === 'dark' ? 'dark' : 'neutral' });
+    expect(mermaid.initialize).toHaveBeenCalledWith(expect.objectContaining({
+      ...common, theme: 'base', themeVariables: expect.objectContaining({
+        fontFamily: common.fontFamily, fontSize: '16px',
+        darkMode: ['dark', 'nord', 'catppuccin-mocha', 'tokyo-night'].includes(theme),
+        background: colors['--surface'], primaryColor: colors['--accent-soft'], primaryTextColor: colors['--text'],
+        primaryBorderColor: colors['--text-muted'], lineColor: colors['--text-muted'],
+        clusterBkg: colors['--sidebar'], edgeLabelBackground: colors['--surface'],
+        actorBkg: colors['--accent-soft'], actorTextColor: colors['--text'], signalTextColor: colors['--text'],
+        noteBkgColor: colors['--sidebar'], noteTextColor: colors['--text'],
+        pieStrokeColor: colors['--text-muted'], pieOuterStrokeColor: colors['--text-muted'], pieSectionTextColor: colors['--text'],
+      }),
+    }));
+  });
+
+  it('uses the printable document font without taking its colors from the screen', async () => {
+    localStorage.setItem('markport-theme', 'dark');
+    const frame = document.createElement('iframe'); document.body.append(frame);
+    const doc = frame.contentDocument!;
+    doc.documentElement.style.fontFamily = 'serif';
+    doc.body.innerHTML = '<article><div data-mermaid="true">flowchart LR; A --> B</div></article>';
+    const { drawMermaid } = await import('../src/mermaid');
+    await drawMermaid(doc.querySelector('article')!, () => true, undefined, true);
+    expect(mermaid.initialize).toHaveBeenLastCalledWith({ ...common, fontFamily: 'serif', theme: 'neutral', themeVariables: { fontFamily: 'serif', fontSize: '16px' } });
   });
 
   it.each(['sepia', 'nord'])('uses CSS colors for %s and preserves the source toggle when redrawing', async (theme) => {
@@ -66,7 +96,7 @@ describe('Mermaid themes', () => {
     await drawMermaid(container(), () => true);
     expect(mermaid.initialize).toHaveBeenLastCalledWith(expect.objectContaining({
       theme: 'base', securityLevel: 'strict', themeVariables: expect.objectContaining({
-        darkMode: theme === 'nord', background: '#123456', primaryColor: '#234567', primaryTextColor: '#eeeeee', primaryBorderColor: '#abcdef', lineColor: '#abcdef',
+        darkMode: theme === 'nord', background: '#345678', primaryColor: '#234567', primaryTextColor: '#eeeeee', primaryBorderColor: '#aabbcc', lineColor: '#aabbcc',
       }),
     }));
     const element = container().firstElementChild as HTMLElement;

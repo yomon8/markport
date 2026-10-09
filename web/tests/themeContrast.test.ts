@@ -18,6 +18,16 @@ function contrast(a: string, b: string): number {
   return (high + 0.05) / (low + 0.05);
 }
 
+describe.each([':root', '[data-color-scheme=dark]', ...['sepia', 'nord', 'catppuccin-mocha', 'solarized-light', 'rose-pine-dawn', 'tokyo-night', 'tokyo-night-light'].map((theme) => `[data-theme=${theme}]`)])('%s diagram contrast', (selector) => {
+  it('keeps standard diagram labels readable on nodes, clusters, and edge backgrounds', () => {
+    const colors = palette(selector);
+    for (const background of ['--accent-soft', '--surface', '--sidebar']) {
+      expect(contrast(colors['--text'], colors[background]), `label on ${background}`).toBeGreaterThanOrEqual(4.5);
+      expect(contrast(colors['--text-muted'], colors[background]), `line on ${background}`).toBeGreaterThanOrEqual(3);
+    }
+  });
+});
+
 describe.each(['sepia', 'nord', 'catppuccin-mocha', 'solarized-light', 'rose-pine-dawn', 'tokyo-night', 'tokyo-night-light'])('%s contrast', (theme) => {
   const colors = palette(`[data-theme=${theme}]`);
   const pairs: string[][] = [];

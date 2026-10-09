@@ -36,7 +36,7 @@ li:has(> input[type=checkbox]) { list-style: none; margin-left: -1.2em; }
 li > input[type=checkbox] { margin-right: .5em; }
 hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
 details { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; }
-.mermaid-source { margin: 1em 0; break-inside: avoid; }
+.mermaid-source { margin: 1em 0; padding: 0; border: 0; background: transparent; break-inside: avoid; }
 .diagram-actions { display: none; }
 .diagram-image svg { display: block; max-width: 100% !important; height: auto; margin: auto; }
 .diagram-error, .math-error, .image-error { color: var(--danger); }

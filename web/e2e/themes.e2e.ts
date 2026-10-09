@@ -9,6 +9,17 @@ let directory: string;
 let port: number;
 let server: ChildProcess;
 const markdown = '# Theme demo\n\n```go\n// A comment\npackage main\nfunc main() { println("Hello") }\n```\n\n```mermaid\nflowchart LR\n  A[Read] --> B[Review]\n```\n\n' + 'A paragraph for scrolling.\n\n'.repeat(80);
+const diagramDefinitions = [
+  'flowchart TB\n subgraph Work[処理の流れ]\n A[開始] --> B{"内容を確認<br/>次の処理を選択"}\n B -->|はい| C[日本語の長いラベルを含む処理の説明]\n B -->|いいえ| D[終了]\n C --> D\n end',
+  'sequenceDiagram\n participant A as 利用者\n participant B as サーバー\n A->>B: 文書を要求\n B-->>A: 描画した文書',
+  'stateDiagram-v2\n [*] --> 待機\n 待機 --> 処理中: 開始\n 処理中 --> 完了\n 完了 --> [*]',
+  'classDiagram\n class Document {\n +String title\n +render()\n }\n class Browser\n Browser --> Document: 表示',
+  'erDiagram\n USER ||--o{ DOCUMENT : reads\n DOCUMENT {\n string title\n }',
+  'gantt\n title 作業予定\n dateFormat YYYY-MM-DD\n section 文書\n 調査 :a, 2026-01-01, 2d\n 実装 :after a, 3d',
+  'pie title 文書の種類\n "Markdown" : 60\n "Code" : 40',
+  'flowchart LR\n A[指定色] --> B[標準色]\n classDef authored fill:#ffdd88,stroke:#885500,color:#222222\n class A authored\n style B fill:#ddffdd,stroke:#225522,color:#222222\n linkStyle 0 stroke:#cc3366,stroke-width:3px',
+];
+const diagramMarkdown = '# Mermaid appearance\n\n' + diagramDefinitions.map((definition) => `\`\`\`mermaid\n${definition}\n\`\`\``).join('\n\n');
 const presets = [
   { label: 'Sepia', id: 'sepia', scheme: 'light', background: 'rgb(244, 236, 216)', node: 'rgb(229, 214, 184)', string: 'rgb(70, 99, 56)' },
   { label: 'Nord', id: 'nord', scheme: 'dark', background: 'rgb(46, 52, 64)', node: 'rgb(57, 66, 82)', string: 'rgb(163, 190, 140)' },
@@ -29,6 +40,7 @@ async function choose(page: Page, label: string): Promise<void> {
 test.beforeAll(async () => {
   directory = await mkdtemp(join(tmpdir(), 'markport-themes-'));
   await writeFile(join(directory, 'demo.md'), markdown);
+  await writeFile(join(directory, 'diagrams.md'), diagramMarkdown);
   await writeFile(join(directory, 'sample.go'), 'package main\n\n// A comment\nfunc main() { println("Hello") }\n' + '// Another line\n'.repeat(120));
   await writeFile(join(directory, 'preview.html'), '<!doctype html><body style="background:#ff8080"><h1>Document colors</h1></body>');
   const git = (...args: string[]): void => {
@@ -57,6 +69,82 @@ test.afterAll(async () => {
   }
   if (directory) await rm(directory, { recursive: true, force: true });
 });
+
+test('renders Japanese diagrams and author styles across diagram families', async ({ page }, testInfo) => {
+  test.setTimeout(60000);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.goto(url('?path=diagrams.md'));
+  for (const theme of ['Light', 'Dark', 'Sepia', 'Nord']) {
+    await expect(page.locator('#content .diagram-image svg')).toHaveCount(diagramDefinitions.length);
+    const previousId = await page.locator('#content .diagram-image svg').last().getAttribute('id');
+    const previousTheme = await page.locator('html').getAttribute('data-theme');
+    await choose(page, theme);
+    if (previousTheme !== theme.toLowerCase()) {
+      await expect(page.locator('#content .diagram-image svg').last()).not.toHaveAttribute('id', previousId!);
+    }
+    await expect(page.locator('#content .diagram-image svg')).toHaveCount(diagramDefinitions.length);
+    await expect(page.locator('#content .diagram-error')).toHaveCount(0);
+    await expect(page.locator('#content .diagram-image').first()).toContainText('日本語の長いラベル');
+    const authored = page.locator('#content .diagram-image').last();
+    await expect(authored.locator('.node > rect').first()).toHaveCSS('fill', 'rgb(255, 221, 136)');
+    await expect(authored.locator('.node > rect').last()).toHaveCSS('fill', 'rgb(221, 255, 221)');
+    await expect(authored.locator('path.flowchart-link')).toHaveCSS('stroke', 'rgb(204, 51, 102)');
+    const label = page.locator('#content .diagram-image .nodeLabel').first();
+    await expect(label).toHaveCSS('font-size', '16px');
+    await expect(label).toHaveCSS('font-family', await page.locator('html').evaluate((root) => getComputedStyle(root).fontFamily));
+    const mutedColor = await page.locator('html').evaluate((root) => {
+      const probe = document.createElement('span'); probe.style.color = 'var(--text-muted)'; root.append(probe);
+      const color = getComputedStyle(probe).color; probe.remove(); return color;
+    });
+    await expect(page.locator('#content .diagram-image').nth(6).locator('path').first()).toHaveCSS('stroke', mutedColor);
+    await expect(page.locator('#content .diagram-image').nth(5).locator('.taskText').first()).toHaveCSS('font-size', '16px');
+    const clippedLabels = await page.locator('#content .diagram-image').first().evaluate((image) => [...image.querySelectorAll('.node')].filter((node) => {
+      const shape = node.querySelector<SVGGraphicsElement>(':scope > .label-container');
+      const label = node.querySelector<SVGGraphicsElement>('.label');
+      if (!shape || !label) return false;
+      const outer = shape.getBoundingClientRect(); const inner = label.getBoundingClientRect();
+      return inner.left < outer.left - 1 || inner.right > outer.right + 1 || inner.top < outer.top - 1 || inner.bottom > outer.bottom + 1;
+    }).length);
+    expect(clippedLabels).toBe(0);
+    await page.screenshot({ path: testInfo.outputPath(`mermaid-${theme.toLowerCase()}.png`), fullPage: true });
+    for (const [index, diagram] of (await page.locator('#content [data-mermaid]').all()).entries()) {
+      await diagram.screenshot({ path: testInfo.outputPath(`mermaid-${theme.toLowerCase()}-${index + 1}.png`) });
+    }
+    await page.locator('#main').evaluate((main) => { main.scrollTop = 0; });
+  }
+});
+
+for (const width of [1280, 390, 320]) {
+  test(`keeps diagrams readable and scrollable at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.goto(url('?path=demo.md&right=demo.md'));
+    for (const pane of ['#content', '#right-content']) {
+      const diagram = page.locator(`${pane} .diagram-image`);
+      await expect(diagram.locator('svg')).toBeVisible();
+      await expect(diagram.locator('.nodeLabel').first()).toHaveCSS('font-size', '16px');
+      await expect(page.locator(`${pane} [data-mermaid]`)).toHaveCSS('padding', '16px');
+      await expect(page.locator(`${pane} [data-mermaid]`)).toHaveCSS('border-radius', '12px');
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.locator('#content [data-diagram-action=expand]').click();
+    await expect(page.locator('#overlay-content .nodeLabel').first()).toHaveCSS('font-size', '16px');
+    await page.keyboard.press('Escape');
+    if (!(await page.locator('#paste-toggle').isVisible())) await page.getByRole('button', { name: 'App settings' }).click();
+    await page.locator('#paste-toggle').click();
+    await page.locator('#paste-input').fill(diagramMarkdown);
+    await page.getByRole('button', { name: 'Rendered', exact: true }).click();
+    await expect(page.locator('#content .diagram-image svg')).toHaveCount(diagramDefinitions.length);
+    await expect(page.locator('#content .diagram-error')).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    const wide = page.locator('#content .diagram-image').last();
+    expect(await wide.evaluate((image) => {
+      if (image.scrollWidth <= image.clientWidth) return true;
+      image.scrollLeft = 20; return image.scrollLeft > 0;
+    })).toBe(true);
+  });
+}
 
 for (const width of [1280, 390, 320]) {
   test(`theme choices, persistence, code, diagrams, and previews at ${width}px`, async ({ page }, testInfo) => {

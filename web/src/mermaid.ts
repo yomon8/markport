@@ -7,22 +7,36 @@ let serial = 0;
 let queue: Promise<void> = Promise.resolve();
 const generations = new WeakMap<HTMLElement, symbol>();
 
-function config(): MermaidConfig {
-  const theme = effectiveThemeId();
-  if (theme === 'light' || theme === 'dark') {
-    return { securityLevel: 'strict', startOnLoad: false, theme: theme === 'dark' ? 'dark' : 'neutral' };
-  }
+function config(container: HTMLElement, print: boolean): MermaidConfig {
+  const root = container.ownerDocument.documentElement;
+  const fontFamily = (container.ownerDocument.defaultView ?? window).getComputedStyle(root).fontFamily || 'system-ui, sans-serif';
+  const common: MermaidConfig = {
+    securityLevel: 'strict', startOnLoad: false, fontFamily, fontSize: 16,
+    look: 'classic',
+    flowchart: { nodeSpacing: 48, rankSpacing: 64, padding: 16, diagramPadding: 12, curve: 'rounded' },
+    gantt: { fontSize: 16, sectionFontSize: 16 },
+  };
+  // Print colors must stay independent of the display theme. Share typography and spacing only.
+  if (print) return { ...common, theme: 'neutral', themeVariables: { fontFamily, fontSize: '16px' } };
   const css = getComputedStyle(document.documentElement);
   const color = (name: string): string => css.getPropertyValue(name).trim();
   return {
-    securityLevel: 'strict', startOnLoad: false, theme: 'base',
+    ...common, theme: 'base',
     themeVariables: {
+      fontFamily, fontSize: '16px',
       darkMode: effectiveTheme() === 'dark',
-      background: color('--code-bg'), textColor: color('--text'),
-      primaryColor: color('--accent-soft'), primaryTextColor: color('--text'), primaryBorderColor: color('--accent'),
-      secondaryColor: color('--surface'), secondaryTextColor: color('--text'), secondaryBorderColor: color('--accent'),
-      tertiaryColor: color('--sidebar'), tertiaryTextColor: color('--text'), tertiaryBorderColor: color('--accent'),
-      lineColor: color('--accent'), nodeTextColor: color('--text'),
+      background: color('--surface'), textColor: color('--text'),
+      primaryColor: color('--accent-soft'), primaryTextColor: color('--text'), primaryBorderColor: color('--text-muted'),
+      secondaryColor: color('--surface'), secondaryTextColor: color('--text'), secondaryBorderColor: color('--text-muted'),
+      tertiaryColor: color('--sidebar'), tertiaryTextColor: color('--text'), tertiaryBorderColor: color('--text-muted'),
+      lineColor: color('--text-muted'), nodeBorder: color('--text-muted'), nodeTextColor: color('--text'),
+      clusterBkg: color('--sidebar'), clusterBorder: color('--text-muted'), edgeLabelBackground: color('--surface'),
+      actorBkg: color('--accent-soft'), actorBorder: color('--text-muted'), actorTextColor: color('--text'),
+      actorLineColor: color('--text-muted'), signalColor: color('--text-muted'), signalTextColor: color('--text'),
+      labelBoxBkgColor: color('--surface'), labelBoxBorderColor: color('--text-muted'), labelTextColor: color('--text'),
+      noteBkgColor: color('--sidebar'), noteBorderColor: color('--text-muted'), noteTextColor: color('--text'),
+      pieStrokeColor: color('--text-muted'), pieOuterStrokeColor: color('--text-muted'),
+      pieTitleTextColor: color('--text'), pieSectionTextColor: color('--text'), pieLegendTextColor: color('--text'),
     },
   };
 }
@@ -33,7 +47,7 @@ export function drawMermaid(container: HTMLElement, current: () => boolean, rend
   const generation = Symbol();
   generations.set(container, generation);
   const theme = effectiveThemeId();
-  const options: MermaidConfig = print ? { securityLevel: 'strict', startOnLoad: false, theme: 'neutral' } : config();
+  const options = config(container, print);
   const definitions = elements.map((element) => {
     const definition = element.dataset.source ?? element.textContent ?? '';
     element.dataset.source = definition;

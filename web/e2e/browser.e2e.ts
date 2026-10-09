@@ -158,6 +158,10 @@ test('prints Markdown with Mermaid, math, images and paginated text without chan
   const frame = page.frameLocator('#print-view iframe');
   await expect(dialog.getByRole('button', { name: 'Print / Save as PDF' })).toBeEnabled({ timeout: 30000 });
   await expect(frame.locator('[data-mermaid] .diagram-image svg')).toHaveCount(2);
+  await expect(frame.locator('.diagram-image .nodeLabel').first()).toHaveCSS('font-size', '16px');
+  await expect(frame.locator('.diagram-image .nodeLabel').first()).toHaveCSS('font-family', await frame.locator('html').evaluate((root) => getComputedStyle(root).fontFamily));
+  await expect(frame.locator('.mermaid-source').first()).toHaveCSS('border-width', '0px');
+  await expect(frame.locator('.mermaid-source').first()).toHaveCSS('padding', '0px');
   await expect(frame.locator('.katex')).toHaveCount(1); await expect(frame.getByRole('heading', { name: 'Document end' })).toBeVisible();
   expect(await frame.locator('img').evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth > 0)).toBe(true);
   expect(await frame.locator('body').evaluate((body) => getComputedStyle(body).backgroundColor)).toBe('rgb(255, 255, 255)');

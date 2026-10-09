@@ -135,6 +135,8 @@ Use **Wrap lines** in a code block or source view to wrap long lines, and **Copy
 
 Mermaid diagrams have **Copy**, **Source**, and **Expand** controls. Copy copies the diagram definition without code fences. In the expanded view, drag to pan, use the zoom buttons or a pinch gesture to zoom, and choose **Fit diagram** or **100%** to reset the scale.
 
+Diagrams use the document font, soft theme colors, and balanced spacing. Screen themes apply to diagrams; print previews use a neutral palette on white.
+
 Math is rendered with bundled KaTeX, with no CDN or internet connection required, in Markdown previews, both split panes, and **Paste Markdown**. Use `$E=mc^2$` or `\(E=mc^2\)` for inline math, and `$$E=mc^2$$` or `\[E=mc^2\]` for display math, which can span multiple lines:
 
 ```markdown
