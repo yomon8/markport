@@ -1078,7 +1078,12 @@ test('resizes file panes, restores their ratio and keeps mobile stacking', async
   const ratio = await handle.getAttribute('aria-valuenow');
   await page.reload(); await expect(handle).toHaveAttribute('aria-valuenow', ratio!);
   await page.locator('#sidebar-toggle').click(); await expect(handle).toHaveAttribute('aria-valuenow', ratio!);
-  await page.getByRole('button', { name: 'Swap panes' }).click(); await expect(handle).toHaveAttribute('aria-valuenow', ratio!);
+  await page.getByRole('button', { name: 'Swap panes' }).click();
+  await expect(page.locator('#file-title .breadcrumbs strong')).toHaveText('sample.py');
+  await expect(page.locator('#content')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('#right-path strong')).toHaveText('README.md');
+  await expect(page.locator('#right-content')).toHaveAttribute('aria-busy', 'false');
+  await expect(handle).toHaveAttribute('aria-valuenow', ratio!);
   await handle.focus(); const previous = await width(); await page.keyboard.press('ArrowLeft');
   expect(await width()).toBeCloseTo(previous - 10, 0);
   await page.keyboard.press('Home'); expect(await width()).toBeCloseTo(200, 0);
