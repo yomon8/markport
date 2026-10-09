@@ -27,6 +27,125 @@ beforeEach(() => {
 afterEach(() => { window.dispatchEvent(new Event('pagehide')); vi.unstubAllGlobals(); });
 
 describe('lazy browsing and refresh', () => {
+  it('opens Files in the selected pane and leaves the other pane untouched', async () => {
+    history.replaceState(null, '', '/?path=a.md&right=b.md');
+    stubFetch(async (url) => {
+      if (url === '/api/tree') return reply(page([entry('a.md'), entry('b.md'), entry('c.md')]));
+      if (url.startsWith('/api/git/')) return reply({ available: false });
+      const path = new URL(url, location.href).searchParams.get('path') ?? '';
+      return reply({ path, type: 'markdown', html: `<h1>${path}</h1>` });
+    });
+    await import('../src/main'); await flush();
+    const left = document.querySelector('#content h1');
+    document.querySelector('#right-content')!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    document.querySelector<HTMLAnchorElement>('#tree a[href="/?path=c.md"]')!.click(); await flush();
+    expect(new URL(location.href).searchParams.get('path')).toBe('a.md');
+    expect(new URL(location.href).searchParams.get('right')).toBe('c.md');
+    expect(document.querySelector('#content h1')).toBe(left);
+    expect(document.querySelector('#right-content h1')?.textContent).toBe('c.md');
+    expect(document.querySelector('#tree a[aria-current]')?.getAttribute('href')).toBe('/?path=c.md');
+    document.querySelector('#content')!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    document.querySelector<HTMLAnchorElement>('#tree a[href="/?path=b.md"]')!.click(); await flush();
+    expect(new URL(location.href).searchParams.get('path')).toBe('b.md');
+    expect(new URL(location.href).searchParams.get('right')).toBe('c.md');
+  });
+
+  it('opens filename line targets in the selected right pane as Source', async () => {
+    history.replaceState(null, '', '/?path=a.md&right=b.md');
+    const fetch = vi.fn(async (url: string) => {
+      if (url === '/api/tree') return reply(page([entry('a.md'), entry('b.md'), entry('c.md')]));
+      if (url === '/api/search-index') return reply({ paths: ['a.md', 'b.md', 'c.md'] });
+      if (url.startsWith('/api/git/')) return reply({ available: false });
+      const path = new URL(url, location.href).searchParams.get('path') ?? '';
+      return reply({ path, type: 'markdown', html: `<h1>${path}</h1>` });
+    });
+    stubFetch(fetch); await import('../src/main'); await flush();
+    document.querySelector<HTMLButtonElement>('#right-copy')!.focus();
+    const search = document.querySelector<HTMLInputElement>('#search')!; search.focus(); search.value = 'c.md:2'; search.dispatchEvent(new Event('input')); await flush();
+    search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await flush();
+    expect(new URL(location.href).searchParams.get('path')).toBe('a.md');
+    expect(new URL(location.href).searchParams.get('right')).toBe('c.md');
+    expect(new URL(location.href).searchParams.get('right-source')).toBe('1');
+    expect(fetch.mock.calls.some(([url]) => url === '/api/file?path=c.md&source=1')).toBe(true);
+    expect(document.querySelector('#right-pane')?.classList.contains('pane-active')).toBe(true);
+  });
+
+  it('selects the right destination after Open on right and resets after closing', async () => {
+    history.replaceState(null, '', '/?path=a.md');
+    stubFetch(async (url) => {
+      if (url === '/api/tree') return reply(page([entry('a.md'), entry('b.md'), entry('c.md')]));
+      if (url.startsWith('/api/git/')) return reply({ available: false });
+      const path = new URL(url, location.href).searchParams.get('path') ?? '';
+      return reply({ path, type: 'markdown', html: `<h1>${path}</h1>` });
+    });
+    await import('../src/main'); await flush();
+    document.querySelector<HTMLButtonElement>('[data-right-path="b.md"]')!.click(); await flush();
+    document.querySelector<HTMLAnchorElement>('#tree a[href="/?path=c.md"]')!.click(); await flush();
+    expect(new URL(location.href).searchParams.get('right')).toBe('c.md');
+    document.querySelector<HTMLButtonElement>('#right-close')!.click(); await flush();
+    document.querySelector<HTMLAnchorElement>('#tree a[href="/?path=b.md"]')!.click(); await flush();
+    expect(new URL(location.href).searchParams.get('path')).toBe('b.md');
+    expect(new URL(location.href).searchParams.has('right')).toBe(false);
+  });
+
+  it('keeps the right selected when a pending left file finishes loading', async () => {
+    history.replaceState(null, '', '/?path=a.md&right=b.md');
+    let finishLeft: ((response: Response) => void) | undefined;
+    stubFetch(async (url) => {
+      if (url === '/api/tree') return reply(page([entry('a.md'), entry('b.md')]));
+      if (url.startsWith('/api/git/')) return reply({ available: false });
+      const path = new URL(url, location.href).searchParams.get('path') ?? '';
+      if (path === 'a.md') return new Promise<Response>((resolve) => { finishLeft = resolve; });
+      return reply({ path, type: 'markdown', html: `<h1>${path}</h1>` });
+    });
+    await import('../src/main'); await flush();
+    document.querySelector<HTMLButtonElement>('#right-copy')!.focus();
+    finishLeft?.(reply({ path: 'a.md', type: 'markdown', html: '<h1>Loaded left</h1>' })); await flush();
+    expect(document.querySelector('#content h1')?.textContent).toBe('Loaded left');
+    expect(document.querySelector('#right-pane')?.classList.contains('pane-active')).toBe(true);
+    expect(document.querySelector('#tree a[aria-current]')?.getAttribute('href')).toBe('/?path=b.md');
+  });
+
+  it('ignores a stale right file response after selecting another file', async () => {
+    history.replaceState(null, '', '/?path=a.md&right=b.md');
+    let finishStale: ((response: Response) => void) | undefined;
+    stubFetch(async (url) => {
+      if (url === '/api/tree') return reply(page([entry('a.md'), entry('b.md'), entry('c.md'), entry('d.md')]));
+      if (url.startsWith('/api/git/')) return reply({ available: false });
+      const path = new URL(url, location.href).searchParams.get('path') ?? '';
+      if (path === 'c.md') return new Promise<Response>((resolve) => { finishStale = resolve; });
+      return reply({ path, type: 'markdown', html: `<h1>${path}</h1>` });
+    });
+    await import('../src/main'); await flush();
+    document.querySelector('#right-content')!.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    document.querySelector<HTMLAnchorElement>('#tree a[href="/?path=c.md"]')!.click();
+    document.querySelector<HTMLAnchorElement>('#tree a[href="/?path=d.md"]')!.click(); await flush();
+    finishStale?.(reply({ path: 'c.md', type: 'markdown', html: '<h1>Stale</h1>' })); await flush();
+    expect(document.querySelector('#right-content h1')?.textContent).toBe('d.md');
+    expect(document.querySelector('#content h1')?.textContent).toBe('a.md');
+    expect(document.querySelector('#tree a[aria-current]')?.getAttribute('href')).toBe('/?path=d.md');
+  });
+
+  it('clears right Git view state while preserving the left Git view', async () => {
+    history.replaceState(null, '', '/?path=a.md&view=blame&right=b.md&right-view=diff&right-base=abc');
+    stubFetch(async (url) => {
+      if (url === '/api/tree') return reply(page([entry('a.md'), entry('b.md'), entry('c.md')]));
+      if (url.startsWith('/api/git/diff')) return reply({ path: 'b.md', kind: 'text', patch: '@@ -1 +1 @@\n-old\n+new\n' });
+      if (url.startsWith('/api/git/')) return reply({ available: false });
+      const path = new URL(url, location.href).searchParams.get('path') ?? '';
+      return reply({ path, type: 'markdown', html: `<h1>${path}</h1>` });
+    });
+    await import('../src/main'); await flush();
+    const left = document.querySelector('#content')!.firstChild;
+    document.querySelector<HTMLButtonElement>('#right-copy')!.focus();
+    document.querySelector<HTMLAnchorElement>('#tree a[href="/?path=c.md"]')!.click(); await flush();
+    const url = new URL(location.href);
+    expect(url.searchParams.get('path')).toBe('a.md'); expect(url.searchParams.get('view')).toBe('blame');
+    expect(url.searchParams.get('right')).toBe('c.md'); expect(url.searchParams.has('right-view')).toBe(false); expect(url.searchParams.has('right-base')).toBe(false);
+    expect(document.querySelector('#content')!.firstChild).toBe(left);
+    expect(document.querySelector('#right-content h1')?.textContent).toBe('c.md');
+  });
+
   it('refreshes staging in the diff heading without changing the patch or review state', async () => {
     history.replaceState(null, '', '/?path=a.md&view=diff');
     let code = ' M';

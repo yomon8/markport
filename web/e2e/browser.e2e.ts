@@ -858,6 +858,7 @@ test('opens file search line targets in both panes and preserves scroll on refre
   expect(await page.locator('#right-pane').evaluate((pane) => pane.scrollTop)).toBe(300);
   await page.locator('#right-rendered').click();
   await expect(rightSelected).toHaveCount(0);
+  await page.locator('#file-title .breadcrumbs strong').click();
   await search.fill(`${path}:999`);
   await page.locator('#tree .search-results a').click();
   await expect(page).toHaveURL(/#L999/);
@@ -985,6 +986,147 @@ test('keeps an unchanged page still during automatic refresh', async ({ page }) 
   await expect(page.locator('#reload')).toBeEnabled();
   await expect(page.locator('#progress')).toBeHidden();
   await expect(page.locator('#content')).toHaveAttribute('aria-busy', 'false');
+});
+
+test('opens Files in the clicked pane and keeps the other document and scroll', async ({ page }, testInfo) => {
+  for (const name of ['active-a', 'active-b', 'active-c']) await writeFile(join(directory, 'docs', `${name}.md`), `# ${name}\n\n${'Paragraph\n\n'.repeat(100)}`);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`http://127.0.0.1:${port}/?path=docs%2Factive-a.md&right=docs%2Factive-b.md`);
+  await expect(page.locator('#content h1')).toHaveText('active-a'); await expect(page.locator('#right-content h1')).toHaveText('active-b');
+  await expect(page.locator('#main .active-pane-badge')).toBeVisible();
+  await page.locator('#main').evaluate((element) => { element.scrollTop = 300; });
+  const scroll = await page.locator('#main').evaluate((element) => element.scrollTop);
+  await page.locator('#right-content h1').click();
+  await expect(page.locator('#right-pane .active-pane-badge')).toBeVisible();
+  await expect(page.locator('#tree a[aria-current]')).toHaveAttribute('href', '/?path=docs%2Factive-b.md');
+  await page.locator('#tree a[href="/?path=docs%2Factive-c.md"]').click();
+  await expect(page.locator('#right-content h1')).toHaveText('active-c'); await expect(page.locator('#content h1')).toHaveText('active-a');
+  expect(await page.locator('#main').evaluate((element) => element.scrollTop)).toBe(scroll);
+  await page.locator('#reload').click(); await expect(page.locator('#right-pane .active-pane-badge')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('selected-right-pane.png') });
+  await page.locator('#file-title .breadcrumbs strong').click(); await expect(page.locator('#main .active-pane-badge')).toBeVisible();
+  await page.locator('#tree a[href="/?path=docs%2Factive-b.md"]').click();
+  await expect(page.locator('#content h1')).toHaveText('active-b'); await expect(page.locator('#right-content h1')).toHaveText('active-c');
+});
+
+test('opens filename and content search line targets in the keyboard-selected pane', async ({ page }) => {
+  const path = 'docs/active-deep/nested/active-search.md';
+  await mkdir(join(directory, 'docs', 'active-deep', 'nested'), { recursive: true });
+  await writeFile(join(directory, path), '# Search target\n\nactive search needle\n');
+  await page.setViewportSize({ width: 1440, height: 900 }); await page.goto(`http://127.0.0.1:${port}/?path=README.md&right=sample.py`);
+  await expect(page.locator('#right-content')).toHaveAttribute('aria-busy', 'false');
+  await page.locator('#right-copy').focus(); await page.keyboard.press('/');
+  const search = page.locator('#search'); await expect(search).toBeFocused(); await search.fill(`${path}:3`);
+  await expect(page.locator('#tree .search-results a')).toHaveCount(1); await page.keyboard.press('Enter');
+  await expect(page.locator('#right-source')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#right-content .line.selected-code-line')).toHaveCount(1); await expect(page.locator('#content h1')).toHaveText('Demo');
+  expect(new URL(page.url()).searchParams.get('right')).toBe(path);
+  const searchContents = page.locator('#content-search'); await searchContents.locator('summary').click();
+  await page.locator('#content-query').fill('active search needle'); await page.locator('#content-folder').fill('docs');
+  await searchContents.getByRole('button', { name: 'Search', exact: true }).click();
+  await expect(page.locator('.content-search-results a')).toHaveCount(1); await page.locator('.content-search-results a').click();
+  await expect(page.locator('#right-content .line.selected-code-line')).toHaveCount(1); await expect(page.locator('#content h1')).toHaveText('Demo');
+  await search.fill(''); await expect(page.locator('#tree a[aria-current]')).toHaveAttribute('href', `/?path=${encodeURIComponent(path)}`);
+  for (const folder of ['docs', 'docs/active-deep', 'docs/active-deep/nested']) await expect(page.locator(`#tree details[data-path="${folder}"]`)).toHaveAttribute('open', '');
+});
+
+test('iframe focus, divider operations and browser navigation preserve the file destination', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  for (const file of ['docs/first.html', 'docs/sample.pdf']) {
+    await page.goto(`http://127.0.0.1:${port}/?path=README.md&right=${encodeURIComponent(file)}`);
+    await expect(page.locator('#right-content iframe')).toBeVisible();
+    await expect(page.locator('#main .active-pane-badge')).toBeVisible();
+    await page.locator('#right-content iframe').click({ position: { x: 60, y: 70 } });
+    await expect(page.locator('#right-pane .active-pane-badge')).toBeVisible();
+    const divider = page.getByRole('separator', { name: 'Resize file panes' }); await divider.focus(); await page.keyboard.press('ArrowLeft');
+    await expect(page.locator('#right-pane .active-pane-badge')).toBeVisible();
+    await page.locator('#tree a[href="/?path=sample.py"]').click();
+    await expect(page.locator('#right-path strong')).toHaveText('sample.py'); await expect(page.locator('#content h1')).toHaveText('Demo');
+    await page.goBack(); await expect(page.locator('#right-content iframe')).toBeVisible();
+    await expect(page.locator('#tree a[aria-current]')).toHaveAttribute('href', `/?path=${encodeURIComponent(file)}`);
+    await page.goForward(); await expect(page.locator('#right-path strong')).toHaveText('sample.py');
+  }
+});
+
+test('keeps the selected destination after swapping and uses stacked panes on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 600, height: 900 }); await page.goto(`http://127.0.0.1:${port}/?path=README.md&right=sample.py`);
+  await expect(page.locator('#right-content')).toHaveAttribute('aria-busy', 'false');
+  await page.locator('#right-path').click(); await expect(page.locator('#right-pane .active-pane-badge')).toBeVisible();
+  await page.getByRole('button', { name: 'File actions', exact: true }).last().click();
+  await page.locator('#right-pane').getByRole('menuitem', { name: 'Swap panes' }).click();
+  await expect(page.locator('#right-content h1')).toHaveText('Demo'); await expect(page.locator('#right-pane .active-pane-badge')).toBeVisible();
+  await page.locator('#drawer-toggle').click(); await page.locator('#tree details[data-path="docs"] > summary').click(); await page.locator('#tree a[href="/?path=docs%2Fsample.pdf"]').click();
+  await expect(page.locator('#right-content .pdf-preview')).toBeVisible();
+  expect(new URL(page.url()).searchParams.get('path')).toBe('sample.py');
+  await page.getByRole('button', { name: 'File actions', exact: true }).last().click();
+  await page.locator('#right-pane').getByRole('menuitem', { name: 'Close split view' }).click();
+  await expect(page.locator('#right-pane')).toBeHidden();
+  await page.locator('#drawer-toggle').click(); await page.locator('#tree a[href="/?path=README.md"]').click(); await expect(page.locator('#content h1')).toHaveText('Demo');
+});
+
+test('resizes file panes, restores their ratio and keeps mobile stacking', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 800 });
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md&right=sample.py`);
+  const handle = page.getByRole('separator', { name: 'Resize file panes' });
+  await expect(handle).toBeVisible();
+  const width = () => page.locator('#main').evaluate((element) => element.getBoundingClientRect().width);
+  const before = await width(); const box = (await handle.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + 100); await page.mouse.down();
+  await page.mouse.move(box.x + 144, box.y + 100, { steps: 8 }); await page.mouse.up();
+  expect(await width()).toBeGreaterThan(before + 100);
+  await expect(page.locator('.split-resize-shield')).toHaveCount(0);
+  const ratio = await handle.getAttribute('aria-valuenow');
+  await page.reload(); await expect(handle).toHaveAttribute('aria-valuenow', ratio!);
+  await page.locator('#sidebar-toggle').click(); await expect(handle).toHaveAttribute('aria-valuenow', ratio!);
+  await page.getByRole('button', { name: 'Swap panes' }).click(); await expect(handle).toHaveAttribute('aria-valuenow', ratio!);
+  await handle.focus(); const previous = await width(); await page.keyboard.press('ArrowLeft');
+  expect(await width()).toBeCloseTo(previous - 10, 0);
+  await page.keyboard.press('Home'); expect(await width()).toBeCloseTo(200, 0);
+  await page.keyboard.press('End'); expect(await page.locator('#right-pane').evaluate((element) => element.getBoundingClientRect().width)).toBeCloseTo(200, 0);
+  await handle.dblclick(); await expect(handle).toHaveAttribute('aria-valuenow', '50');
+  await page.screenshot({ path: testInfo.outputPath('resizable-file-panes.png') });
+  await page.setViewportSize({ width: 600, height: 800 }); await expect(handle).toBeHidden();
+  const left = (await page.locator('#main').boundingBox())!; const right = (await page.locator('#right-pane').boundingBox())!;
+  expect(right.y).toBeGreaterThanOrEqual(left.y + left.height);
+  await page.setViewportSize({ width: 1440, height: 800 }); await expect(handle).toHaveAttribute('aria-valuenow', '50');
+  await page.getByRole('button', { name: 'Close split view' }).click(); await expect(handle).toBeHidden();
+});
+
+test('keeps divider dragging over HTML and PDF frames', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  for (const file of ['docs/first.html', 'docs/sample.pdf']) {
+    await page.goto(`http://127.0.0.1:${port}/?path=README.md&right=${encodeURIComponent(file)}`);
+    await expect(page.locator('#right-content iframe')).toBeVisible();
+    const handle = page.getByRole('separator', { name: 'Resize file panes' }); await handle.dblclick();
+    const box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + 4, box.y + 200); await page.mouse.down();
+    await page.mouse.move(box.x + 150, box.y + 200, { steps: 10 }); await page.mouse.up();
+    expect(Number(await handle.getAttribute('aria-valuenow'))).toBeGreaterThan(60);
+    await expect(page.locator('.split-resize-shield')).toHaveCount(0);
+  }
+});
+
+test('resizes Paste Split independently and preserves text, selection and view changes', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 }); await page.goto(`http://127.0.0.1:${port}/?view=paste`);
+  const input = page.getByLabel('Markdown Text'); await input.fill('# Draft\n\nSome text');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await expect(page.locator('.paste-preview h1')).toHaveText('Draft');
+  await input.evaluate((element: HTMLTextAreaElement) => element.setSelectionRange(2, 5));
+  const handle = page.getByRole('separator', { name: 'Resize Text and preview' }); const box = (await handle.boundingBox())!;
+  const before = await input.evaluate((element) => element.getBoundingClientRect().width);
+  await page.mouse.move(box.x + 4, box.y + 100); await page.mouse.down(); await page.mouse.move(box.x - 100, box.y + 100, { steps: 6 }); await page.mouse.up();
+  expect(await input.evaluate((element) => element.getBoundingClientRect().width)).toBeLessThan(before - 90);
+  await expect(input).toHaveValue('# Draft\n\nSome text');
+  expect(await input.evaluate((element: HTMLTextAreaElement) => [element.selectionStart, element.selectionEnd])).toEqual([2, 5]);
+  const ratio = await handle.getAttribute('aria-valuenow');
+  await page.getByRole('button', { name: 'Text', exact: true }).click(); await expect(handle).toBeHidden();
+  await page.getByRole('button', { name: 'Split', exact: true }).click(); await expect(handle).toHaveAttribute('aria-valuenow', ratio!);
+  await page.reload(); await page.getByRole('button', { name: 'Split', exact: true }).click(); await expect(handle).toHaveAttribute('aria-valuenow', ratio!);
+  expect(await page.evaluate(() => localStorage.getItem('markport-file-split-ratio'))).toBeNull();
+  await handle.focus(); await page.keyboard.press('ArrowRight'); await handle.dblclick(); await expect(handle).toHaveAttribute('aria-valuenow', '50');
+  await page.screenshot({ path: testInfo.outputPath('resizable-paste-panes.png') });
+  await page.setViewportSize({ width: 1100, height: 800 }); await expect(handle).toBeHidden(); await expect(page.getByRole('button', { name: 'Text', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.setViewportSize({ width: 1440, height: 900 }); await page.getByRole('button', { name: 'Split', exact: true }).click(); await expect(handle).toHaveAttribute('aria-valuenow', '50');
 });
 
 test('opens and refreshes two independently scrolling files', async ({ page }) => {

@@ -1,3 +1,4 @@
+import { createSplitResize } from './splitResize';
 import { copyText } from './clipboard';
 import { applyTextEdit, continueList, indentLines } from './pasteEditing';
 import { highlightMarkdown, maxHighlightBytes, maxPasteBytes, pasteBytes } from './pasteHighlight';
@@ -79,7 +80,9 @@ export function createPasteEditor(options: Options): { refresh: () => void; disp
   const input = document.createElement('textarea'); input.id = 'paste-input'; input.placeholder = 'Paste Markdown here'; input.spellcheck = false;
   const preview = document.createElement('div'); preview.className = 'paste-preview'; preview.hidden = true;
   const notice = document.createElement('p'); notice.className = 'paste-notice'; notice.setAttribute('role', 'status'); notice.hidden = true;
-  surface.append(highlight, input); editor.append(label, surface); content.replaceChildren(editor, preview, notice);
+  surface.append(highlight, input); editor.append(label, surface); const handle = document.createElement('div'); handle.id = 'paste-resize'; handle.setAttribute('aria-label', 'Resize Text and preview');
+  content.replaceChildren(editor, handle, preview, notice);
+  const splitResize = createSplitResize({ container: content, left: editor, right: preview, handle, storageKey: 'markport-paste-split-ratio', start: () => content.getBoundingClientRect().left, horizontal: () => window.innerWidth >= 1200 });
   try {
     persistent.checked = localStorage.getItem(persistentKey) === 'true';
   } catch { /* Session saving still works when browser saving is unavailable. */ }
@@ -139,6 +142,7 @@ export function createPasteEditor(options: Options): { refresh: () => void; disp
   }
   function updateView(): void {
     content.dataset.pasteView = view; editor.hidden = view === 'rendered'; preview.hidden = view === 'text';
+    splitResize.setActive(view === 'split');
     for (const [mode, button] of buttons) button.setAttribute('aria-pressed', String(mode === view));
   }
   function setView(next: View): void {
@@ -236,6 +240,6 @@ export function createPasteEditor(options: Options): { refresh: () => void; disp
   } catch { /* An invalid caret does not prevent draft restoration. */ }
   return {
     refresh: () => { if (view !== 'text') void render(true); },
-    dispose: () => { saveCaret(); disposed = true; lifetime.abort(); request?.abort(); cancelAnimationFrame(frame); window.clearTimeout(debounce); layout.style.removeProperty('--paste-viewport-height'); },
+    dispose: () => { saveCaret(); disposed = true; splitResize.dispose(); lifetime.abort(); request?.abort(); cancelAnimationFrame(frame); window.clearTimeout(debounce); layout.style.removeProperty('--paste-viewport-height'); },
   };
 }

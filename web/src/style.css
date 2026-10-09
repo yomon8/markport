@@ -45,7 +45,7 @@ nav .file-pdf svg{color:var(--icon-image)}
 .change-list{list-style:none;padding:0;margin:0}.change-list li+li{margin-top:3px}.change-list a{display:flex;align-items:center;gap:10px;padding:8px;border-radius:5px;text-decoration:none;color:var(--text);min-width:0}.change-list a:hover,.change-list a[aria-current=page]{background:var(--hover)}.change-list.compact a{padding:5px 3px;font-size:12px}.change-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.change-status{flex:none;border-radius:4px;padding:1px 5px;background:var(--accent-soft);color:var(--accent);font-size:11px}.change-status.added{background:var(--success-bg);color:var(--success-text)}.change-status.deleted{background:var(--danger-bg);color:var(--danger)}
 .change-controls{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px 12px;margin-bottom:10px;font-size:12px;color:var(--text-muted)}.review-filter{display:inline-flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap}.review-filter input{width:auto;margin:0}.change-list li{display:flex;align-items:center;gap:6px;min-width:0}.change-list li a{flex:1;min-width:0}.review-toggle{display:inline-grid;place-items:center;flex:none;width:34px;height:34px;padding:0;color:var(--text-muted)}.review-toggle svg{display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.review-toggle[aria-pressed=true]{color:var(--success);border-color:var(--success)}.change-list.compact .review-toggle{margin-left:auto}@media(max-width:700px){.change-list .review-toggle{width:40px;height:40px}}
 nav li:has(> .open-right){display:flex;align-items:center}nav li:has(> .open-right)>a{flex:1;min-width:0}nav .open-right{flex:none;padding:2px 5px;margin-left:2px;font-size:15px;line-height:1;border:0;background:transparent;color:var(--text-muted)}nav .open-right:hover,nav .open-right:focus-visible{background:var(--hover);color:var(--accent)}
-.layout.split{grid-template-columns:var(--sidebar-width) 8px minmax(0,1fr) minmax(0,1fr)}.layout.split:has(aside.collapsed){grid-template-columns:minmax(0,1fr) minmax(0,1fr)}#right-pane{overflow:auto;min-width:0;padding:0 24px 80px;border-left:1px solid var(--border)}#right-title{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:var(--titlebar-h);background:var(--bg);border-bottom:1px solid var(--border);font-size:13px}#right-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.right-actions{display:flex;align-items:center;gap:6px;white-space:nowrap}.right-actions button{font-size:12px}#right-content[data-kind=html],#right-content[data-kind=image]{max-width:none}
+.layout.split{grid-template-columns:var(--sidebar-width) 8px minmax(0,var(--split-left,1fr)) 8px minmax(0,var(--split-right,1fr))}.layout.split:has(aside.collapsed){grid-template-columns:minmax(0,var(--split-left,1fr)) 8px minmax(0,var(--split-right,1fr))}#right-pane{overflow:auto;min-width:0;padding:0 24px 80px}#right-title{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:var(--titlebar-h);background:var(--bg);border-bottom:1px solid var(--border);font-size:13px}#right-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.right-actions{display:flex;align-items:center;gap:6px;white-space:nowrap}.right-actions button{font-size:12px}#right-content[data-kind=html],#right-content[data-kind=image]{max-width:none}
 @media(max-width:700px){.layout.split,.layout.split:has(aside.collapsed){grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,1fr)}.layout.split #sidebar-resize,.layout.split aside.collapsed{display:none}.layout.split #main,.layout.split #right-pane{min-height:0;height:auto}.layout.split #right-pane{border-left:0;border-top:2px solid var(--border)}}
 @media(max-width:700px){.layout.split{display:grid}.layout.split aside:not(.collapsed){display:block}.layout.split #right-pane{padding:0 16px 50px}}
 @media(max-width:700px){.layout.split .pdf-preview{height:max(300px,calc(50vh - 120px))}}
@@ -319,8 +319,8 @@ article[data-kind=paste] .paste-plain #paste-input,article[data-kind=paste] .pas
 .paste-menu>button{display:block;width:100%;text-align:left;border:0}.paste-menu label{display:flex;align-items:center;gap:8px;padding:6px;font-size:13px}.paste-menu input{width:auto;margin:0}.paste-menu p{font-size:12px;color:var(--text-muted);margin:6px}
 .paste-notice{grid-column:1/-1;margin:0;color:var(--text-muted);font-size:12px}.paste-notice.error{color:var(--danger)}
 article[data-kind=paste] .paste-preview{max-width:46em;width:100%;margin-inline:auto;overflow:auto;min-height:0;padding:0 6px 24px}
-article[data-kind=paste][data-paste-view=split]{grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:16px}
-article[data-kind=paste][data-paste-view=split] .paste-preview{grid-column:2;grid-row:1}
+article[data-kind=paste][data-paste-view=split]{grid-template-columns:minmax(0,var(--split-left,1fr)) 8px minmax(0,var(--split-right,1fr));column-gap:4px}
+article[data-kind=paste][data-paste-view=split] .paste-preview{grid-column:3;grid-row:1}
 .paste-editor[hidden],.paste-preview[hidden],.paste-menu[hidden],.paste-notice[hidden],.paste-title-actions button[hidden]{display:none!important}
 @media(max-width:700px){
   .layout:has(article[data-kind=paste]){height:calc(var(--paste-viewport-height,100dvh) - 48px)}
@@ -389,3 +389,16 @@ article .historical-source{margin-left:0;margin-right:0}
 .blame-details dt{margin-top:12px;font-size:12px;color:var(--text-muted)}
 .blame-details dd{margin:4px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font:13px/1.5 var(--mono)}
 @media(max-width:700px),(pointer:coarse){.blame-details>button{min-height:40px}}
+
+/* Shared file and Paste split handles. */
+.split-resize{position:relative;min-height:0;cursor:col-resize;touch-action:none;user-select:none}
+.split-resize:before{content:"";position:absolute;inset:0 auto 0 50%;width:1px;transform:translateX(-50%);background:var(--border)}
+.split-resize:hover:before,.split-resize.dragging:before,.split-resize:focus-visible:before{width:2px;background:var(--accent)}
+.split-resize:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.split-resize-shield{position:fixed;inset:0;z-index:1000;cursor:col-resize;user-select:none;touch-action:none}
+article[data-kind=paste][data-paste-view=split] #paste-resize{grid-column:2;grid-row:1}
+@media(max-width:700px){#split-resize{display:none}}
+
+/* The selected file destination remains visible while using the sidebar. */
+.layout.split .pane-active #file-title,.layout.split .pane-active #right-title{border-bottom-color:var(--accent)}
+.active-pane-badge{flex:none;margin-left:8px;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:600;background:var(--accent-soft);color:var(--accent);white-space:nowrap}

@@ -121,7 +121,7 @@ Open **Search contents**, enter **Text to find**, and optionally set **Folder** 
 
 ### Split view
 
-Use the arrow beside a file in the sidebar or a search result to open it on the right. Each pane scrolls and refreshes independently. Use **Swap panes** to exchange the files, **Show this file only** to keep only the right file, or **Close split view** to return to the left file. On narrow screens the panes stack vertically.
+Use the arrow beside a file in the sidebar or a search result to open it on the right. Each pane scrolls and refreshes independently. Click a pane or focus a control inside it to select it as the file destination; its title shows **Active**. Files and file/content search results open in the selected pane. **Open on right** always opens on the right. Use **Swap panes** to exchange the files, **Show this file only** to keep only the right file, or **Close split view** to return to the left file. Drag the divider to resize the panes, or focus it and use the left/right arrow keys. Double-click it to restore equal widths. The ratio is saved in this browser. On narrow screens the panes stack vertically.
 
 ### Code, tables, Mermaid diagrams, and LaTeX math
 
@@ -161,7 +161,7 @@ Each operation prints one document, captured when it is loaded for printing (or 
 
 Click **Paste Markdown** to open a full-size editor for Markdown that is not in a file.
 
-- **Text** highlights Markdown while keeping its source visible, **Rendered** shows the preview, and **Split** shows both on screens at least 1200px wide, updating after a short typing pause.
+- **Text** highlights Markdown while keeping its source visible, **Rendered** shows the preview, and **Split** shows both on screens at least 1200px wide, updating after a short typing pause. Its divider supports the same resizing controls as the file split view, with its ratio saved separately.
 - `Ctrl/Cmd+Enter` switches between Text and Rendered; `Esc` leaves the editor. Enter continues lists and tasks; `Tab` / `Shift+Tab` indent or unindent selected lines by two spaces.
 - The title bar shows character and line counts and the save state. **Paste options** (⋯) offers **Clear** (with confirmation), **Copy all**, **Save as .md**, **Print / Save as PDF**, font and width settings, and opt-in **Save in this browser**.
 - By default, text and caret position survive reloads in the current tab and are discarded when the tab closes. **Save in this browser** keeps text after the tab closes, so avoid it on shared devices. Reloads open in Text view.
