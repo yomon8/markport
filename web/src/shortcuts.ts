@@ -1,5 +1,5 @@
 type Binding = { key: string; mod?: boolean; shift?: boolean };
-export type ShortcutId = 'pasteView' | 'pasteEscape' | 'pasteIndent' | 'pasteUnindent' | 'serverInfo' | 'serverNext' | 'serverPrevious' | 'serverOpen' | 'search' | 'sidebar' | 'help' | 'close' | 'nextChange' | 'previousChange' | 'reviewNext' | 'treeNext' | 'treePrevious' | 'treeFirst' | 'treeLast' | 'treeOpen' | 'treeClear' | 'tabSwitch' | 'tabFirst' | 'tabLast';
+export type ShortcutId = 'pasteView' | 'pasteEscape' | 'pasteIndent' | 'pasteUnindent' | 'serverInfo' | 'serverNext' | 'serverPrevious' | 'serverOpen' | 'search' | 'sidebar' | 'help' | 'close' | 'nextChange' | 'previousChange' | 'reviewNext' | 'treeTab' | 'treeExpand' | 'treeCollapse' | 'treeNext' | 'treePrevious' | 'treeFirst' | 'treeLast' | 'treeOpen' | 'treeClear' | 'tabSwitch' | 'tabFirst' | 'tabLast';
 type Shortcut = { id: ShortcutId; description: string; group: string; bindings: Binding[] };
 
 export const shortcuts: Shortcut[] = [
@@ -18,12 +18,15 @@ export const shortcuts: Shortcut[] = [
   { id: 'serverNext', description: 'Next running server', group: 'Server info', bindings: [{ key: 'ArrowDown' }] },
   { id: 'serverPrevious', description: 'Previous running server', group: 'Server info', bindings: [{ key: 'ArrowUp' }] },
   { id: 'serverOpen', description: 'Open selected server in the same tab', group: 'Server info', bindings: [{ key: 'Enter' }] },
+  { id: 'treeTab', description: 'Enter or leave the tree; reach Open on right for the current file', group: 'File tree', bindings: [{ key: 'Tab' }, { key: 'Tab', shift: true }] },
+  { id: 'treeExpand', description: 'Expand folder or move to first child', group: 'File tree', bindings: [{ key: 'ArrowRight' }] },
+  { id: 'treeCollapse', description: 'Collapse folder or move to parent', group: 'File tree', bindings: [{ key: 'ArrowLeft' }] },
   { id: 'treeNext', description: 'Next file or folder', group: 'File tree', bindings: [{ key: 'ArrowDown' }] },
   { id: 'treePrevious', description: 'Previous file or folder', group: 'File tree', bindings: [{ key: 'ArrowUp' }] },
   { id: 'treeFirst', description: 'First file or folder', group: 'File tree', bindings: [{ key: 'Home' }] },
   { id: 'treeLast', description: 'Last file or folder', group: 'File tree', bindings: [{ key: 'End' }] },
-  { id: 'treeOpen', description: 'Open selected file or folder', group: 'File tree', bindings: [{ key: 'Enter' }] },
-  { id: 'treeClear', description: 'Clear file search', group: 'File tree', bindings: [{ key: 'Escape' }] },
+  { id: 'treeOpen', description: 'Open file, toggle folder, or load more items', group: 'File tree', bindings: [{ key: 'Enter' }] },
+  { id: 'treeClear', description: 'Clear file search and return to the search field', group: 'File tree', bindings: [{ key: 'Escape' }] },
   { id: 'tabSwitch', description: 'Switch Files and Changes tabs', group: 'Sidebar tabs', bindings: [{ key: 'ArrowLeft' }, { key: 'ArrowRight' }] },
   { id: 'tabFirst', description: 'Select Files tab', group: 'Sidebar tabs', bindings: [{ key: 'Home' }] },
   { id: 'tabLast', description: 'Select Changes tab', group: 'Sidebar tabs', bindings: [{ key: 'End' }] },

@@ -151,6 +151,7 @@ let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let
 let displayedMode: FileView | 'changes' | 'paste' | 'history' = 'file'; let lastFilePath = '';
 let sidebarPanel: 'file' | 'changes' | 'history' = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file';
 let keepTabFocus = false;
+let keyboardTreePath = '';
 let currentChanges: ChangesReply | undefined;
 let historyPage: HistoryPage | undefined;
 let displayedHistoryList = '';
@@ -191,9 +192,7 @@ function selected(): string { return new URL(location.href).searchParams.get('pa
 function selectedFile(): string { return activePane.current() === 'right' && rightSelected() ? rightSelected() : selected(); }
 async function syncSelectedFile(): Promise<void> {
   const version = ++fileSelectionVersion; const path = selectedFile(); const current = revision;
-  const focused = document.activeElement instanceof HTMLAnchorElement && tree.contains(document.activeElement) ? document.activeElement.href : undefined;
   view.render();
-  if (focused) [...tree.querySelectorAll<HTMLAnchorElement>('a[href]')].find((link) => link.href === focused)?.focus({ preventScroll: true });
   try {
     if (view.shouldLoadSelectedPath(path)) await ensureSelectedPath(path, current);
     if (version !== fileSelectionVersion || current !== revision || path !== selectedFile()) return;
@@ -202,13 +201,13 @@ async function syncSelectedFile(): Promise<void> {
     if (!(error instanceof RequestError && error.code === 'not_found') && version === fileSelectionVersion) status('Refresh failed. Please try again.', 'error');
   }
 }
-function openSelectedFile(href: string): void {
+function openSelectedFile(href: string, keepTreeFocus = false): void {
   const url = new URL(href, location.href);
   const path = url.searchParams.get('path');
   if (activePane.current() === 'right' && rightSelected() && path) {
     const line = /^#L(\d+)$/.exec(url.hash);
-    openRight(path, line ? Number(line[1]) : undefined);
-  } else { activePane.select('left'); navigate(href); }
+    openRight(path, line ? Number(line[1]) : undefined, keepTreeFocus);
+  } else { activePane.select('left'); navigate(href, keepTreeFocus); }
 }
 function selectedBase(): string { return new URL(location.href).searchParams.get('base') ?? ''; }
 function syncComparisonControls(): void {
@@ -360,8 +359,9 @@ function showSidebar(mode: 'file' | 'changes' | 'history'): void {
   }
 }
 function saveScroll(): void { history.replaceState({ ...history.state, scroll: main.scrollTop, rightScroll: rightPane.scrollTop }, '', location.href); }
-function navigate(url: string): void {
+function navigate(url: string, keepTreeFocus = false): void {
   const target = new URL(url, location.href);
+  keyboardTreePath = keepTreeFocus ? target.searchParams.get('path') ?? '' : '';
   const right = new URL(location.href).searchParams.get('right');
   if (right && target.searchParams.has('path') && !['history', 'changes', 'paste'].includes(target.searchParams.get('view') ?? '')) {
     const previous = new URL(location.href);
@@ -371,10 +371,10 @@ function navigate(url: string): void {
   if (target.href === location.href) { highlightCodeLines(true); return; }
   pendingLineJump = /^#L\d+(?:-L\d+)?$/.test(target.hash);
   if (target.searchParams.get('view') === 'changes' || target.searchParams.get('view') === 'diff') rememberedBase = target.searchParams.get('base') ?? '';
-  saveScroll(); pasteVersion++; lineRangeAnchor = 0; history.pushState({ scroll: 0, rightScroll: rightPane.scrollTop }, '', target); sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = target.searchParams.get('source') === '1'; sidebar.classList.remove('open'); requestRefresh();
+  saveScroll(); pasteVersion++; lineRangeAnchor = 0; history.pushState({ scroll: 0, rightScroll: rightPane.scrollTop }, '', target); sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = target.searchParams.get('source') === '1'; if (!keepTreeFocus) sidebar.classList.remove('open'); requestRefresh();
 }
 function rightSelected(): string { return ['file', 'diff', 'file-history', 'blame'].includes(selectedMode()) ? new URL(location.href).searchParams.get('right') ?? '' : ''; }
-function openRight(path: string, line?: number): void {
+function openRight(path: string, line?: number, keepTreeFocus = false): void {
   const source = Boolean(line) && /\.(md|markdown|html|htm)$/i.test(path);
   if (path !== rightSelected() || line) {
     if (rightSourceMode !== source) { rightTag = ''; rightShownKey = ''; }
@@ -386,7 +386,7 @@ function openRight(path: string, line?: number): void {
   url.searchParams.set('right', path); url.searchParams.delete('right-view');
   for (const key of ['right-commit', 'right-revision-path', 'right-revision-view', 'right-base']) url.searchParams.delete(key);
   if (rightSourceMode) url.searchParams.set('right-source', '1'); else url.searchParams.delete('right-source');
-  saveScroll(); history.pushState({ ...history.state, rightScroll: 0 }, '', url); sidebar.classList.remove('open');
+  saveScroll(); history.pushState({ ...history.state, rightScroll: 0 }, '', url); if (!keepTreeFocus) sidebar.classList.remove('open');
   activePane.setSplit(true); activePane.select('right'); void syncSelectedFile(); void refreshRight();
 }
 function closeRight(): void {
@@ -1342,8 +1342,8 @@ async function refreshLoop(): Promise<void> {
           outline.hidden = true;
           if (pathChanged || content.dataset.kind !== 'file-git') showTitle(path, mode === 'blame' ? 'Blame' : 'History');
           await leftFileGit.refresh(path);
-          if (pathChanged && activePane.current() === 'left') view.reveal(path);
-          if (pathChanged && !preserveTabFocus) activePane.withoutActivation(() => title.focus({ preventScroll: true }));
+          if (pathChanged && activePane.current() === 'left' && keyboardTreePath !== path) view.reveal(path);
+          if (pathChanged && !preserveTabFocus && keyboardTreePath !== path) activePane.withoutActivation(() => title.focus({ preventScroll: true }));
           status(liveMessage, 'ok'); continue;
         }
         leftFileGit.invalidate();
@@ -1399,8 +1399,8 @@ async function refreshLoop(): Promise<void> {
             void drawMath(content, () => selectedMode() === 'file' && path === selected() && !sourceMode);
           }
           highlightCodeLines(pendingLineJump); pendingLineJump = false;
-          if (pathChanged && activePane.current() === 'left') view.reveal(path);
-          if (pathChanged && !preserveTabFocus) activePane.withoutActivation(() => title.focus({ preventScroll: true }));
+          if (pathChanged && activePane.current() === 'left' && keyboardTreePath !== path) view.reveal(path);
+          if (pathChanged && !preserveTabFocus && keyboardTreePath !== path) activePane.withoutActivation(() => title.focus({ preventScroll: true }));
         }
         status(liveMessage, 'ok');
       } catch (error) {
@@ -1420,10 +1420,10 @@ async function refreshLoop(): Promise<void> {
 
 tree.addEventListener('click', (event) => {
   const rightButton = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-right-path]');
-  if (rightButton) { openRight(rightButton.dataset.rightPath!, rightButton.dataset.rightLine ? Number(rightButton.dataset.rightLine) : undefined); return; }
+  if (rightButton) { openRight(rightButton.dataset.rightPath!, rightButton.dataset.rightLine ? Number(rightButton.dataset.rightLine) : undefined, view.keyboardOpening || (event.detail === 0 && document.activeElement === rightButton)); return; }
   const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
   if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
-  event.preventDefault(); openSelectedFile(link.href);
+  event.preventDefault(); openSelectedFile(link.href, view.keyboardOpening);
 });
 changesTree.addEventListener('click', (event) => {
   const link = (event.target as HTMLElement).closest<HTMLAnchorElement>('a[href]');
@@ -1510,10 +1510,10 @@ rightOpenPDF.addEventListener('click', () => { const path = rightSelected(); if 
 document.querySelector('#right-swap')!.addEventListener('click', swapPanes);
 document.querySelector('#right-only')!.addEventListener('click', showRightOnly);
 rightInteractive.addEventListener('click', () => { const path = rightSelected(); if (path) setInteractive(path, !interactivePaths.has(path)); });
-window.addEventListener('popstate', () => { pendingRightScroll = history.state?.rightScroll ?? 0; rightPane.scrollTop = pendingRightScroll ?? 0; rightShownKey = ''; rightTag = ''; pasteVersion++; sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); void syncSelectedFile(); });
+window.addEventListener('popstate', () => { keyboardTreePath = ''; pendingRightScroll = history.state?.rightScroll ?? 0; rightPane.scrollTop = pendingRightScroll ?? 0; rightShownKey = ''; rightTag = ''; pasteVersion++; sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); void syncSelectedFile(); });
 window.addEventListener('hashchange', () => { highlightCodeLines(true); });
 window.addEventListener('keydown', (event) => {
-  if (event.isComposing || event.keyCode === 229) return;
+  if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
   if (editingShortcutTarget(event.target)) return;
   if (selectedMode() === 'diff' && !event.ctrlKey && !event.metaKey && !event.altKey) {
     if (matchesShortcut(event, 'nextChange') || matchesShortcut(event, 'previousChange')) {
@@ -1523,7 +1523,13 @@ window.addEventListener('keydown', (event) => {
     }
     if (matchesShortcut(event, 'reviewNext')) { event.preventDefault(); markReviewedAndNext(); return; }
   }
-  if (matchesShortcut(event, 'search')) { event.preventDefault(); search.focus(); sidebar.classList.add('open'); }
+  if (matchesShortcut(event, 'search')) {
+    event.preventDefault(); sidebarPanel = 'file'; showSidebar('file');
+    sidebar.classList.remove('collapsed'); sidebarToggle.setAttribute('aria-expanded', 'true');
+    sidebarToggle.setAttribute('aria-label', 'Collapse sidebar'); sidebarToggle.title = `Collapse sidebar (${shortcutText('sidebar')})`;
+    if (window.innerWidth <= 700) sidebar.classList.add('open');
+    search.focus();
+  }
   if (matchesShortcut(event, 'sidebar')) { event.preventDefault(); if (window.innerWidth <= 700) drawerToggle.click(); else sidebarToggle.click(); }
   if (matchesShortcut(event, 'serverInfo')) { event.preventDefault(); serverInfo.open(); }
   if (matchesShortcut(event, 'help')) { event.preventDefault(); shortcutHelp.open(); }

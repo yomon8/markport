@@ -425,3 +425,6 @@ article[data-kind=paste][data-paste-view=split] #paste-resize{grid-column:2;grid
   .paste-preview .code-frame,.paste-preview .table-frame{margin-inline:0}
   .markdown-layout :is(blockquote,li,details) :is(.code-frame,.table-frame){margin-inline:0;--table-bleed:0px}
 }
+
+/* Keyboard focus remains distinct from the currently displayed file. */
+#tree :is(a,summary,button):focus-visible{outline:2px solid var(--accent);outline-offset:-2px;box-shadow:inset 0 0 0 4px var(--surface)}

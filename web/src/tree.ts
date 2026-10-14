@@ -109,6 +109,7 @@ function highlighted(label: string, positions: number[], offset: number): Docume
 function fileLink(node: Node, selected: string, positions?: number[], line?: number, ignored = false): DocumentFragment {
   const row = document.createDocumentFragment();
   const link = document.createElement('a');
+  link.dataset.nodePath = node.path;
   link.href = `/?path=${encodeURIComponent(node.path)}`;
   const destination = line ? `${node.path}:${line}` : node.path;
   if (line) {
@@ -143,6 +144,9 @@ export class TreeView {
   private searchPaths: string[] = [];
   private ignoredPaths: ReadonlySet<string> = new Set();
   private searchState: SearchState = 'idle';
+  private focusKey = '';
+  private pendingPage: { path: string; offset: number; key: string } | null = null;
+  keyboardOpening = false;
   private currentSelection: string;
   private collapsedSelection: string | null;
   constructor(private tree: HTMLElement, private search: HTMLInputElement, private count: HTMLElement, private collapseButton: HTMLButtonElement, private selected: () => string,
@@ -152,39 +156,114 @@ export class TreeView {
     try { this.collapsedSelection = sessionStorage.getItem(collapsedSelectionKey); } catch { this.collapsedSelection = null; }
     if (this.collapsedSelection !== this.currentSelection) this.clearCollapsedSelection();
     collapseButton.addEventListener('click', () => this.collapseAll());
+    tree.addEventListener('focusin', (event) => {
+      const row = this.rowFor(event.target);
+      if (row) { this.focusKey = this.key(row); this.updateTabStops(row); }
+    });
     tree.addEventListener('click', (event) => {
-      const more = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-dir][data-offset]');
-      if (more) { this.onPage(more.dataset.dir!, Number(more.dataset.offset)); return; }
-      const summary = (event.target as HTMLElement).closest('summary');
-      if (!summary) return;
-      const details = summary.parentElement as HTMLDetailsElement;
-      const path = details.dataset.path!;
-      if (details.open && this.selected().startsWith(`${path}/`)) { event.preventDefault(); return; }
-      if (details.open) { opened.delete(path); this.forget(path); }
-      else { opened.add(path); this.onOpen(path); }
-      try { localStorage.setItem(storageKey, JSON.stringify([...opened])); } catch { /* Storage may be unavailable. */ }
+      const row = this.rowFor(event.target);
+      if (!row) return;
+      this.focusKey = this.key(row); this.updateTabStops(row);
+      if (row.matches('button[data-dir]')) {
+        this.pendingPage = { path: row.dataset.dir!, offset: Number(row.dataset.offset), key: this.key(row) };
+        this.onPage(row.dataset.dir!, Number(row.dataset.offset));
+      } else if (row.matches('summary')) {
+        event.preventDefault(); this.toggleFolder(row);
+      }
     }, true);
     search.addEventListener('input', () => { this.render(); this.onSearch(search.value.trim()); });
     search.addEventListener('keydown', (event) => {
-      const links = [...tree.querySelectorAll<HTMLAnchorElement>('a')];
-      if (matchesShortcut(event, 'treeClear')) { search.value = ''; this.render(); this.onSearch(''); return; }
+      if (matchesShortcut(event, 'treeClear') && search.value) {
+        event.preventDefault(); event.stopPropagation(); this.clearSearch(); return;
+      }
+      const rows = this.rows();
       if (matchesShortcut(event, 'treeNext') || matchesShortcut(event, 'treePrevious')) {
-        event.preventDefault(); const active = links.indexOf(document.activeElement as HTMLAnchorElement);
-        links[Math.max(0, Math.min(links.length - 1, active + (matchesShortcut(event, 'treeNext') ? 1 : -1))) ]?.focus();
-      } else if (matchesShortcut(event, 'treeOpen')) links[0]?.click();
+        event.preventDefault(); event.stopPropagation();
+        this.focusRow(matchesShortcut(event, 'treeNext') ? rows[0] : rows.at(-1));
+      } else if (matchesShortcut(event, 'treeOpen') && rows[0]) {
+        event.preventDefault(); event.stopPropagation(); this.focusRow(rows[0]); this.activate(rows[0]);
+      }
     });
     tree.addEventListener('keydown', (event) => {
-      const links = [...tree.querySelectorAll<HTMLAnchorElement>('a')].filter((link) => !link.closest('details:not([open])'));
-      const active = links.indexOf(document.activeElement as HTMLAnchorElement);
-      if (active < 0) return;
-      let next = active;
-      if (matchesShortcut(event, 'treeNext')) next++;
-      else if (matchesShortcut(event, 'treePrevious')) next--;
-      else if (matchesShortcut(event, 'treeFirst')) next = 0;
-      else if (matchesShortcut(event, 'treeLast')) next = links.length - 1;
-      else return;
-      event.preventDefault(); links[Math.max(0, Math.min(links.length - 1, next))]?.focus();
+      if (matchesShortcut(event, 'treeClear') && search.value) {
+        event.preventDefault(); event.stopPropagation(); this.clearSearch(); return;
+      }
+      const rows = this.rows(); const row = this.rowFor(event.target);
+      if (!row) return;
+      const index = rows.indexOf(row);
+      let next: HTMLElement | undefined;
+      if (matchesShortcut(event, 'treeNext')) next = rows[Math.min(rows.length - 1, index + 1)];
+      else if (matchesShortcut(event, 'treePrevious')) next = rows[Math.max(0, index - 1)];
+      else if (matchesShortcut(event, 'treeFirst')) next = rows[0];
+      else if (matchesShortcut(event, 'treeLast')) next = rows.at(-1);
+      else if (matchesShortcut(event, 'treeExpand')) {
+        if (row.matches('summary')) {
+          const details = row.parentElement as HTMLDetailsElement;
+          if (!details.open) this.toggleFolder(row);
+          else next = rows[index + 1] && details.contains(rows[index + 1]) ? rows[index + 1] : undefined;
+        }
+      } else if (matchesShortcut(event, 'treeCollapse')) {
+        if (row.matches('summary') && (row.parentElement as HTMLDetailsElement).open) this.toggleFolder(row);
+        else {
+          const parent = row.matches('summary') ? row.parentElement?.parentElement : row.parentElement;
+          next = parent?.closest('details')?.querySelector<HTMLElement>(':scope > summary') ?? undefined;
+        }
+      } else if (matchesShortcut(event, 'treeOpen')) {
+        const target = event.target instanceof HTMLElement && event.target.matches('.open-right') ? event.target : row;
+        this.activate(target);
+      } else return;
+      event.preventDefault(); event.stopPropagation();
+      if (next) this.focusRow(next);
     });
+  }
+  private rows(): HTMLElement[] {
+    return [...this.tree.querySelectorAll<HTMLElement>('summary, a[data-node-path], button[data-dir]')];
+  }
+  private rowFor(target: EventTarget | null): HTMLElement | undefined {
+    if (!(target instanceof Element)) return undefined;
+    const control = target.closest<HTMLElement>('summary, a[data-node-path], button[data-dir], .open-right');
+    if (!control || !this.tree.contains(control)) return undefined;
+    return control?.matches('.open-right') ? control.previousElementSibling as HTMLElement : control ?? undefined;
+  }
+  private key(row: HTMLElement): string {
+    return JSON.stringify([row.tagName, row.dataset.nodePath ?? row.parentElement?.dataset.path ?? row.dataset.dir, row.dataset.offset]);
+  }
+  private path(row: HTMLElement): string { return row.dataset.nodePath ?? row.parentElement?.dataset.path ?? row.dataset.dir ?? ''; }
+  private updateTabStops(current: HTMLElement | undefined): void {
+    for (const row of this.rows()) {
+      row.tabIndex = row === current ? 0 : -1;
+      const right = row.nextElementSibling;
+      if (right instanceof HTMLButtonElement && right.matches('.open-right')) right.tabIndex = row === current ? 0 : -1;
+    }
+  }
+  private focusRow(row: HTMLElement | undefined): void {
+    if (!row) return;
+    this.focusKey = this.key(row); this.updateTabStops(row);
+    row.focus({ preventScroll: true }); row.scrollIntoView?.({ block: 'nearest' });
+  }
+  private activate(row: HTMLElement): void {
+    this.keyboardOpening = true;
+    try { row.click(); } finally { this.keyboardOpening = false; }
+  }
+  private clearSearch(): void {
+    this.search.value = ''; this.render(); this.onSearch(''); this.search.focus({ preventScroll: true });
+  }
+  private toggleFolder(summary: HTMLElement): void {
+    const details = summary.parentElement as HTMLDetailsElement; const path = details.dataset.path!;
+    this.focusKey = this.key(summary);
+    if (details.open) {
+      const selected = this.syncSelection();
+      if (selected.startsWith(`${path}/`)) {
+        // Preserve the other visible ancestors before suppressing automatic reveal.
+        for (const folder of this.tree.querySelectorAll<HTMLDetailsElement>('details[open]')) opened.add(folder.dataset.path!);
+        this.collapsedSelection = selected;
+        try { sessionStorage.setItem(collapsedSelectionKey, selected); } catch { /* Storage may be unavailable. */ }
+      }
+      this.forget(path);
+    } else {
+      opened.add(path); this.render(); this.onOpen(path);
+    }
+    try { localStorage.setItem(storageKey, JSON.stringify([...opened])); } catch { /* Storage may be unavailable. */ }
   }
   private clearCollapsedSelection(): void {
     this.collapsedSelection = null;
@@ -248,7 +327,14 @@ export class TreeView {
     directory.next.set(page.offset, page.nextOffset);
     this.directories.set(path, directory);
     if (path === '') this.readme = page.readme ?? '';
+    const pending = this.pendingPage; const focused = this.rowFor(document.activeElement);
+    const moveFocus = pending?.path === path && pending.offset === page.offset
+      && focused !== undefined && this.key(focused) === pending.key;
     this.render();
+    if (pending?.path === path && pending.offset === page.offset) {
+      this.pendingPage = null;
+      if (moveFocus) this.focusRow(this.rows().find((row) => this.path(row) === page.entries[0]?.path));
+    }
     return changed;
   }
   expandedPaths(): string[] {
@@ -280,6 +366,7 @@ export class TreeView {
           const details = document.createElement('details'); details.dataset.path = node.path;
           details.open = this.isActive(node.path);
           const summary = document.createElement('summary'); summary.title = node.path;
+          summary.setAttribute('aria-expanded', String(details.open));
           summary.innerHTML = `<span class="chevron" aria-hidden="true">›</span>${icon(node.name, true)}`;
           const label = document.createElement('span'); label.className = 'node-label'; label.textContent = node.name; summary.append(label);
           details.append(summary);
@@ -299,6 +386,32 @@ export class TreeView {
     item.append(button); list.append(item);
   }
   render(): void {
+    const active = document.activeElement;
+    const oldRows = this.rows(); const oldRow = this.rowFor(active);
+    const restore = active instanceof HTMLElement && this.tree.contains(active);
+    const oldIndex = oldRow ? oldRows.indexOf(oldRow) : 0;
+    const oldPath = oldRow ? this.path(oldRow) : '';
+    const rightFocused = active instanceof HTMLElement && active.matches('.open-right');
+    this.renderContents();
+    const rows = this.rows();
+    let current = rows.find((row) => this.key(row) === this.focusKey);
+    let parent = restore ? oldPath : this.selected();
+    if (!current && !restore) current = rows.find((row) => row.matches('a[aria-current]'));
+    while (!current && parent) {
+      current = rows.find((row) => row.matches('summary') && this.path(row) === parent);
+      parent = parent.includes('/') ? parent.slice(0, parent.lastIndexOf('/')) : '';
+    }
+    current ??= rows[Math.min(oldIndex, rows.length - 1)];
+    this.updateTabStops(current);
+    if (current && restore) this.focusKey = this.key(current);
+    if (restore) {
+      const right = current?.nextElementSibling;
+      if (rightFocused && right instanceof HTMLButtonElement && right.matches('.open-right')) right.focus({ preventScroll: true });
+      else if (current) current.focus({ preventScroll: true });
+      else this.search.focus({ preventScroll: true });
+    }
+  }
+  private renderContents(): void {
     const input = this.search.value.trim();
     const suffix = /^(.+):(\d+)$/.exec(input);
     const number = suffix ? Number(suffix[2]) : 0;

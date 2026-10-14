@@ -10,6 +10,123 @@ let cacheDirectory: string;
 let port: number;
 let serverProcess: ChildProcess;
 
+for (const mobile of [false, true]) {
+  test(`file tree keyboard browsing retains focus and collapsed folders (${mobile ? 'mobile' : 'desktop'})`, async ({ page }, testInfo) => {
+    await mkdir(join(directory, 'keyboard-tree'), { recursive: true });
+    await writeFile(join(directory, 'keyboard-tree', 'a.md'), '# Keyboard A\n');
+    await writeFile(join(directory, 'keyboard-tree', 'b.md'), '# Keyboard B\n');
+    if (mobile) await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+    await expect(page.locator('#content h1')).toHaveText('Demo');
+    await expect(page.locator('#content')).toHaveAttribute('aria-busy', 'false');
+    await page.keyboard.press('Control+k');
+    const search = page.locator('#search'); await expect(search).toBeFocused();
+    const folder = page.locator('#tree details[data-path="keyboard-tree"] > summary');
+    await search.press('Tab'); await expect(page.locator('#content-search > summary')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#tree a[aria-current]')).toBeFocused();
+    await page.keyboard.press('Home');
+    const count = await page.locator('#tree summary').count();
+    for (let index = 0; index < count; index++) {
+      if (await folder.evaluate((element) => element === document.activeElement)) break;
+      await page.keyboard.press('ArrowDown');
+    }
+    await expect(folder).toBeFocused(); await folder.press('ArrowRight');
+    const first = page.locator('#tree a[data-node-path="keyboard-tree/a.md"]');
+    const second = page.locator('#tree a[data-node-path="keyboard-tree/b.md"]');
+    await expect(first).toBeVisible(); await expect(folder).toBeFocused();
+    await folder.press('ArrowRight'); await expect(first).toBeFocused();
+    await first.press('Enter'); await expect(page.locator('#content h1')).toHaveText('Keyboard A');
+    await expect(first).toBeFocused();
+    await first.press('ArrowDown'); await expect(second).toBeFocused();
+    await expect(page.locator('#content h1')).toHaveText('Keyboard A');
+    await second.press('Enter'); await expect(page.locator('#content h1')).toHaveText('Keyboard B');
+    await expect(second).toBeFocused();
+    if (mobile) await expect(page.locator('#sidebar')).toHaveClass(/open/);
+    await second.press('Tab');
+    const right = page.getByRole('button', { name: 'Open keyboard-tree/b.md on right', exact: true });
+    await expect(right).toBeFocused(); await right.press('Tab');
+    if (mobile) expect(await page.locator('#tree').evaluate((element) => element.contains(document.activeElement))).toBe(false);
+    else await expect(page.locator('#sidebar-resize')).toBeFocused();
+    await page.keyboard.press('Shift+Tab'); await expect(right).toBeFocused();
+    await right.press('Shift+Tab'); await expect(second).toBeFocused();
+    await second.press('ArrowLeft'); await expect(folder).toBeFocused();
+    await folder.press('ArrowLeft'); await expect(first).toHaveCount(0);
+    await expect(page.locator('#content h1')).toHaveText('Keyboard B');
+    await writeFile(join(directory, 'keyboard-tree', 'b.md'), '# Keyboard B updated\n');
+    await expect(page.locator('#content h1')).toHaveText('Keyboard B updated');
+    await expect(first).toHaveCount(0); await expect(folder).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath('tree-keyboard-focus.png'), fullPage: true });
+    await page.reload();
+    if (mobile) await page.keyboard.press('Control+k');
+    await expect(folder).toBeVisible(); await expect(folder).toHaveAttribute('aria-expanded', 'false');
+    await expect(first).toHaveCount(0);
+    await folder.focus(); await folder.press('Enter'); await expect(first).toBeVisible();
+    await expect(folder).toBeFocused();
+  });
+}
+
+test('keyboard filename results persist and open in the active split pane', async ({ page }) => {
+  await writeFile(join(directory, 'keyboard-search-a.md'), '# Search A\n');
+  await writeFile(join(directory, 'keyboard-search-b.md'), '# Search B\n');
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md&right=sample.py`);
+  await expect(page.locator('#right-content')).toContainText('first');
+  await page.locator('#right-copy').focus(); await page.keyboard.press('Control+k');
+  const search = page.locator('#search'); await search.fill('keyboard-search');
+  const results = page.locator('#tree .search-results a'); await expect(results).toHaveCount(2);
+  await search.press('ArrowUp'); await expect(results.last()).toBeFocused();
+  await page.keyboard.press('Home'); await expect(results.first()).toBeFocused();
+  await page.keyboard.press('Enter'); await expect(page.locator('#right-content h1')).toHaveText('Search A');
+  await expect(results.first()).toBeFocused(); await expect(search).toHaveValue('keyboard-search');
+  await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
+  await expect(page.locator('#right-content h1')).toHaveText('Search B');
+  await expect(results.last()).toBeFocused();
+  expect(new URL(page.url()).searchParams.get('path')).toBe('README.md');
+  await page.keyboard.press('Escape'); await expect(search).toHaveValue(''); await expect(search).toBeFocused();
+  await search.fill('keyboard-search'); await expect(results).toHaveCount(2); await search.press('Enter');
+  await expect(results.first()).toBeFocused(); await expect(page.locator('#right-content h1')).toHaveText('Search A');
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Open keyboard-search-a.md on right', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter'); await expect(search).toHaveValue('keyboard-search');
+});
+
+test('file search shortcut reveals Files from other sidebar tabs and a collapsed sidebar', async ({ page }) => {
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await page.getByRole('tab', { name: 'Changes', exact: true }).click();
+  await expect(page.locator('#files-panel')).toBeHidden();
+  await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click();
+  await page.keyboard.press('Control+k'); await expect(page.locator('#search')).toBeVisible();
+  await expect(page.locator('#search')).toBeFocused();
+  await expect(page.getByRole('tab', { name: 'Files', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#sidebar-toggle')).toHaveAttribute('aria-expanded', 'true');
+});
+
+test('keyboard paging keeps its retry control and focuses the first added file', async ({ page }) => {
+  await mkdir(join(directory, 'keyboard-pages'), { recursive: true });
+  await Promise.all(Array.from({ length: 205 }, (_, index) => writeFile(join(directory, 'keyboard-pages', `${String(index).padStart(3, '0')}.md`), `# Page ${index}\n`)));
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await expect(page.locator('#content h1')).toHaveText('Demo');
+  const folder = page.locator('#tree details[data-path="keyboard-pages"] > summary');
+  await folder.focus(); await folder.press('ArrowRight');
+  await expect(page.locator('#tree a[data-node-path^="keyboard-pages/"]')).toHaveCount(200);
+  await page.keyboard.press('ArrowRight'); await page.keyboard.press('End');
+  // The root contains files after this directory; move up from the root's end.
+  const more = page.locator('#tree button[data-dir="keyboard-pages"][data-offset="200"]');
+  const rowCount = await page.locator('#tree :is(summary,a,button[data-dir])').count();
+  for (let index = 0; index < rowCount; index++) {
+    if (await more.evaluate((element) => element === document.activeElement)) break;
+    await page.keyboard.press('ArrowUp');
+  }
+  await expect(more).toBeFocused();
+  const failPage = '**/api/tree?path=keyboard-pages&offset=200';
+  await page.route(failPage, (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: { code: 'internal', message: 'Try again' } }) }));
+  const failed = page.waitForResponse((response) => response.url().includes('path=keyboard-pages&offset=200'));
+  await more.press('Enter'); await failed; await expect(more).toBeFocused();
+  await page.unroute(failPage); await more.press('Enter');
+  await expect(page.locator('#tree a[data-node-path="keyboard-pages/200.md"]')).toBeFocused();
+  await expect(page.locator('#tree a[data-node-path^="keyboard-pages/"]')).toHaveCount(205);
+});
+
 function widthMarkdown(): string {
   const columns = Array.from({ length: 12 }, (_, index) => `Column ${index + 1}`);
   const table = `| ${columns.join(' | ')} |\n| ${columns.map(() => '---').join(' | ')} |\n| ${columns.map(() => '横長の表セル long value').join(' | ')} |`;

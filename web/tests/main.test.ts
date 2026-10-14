@@ -27,6 +27,29 @@ beforeEach(() => {
 afterEach(() => { window.dispatchEvent(new Event('pagehide')); vi.unstubAllGlobals(); });
 
 describe('lazy browsing and refresh', () => {
+  it('keeps keyboard search results and does not steal focus when a file finishes loading', async () => {
+    history.replaceState(null, '', '/?path=a.md');
+    let finishFile: ((response: Response) => void) | undefined;
+    stubFetch(async (url) => {
+      if (url === '/api/tree') return reply(page([entry('a.md'), entry('b.md')]));
+      if (url === '/api/search-index') return reply({ paths: ['a.md', 'b.md'] });
+      if (url.startsWith('/api/git/')) return reply({ available: false });
+      const path = new URL(url, location.href).searchParams.get('path') ?? '';
+      if (path === 'b.md') return new Promise<Response>((resolve) => { finishFile = resolve; });
+      return reply({ path, type: 'markdown', html: `<h1>${path}</h1>` });
+    });
+    await import('../src/main'); await flush();
+    const search = document.querySelector<HTMLInputElement>('#search')!;
+    search.focus(); search.value = 'b.md'; search.dispatchEvent(new Event('input')); await flush();
+    search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await flush();
+    expect(document.activeElement).toBe(document.querySelector('#tree a'));
+    const outside = document.querySelector<HTMLButtonElement>('#sidebar-toggle')!; outside.focus();
+    finishFile?.(reply({ path: 'b.md', type: 'markdown', html: '<h1>Loaded B</h1>' })); await flush();
+    expect(document.querySelector('#content h1')?.textContent).toBe('Loaded B');
+    expect(document.activeElement).toBe(outside); expect(search.value).toBe('b.md');
+    expect(document.querySelector('#tree .search-results a')?.getAttribute('aria-current')).toBe('page');
+  });
+
   it('opens Files in the selected pane and leaves the other pane untouched', async () => {
     history.replaceState(null, '', '/?path=a.md&right=b.md');
     stubFetch(async (url) => {

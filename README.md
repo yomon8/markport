@@ -260,10 +260,15 @@ Press `?` or the help button in the header to see shortcuts in Markport. On macO
 | `Esc` | Close a dialog or menu; clear file search |
 | `n` / `p` | Next / previous changed file in Diff view |
 | `r` | Mark reviewed and open the next unreviewed file |
-| `↑` / `↓`, `Home` / `End`, `Enter` | Move through and open items in the file tree |
+| `↑` / `↓`, `Home` / `End` | Move through visible folders, files, and page-loading controls |
+| `←` / `→` | Collapse / expand a folder or move to its parent / first child |
+| `Enter` | Open a file, toggle a folder, or load more items |
+| `Tab` / `Shift+Tab` | Enter / leave the file tree; the current file’s Open on right button is also reachable |
 | `←` / `→`, `Home` / `End` | Switch sidebar tabs |
 | `↑` / `↓`, `Enter` | Select and open a running server in Server info |
 | `Ctrl+Enter`, `Tab` / `Shift+Tab`, `Esc` | Switch views, indent, and leave the editor in Paste Markdown |
+
+In Files and filename search results, arrow keys move focus without changing the preview. Opening a file with Enter keeps focus in the list, including on narrow screens, so you can keep browsing. Search results remain until you clear the search; Esc in the search field or results clears it and returns focus to the search field. In the search field, ↓ / ↑ focuses the first / last item, and Enter opens the first result. You can collapse a folder containing the displayed file without changing its content; it stays collapsed during refresh and reload. Opening another file or using a directory breadcrumb reveals the required folders.
 
 Global shortcuts do not interrupt text entry or IME composition.
 
