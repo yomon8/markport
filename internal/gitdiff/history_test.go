@@ -137,6 +137,63 @@ func TestHistoryPages(t *testing.T) {
 	}
 }
 
+func TestHistorySkipsMergeWithoutFirstParentChanges(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("Git is unavailable")
+	}
+	dir := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		command := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+		return strings.TrimSpace(string(output))
+	}
+	git("init", "-q")
+	git("config", "user.email", "test@example.com")
+	git("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte("base\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".")
+	git("commit", "-qm", "base")
+	baseID := git("rev-parse", "HEAD")
+	mainBranch := git("branch", "--show-current")
+	git("checkout", "-qb", "feature")
+	if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte("feature\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	git("commit", "-qam", "feature edit")
+	featureID := git("rev-parse", "HEAD")
+	git("checkout", "-q", mainBranch)
+	git("merge", "--no-ff", "-s", "ours", "-qm", "merge without tree changes", "feature")
+	mergeID := git("rev-parse", "HEAD")
+	store, err := files.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	for _, offset := range []int{0, 1} {
+		page, err := History(context.Background(), store, mergeID, offset)
+		if err != nil {
+			t.Fatalf("history at offset %d: %v", offset, err)
+		}
+		if !page.Available || page.Head != mergeID || page.NextOffset != nil || len(page.Commits) != 2 {
+			t.Fatalf("history at offset %d: %+v", offset, page)
+		}
+		seen := map[string]bool{}
+		for _, commit := range page.Commits {
+			seen[commit.ID] = true
+		}
+		if !seen[baseID] || !seen[featureID] || seen[mergeID] {
+			t.Fatalf("unexpected commits at offset %d: %+v", offset, page.Commits)
+		}
+	}
+}
+
 func TestHistoryMergeUsesFirstParent(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("Git is unavailable")

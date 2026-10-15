@@ -77,9 +77,11 @@ func historyRecords(output []byte, prefix string) ([]Commit, error) {
 			continue
 		}
 		fields := bytes.Split(record, []byte{0})
-		if len(fields) < 5 || !validCommitID(string(fields[0])) {
+		if len(fields) < 4 || !validCommitID(string(fields[0])) {
 			return nil, fmt.Errorf("malformed Git history")
 		}
+		// A merge may have no changes against its first parent. Its metadata
+		// is valid, but there are no paths to include in the browser history.
 		commit := Commit{ID: string(fields[0]), Author: string(fields[1]), Date: string(fields[2]), Subject: string(fields[3])}
 		paths := fields[4:]
 		if len(paths) > 0 {
