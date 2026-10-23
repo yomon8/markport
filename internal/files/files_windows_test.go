@@ -42,33 +42,6 @@ func TestMissingFileReportsNotExist(t *testing.T) {
 	}
 }
 
-func TestWatcherReportsNestedEditOnWindows(t *testing.T) {
-	root := t.TempDir()
-	child := filepath.Join(root, "child")
-	if err := os.Mkdir(child, 0755); err != nil {
-		t.Fatal(err)
-	}
-	file := filepath.Join(child, "page.md")
-	if err := os.WriteFile(file, []byte("before"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	s, err := New(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer s.Close()
-	events := make(chan string, 8)
-	watcher, err := NewWatcher(s, func(event string) { events <- event })
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer watcher.Close()
-	if err := os.WriteFile(file, []byte("after"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	awaitRefresh(t, events)
-}
-
 func TestJunctionRejected(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

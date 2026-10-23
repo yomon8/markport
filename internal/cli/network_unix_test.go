@@ -179,13 +179,13 @@ func testAutoPortStartup(t *testing.T, host string) {
 			t.Fatalf("instance record: %+v err=%v", record, err)
 		}
 	}
-	response, err = client.Get(lines[0] + "api/events")
+	response, err = client.Get(lines[0] + "api/instance")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		t.Fatalf("SSE: %d", response.StatusCode)
+		t.Fatalf("instance: %d", response.StatusCode)
 	}
 	if err := command.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
@@ -196,7 +196,7 @@ func testAutoPortStartup(t *testing.T, host string) {
 			t.Fatalf("shutdown: %v, %s", err, stderr.String())
 		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("shutdown blocked by SSE")
+		t.Fatal("shutdown timed out")
 	}
 	if runtime.GOOS == "linux" {
 		entries, err := os.ReadDir(registryDirectory)

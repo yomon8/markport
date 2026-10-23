@@ -21,6 +21,18 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
+var (
+	markdownFile   = newMarkdown()
+	markdownPasted = newMarkdown()
+	codeStyle      = styles.Get("github")
+	codeFormatter  = newCodeFormatter(true)
+	fenceFormatter = newCodeFormatter(false)
+)
+
+func newCodeFormatter(lineNumbers bool) *chromahtml.Formatter {
+	return chromahtml.New(chromahtml.WithClasses(true), chromahtml.WithLineNumbers(lineNumbers), chromahtml.LineNumbersInTable(lineNumbers), chromahtml.WithLinkableLineNumbers(lineNumbers, "L"))
+}
+
 func Code(filename, content string) string {
 	lexer := lexers.Match(filename)
 	if lexer == nil {
@@ -38,9 +50,12 @@ func highlight(content string, lexer chroma.Lexer, lineNumbers bool) string {
 	if err != nil {
 		return fallback
 	}
-	formatter := chromahtml.New(chromahtml.WithClasses(true), chromahtml.WithLineNumbers(lineNumbers), chromahtml.LineNumbersInTable(lineNumbers), chromahtml.WithLinkableLineNumbers(lineNumbers, "L"))
+	formatter := fenceFormatter
+	if lineNumbers {
+		formatter = codeFormatter
+	}
 	var out bytes.Buffer
-	if err := formatter.Format(&out, styles.Get("github"), iterator); err != nil {
+	if err := formatter.Format(&out, codeStyle, iterator); err != nil {
 		return fallback
 	}
 	return out.String()
@@ -92,14 +107,10 @@ func PastedMarkdown(content string) (string, error) {
 
 func markdown(filename, content string, pasted bool) (string, error) {
 	source := []byte(content)
-	md := goldmark.New(
-		goldmark.WithExtensions(extension.GFM),
-		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
-		goldmark.WithParserOptions(parser.WithParagraphTransformers(util.Prioritized(tableSourceTransformer{}, 199))),
-		goldmark.WithParserOptions(parser.WithInlineParsers(util.Prioritized(mathInlineParser{}, 150)), parser.WithBlockParsers(util.Prioritized(mathBlockParser{}, 850))),
-		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(codeRenderer{}, 100))),
-		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(mathRenderer{}, 100))),
-	)
+	md := markdownFile
+	if pasted {
+		md = markdownPasted
+	}
 	doc := md.Parser().Parse(text.NewReader(source))
 	var unresolved []ast.Node
 	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
@@ -176,4 +187,15 @@ func rewrite(filename, raw string, image bool) []byte {
 		fragment = "#" + url.PathEscape(u.Fragment)
 	}
 	return []byte(fmt.Sprintf("/?path=%s%s", url.QueryEscape(resolved), fragment))
+}
+
+func newMarkdown() goldmark.Markdown {
+	return goldmark.New(
+		goldmark.WithExtensions(extension.GFM),
+		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
+		goldmark.WithParserOptions(parser.WithParagraphTransformers(util.Prioritized(tableSourceTransformer{}, 199))),
+		goldmark.WithParserOptions(parser.WithInlineParsers(util.Prioritized(mathInlineParser{}, 150)), parser.WithBlockParsers(util.Prioritized(mathBlockParser{}, 850))),
+		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(codeRenderer{}, 100))),
+		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(mathRenderer{}, 100))),
+	)
 }

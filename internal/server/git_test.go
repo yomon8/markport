@@ -36,7 +36,6 @@ func gitServer(t *testing.T, dir string) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(app.Close)
 	return app
 }
 
@@ -116,7 +115,7 @@ func TestGitChangesAndDiff(t *testing.T) {
 			t.Errorf("revision changed without content change: %s", change.Path)
 		}
 	}
-	// Index-only changes must invalidate the response ETag without invalidating review revisions.
+	// Index-only changes must invalidate the response ETag and review revisions.
 	gitCommand(t, dir, "add", "unstaged.md")
 	conditional := httptest.NewRequest("GET", "/api/git/changes", nil)
 	conditional.Host = "localhost:3000"
@@ -128,7 +127,7 @@ func TestGitChangesAndDiff(t *testing.T) {
 		t.Fatalf("staging did not invalidate ETag: %d %s", stagedResult.Code, stagedResult.Body.String())
 	}
 	for _, change := range stagedListing.Changes {
-		if change.Revision != revisions[change.Path] || change.Path == "unstaged.md" && (change.Staging != "staged" || len(change.GitStatuses) != 1 || change.GitStatuses[0] != "M ") {
+		if (change.Revision != revisions[change.Path]) != (change.Path == "unstaged.md") || change.Path == "unstaged.md" && (change.Staging != "staged" || len(change.GitStatuses) != 1 || change.GitStatuses[0] != "M ") {
 			t.Errorf("index-only change = %+v", change)
 		}
 	}

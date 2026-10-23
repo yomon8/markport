@@ -35,7 +35,7 @@ test.afterAll(async () => {
   if (cacheDirectory) await rm(cacheDirectory, { recursive: true, force: true });
 });
 
-test('shows Lazygit status codes and refreshes index-only changes while preserving reviews', async ({ page }, testInfo) => {
+test('shows Lazygit status codes and refreshes index-only changes and invalidates reviews for staging changes', async ({ page }, testInfo) => {
   test.setTimeout(60000);
   const git = (...args: string[]): string => execFileSync('git', ['-C', directory, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' }).trim();
   git('init', '-q');
@@ -72,11 +72,11 @@ test('shows Lazygit status codes and refreshes index-only changes while preservi
   await page.locator('.diff-frame').evaluate((frame) => { frame.setAttribute('data-retained', 'true'); });
   git('add', 'staging/tracked.md');
   await expect(page.locator('#file-title .git-status')).toHaveJSProperty('textContent', 'M ', { timeout: 15000 });
-  await expect(page.locator('#file-title .review-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#file-title .review-toggle')).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator('.diff-frame')).toHaveAttribute('data-retained', 'true');
   git('restore', '--staged', 'staging/tracked.md');
   await expect(page.locator('#file-title .git-status')).toHaveJSProperty('textContent', ' M', { timeout: 15000 });
-  await expect(page.locator('#file-title .review-toggle')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#file-title .review-toggle')).toHaveAttribute('aria-pressed', 'false');
   git('add', 'staging/tracked.md');
   await writeFile(join(directory, 'staging', 'tracked.md'), 'newer\n');
   await expect(page.locator('#file-title .git-status')).toHaveJSProperty('textContent', 'MM', { timeout: 15000 });

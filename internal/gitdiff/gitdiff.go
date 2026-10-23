@@ -84,6 +84,8 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return b.buffer.Write(p)
 }
 
+var gitExecutable = sync.OnceValues(func() (string, error) { return exec.LookPath("git") })
+
 func run(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	return runCommand(ctx, dir, false, args...)
 }
@@ -100,7 +102,11 @@ func runInput(ctx context.Context, dir string, allowDiffExit bool, input []byte,
 		arguments = append(arguments, "--literal-pathspecs")
 	}
 	arguments = append(append(arguments, "-C", dir), args...)
-	cmd := exec.CommandContext(ctx, "git", arguments...)
+	executable, err := gitExecutable()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, executable, arguments...)
 	cmd.Env = make([]string, 0, len(os.Environ())+1)
 	for _, value := range os.Environ() {
 		if !strings.HasPrefix(strings.ToUpper(value), "GIT_") {
@@ -114,7 +120,7 @@ func runInput(ctx context.Context, dir string, allowDiffExit bool, input []byte,
 	var output limitedBuffer
 	var stderr limitedBuffer
 	cmd.Stdout, cmd.Stderr = &output, &stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -132,7 +138,7 @@ func runInput(ctx context.Context, dir string, allowDiffExit bool, input []byte,
 }
 
 func discover(ctx context.Context, store *files.Store) (repository, string, error) {
-	if _, err := exec.LookPath("git"); err != nil {
+	if _, err := gitExecutable(); err != nil {
 		return repository{}, "git_unavailable", nil
 	}
 	output, err := run(ctx, store.Path, "rev-parse", "--show-toplevel")
@@ -305,8 +311,12 @@ func localChanges(output []byte) (map[string]localChange, error) {
 	return result, nil
 }
 
-func collect(ctx context.Context, store *files.Store, repo repository, withStats bool) ([]Change, error) {
-	status, err := run(ctx, repo.root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames", "--", repo.scope())
+func collect(ctx context.Context, store *files.Store, repo repository, withStats bool, target string) ([]Change, error) {
+	scope := repo.scope()
+	if target != "" {
+		scope = repo.path(target)
+	}
+	status, err := run(ctx, repo.root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames", "--", scope)
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +326,7 @@ func collect(ctx context.Context, store *files.Store, repo repository, withStats
 	}
 	var tracked []Change
 	if repo.unborn {
-		output, err := run(ctx, repo.root, "ls-files", "--cached", "-z", "--", repo.scope())
+		output, err := run(ctx, repo.root, "ls-files", "--cached", "-z", "--", scope)
 		if err != nil {
 			return nil, err
 		}
@@ -325,7 +335,7 @@ func collect(ctx context.Context, store *files.Store, repo repository, withStats
 			return nil, err
 		}
 	} else {
-		output, err := run(ctx, repo.root, "diff", "--name-status", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", repo.head, "--", repo.scope())
+		output, err := run(ctx, repo.root, "diff", "--name-status", "-z", "--no-renames", "--no-ext-diff", "--no-textconv", repo.head, "--", scope)
 		if err != nil {
 			return nil, err
 		}
@@ -334,7 +344,7 @@ func collect(ctx context.Context, store *files.Store, repo repository, withStats
 			return nil, err
 		}
 	}
-	output, err := run(ctx, repo.root, "ls-files", "--others", "--exclude-standard", "-z", "--", repo.scope())
+	output, err := run(ctx, repo.root, "ls-files", "--others", "--exclude-standard", "-z", "--", scope)
 	if err != nil {
 		return nil, err
 	}
@@ -377,20 +387,26 @@ func collect(ctx context.Context, store *files.Store, repo repository, withStats
 		} else if errors.Is(openErr, fs.ErrNotExist) && visible(store, name, true) {
 			change.Status = "deleted"
 			change.baseMissing = repo.unborn
-			if !repo.unborn {
-				entry, err := run(ctx, repo.root, "ls-tree", "-z", repo.head, "--", repo.path(name))
-				if err != nil {
-					return nil, err
-				}
-				change.baseMissing = len(entry) == 0
-			}
 		} else {
 			continue
 		}
 		unique[name] = change
 	}
+	paths := make([]string, 0, len(unique))
+	for name, change := range unique {
+		if change.Status != "added" {
+			paths = append(paths, repo.path(name))
+		}
+	}
+	blobs, err := headBlobs(ctx, repo, paths)
+	if err != nil {
+		return nil, err
+	}
 	result := make([]Change, 0, len(unique))
 	for _, change := range unique {
+		if change.noNetChange && change.Status == "deleted" {
+			change.baseMissing = blobs[repo.path(change.Path)] == ""
+		}
 		state := local[repo.path(change.Path)]
 		change.Staging = state.staging()
 		change.GitStatuses = append([]string{}, state.statuses...)
@@ -403,7 +419,7 @@ func collect(ctx context.Context, store *files.Store, repo repository, withStats
 			}
 			return change.GitStatuses[i] < change.GitStatuses[j]
 		})
-		if err := fingerprint(ctx, store, repo, &change); err != nil {
+		if err := fingerprint(ctx, store, &change, blobs[repo.path(change.Path)]); err != nil {
 			return nil, err
 		}
 		if withStats {
@@ -448,31 +464,73 @@ func restoredFile(ctx context.Context, store *files.Store, repo repository, name
 	return strings.HasPrefix(string(entry), "100755 ") == (info.Mode().Perm()&0111 != 0), nil
 }
 
-func fingerprint(ctx context.Context, store *files.Store, repo repository, change *Change) error {
+// headBlobs bounds both argument count and bytes (including Windows' command
+// line limit). NUL records and literal pathspecs preserve unusual filenames.
+func headBlobs(ctx context.Context, repo repository, paths []string) (map[string]string, error) {
+	blobs := make(map[string]string, len(paths))
+	if repo.unborn {
+		return blobs, nil
+	}
+	sort.Strings(paths)
+	for len(paths) > 0 {
+		count, size := 0, 0
+		for count < len(paths) && count < 500 {
+			cost := len(paths[count])*2 + 3
+			if count > 0 && size+cost > 24000 {
+				break
+			}
+			size += cost
+			count++
+		}
+		args := append([]string{"ls-tree", "-z", repo.head, "--"}, paths[:count]...)
+		output, err := run(ctx, repo.root, args...)
+		if err != nil {
+			return nil, err
+		}
+		for _, record := range bytes.Split(output, []byte{0}) {
+			if len(record) == 0 {
+				continue
+			}
+			metadata, name, ok := bytes.Cut(record, []byte{'\t'})
+			fields := bytes.Fields(metadata)
+			if !ok || len(fields) != 3 {
+				return nil, errors.New("malformed Git tree")
+			}
+			blobs[string(name)] = string(fields[2]) + "\n"
+		}
+		paths = paths[count:]
+	}
+	return blobs, nil
+}
+
+func fingerprint(ctx context.Context, store *files.Store, change *Change, blob string) error {
 	hash := sha256.New()
 	_, _ = io.WriteString(hash, change.Status+"\x00")
 	if change.Status != "added" && !change.baseMissing {
-		// A review is tied to this file's HEAD blob, not the HEAD commit.
-		blob, err := run(ctx, repo.root, "rev-parse", repo.head+":"+repo.path(change.Path))
-		if err != nil {
-			return err
+		if blob == "" {
+			return errors.New("missing Git base blob")
 		}
-		_, _ = hash.Write(blob)
+		_, _ = io.WriteString(hash, blob)
 	}
 	if change.Status != "deleted" {
 		file, err := store.Open(change.Path)
 		if err != nil {
 			return err
 		}
-		_, copyErr := io.Copy(hash, file)
-		closeErr := file.Close()
-		if copyErr != nil {
-			return copyErr
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil {
+			return err
 		}
-		if closeErr != nil {
-			return closeErr
+		digest, err := worktreeHash(ctx, file, info, filepath.Join(store.Path, change.Path))
+		if err != nil {
+			return err
 		}
+		_, _ = hash.Write(digest[:])
+		// Mode and staging changes also invalidate a reviewed change.
+		_, _ = fmt.Fprintf(hash, "\x00%d", info.Mode().Perm()&0111)
 	}
+	_, _ = io.WriteString(hash, "\x00"+change.Staging+"\x00"+strings.Join(change.GitStatuses, "\x00"))
 	change.Revision = hex.EncodeToString(hash.Sum(nil))
 	return ctx.Err()
 }
@@ -493,7 +551,7 @@ func ListAt(ctx context.Context, store *files.Store, base string) (Listing, erro
 	if err != nil {
 		return Listing{}, err
 	}
-	changes, err := collect(ctx, store, repo, true)
+	changes, err := collect(ctx, store, repo, true, "")
 	identity := store.Path
 	if base != "" {
 		identity += "\x00" + base
@@ -521,7 +579,7 @@ func FileAt(ctx context.Context, store *files.Store, base, name string) (Diff, e
 	if err != nil {
 		return Diff{}, err
 	}
-	changes, err := collect(ctx, store, repo, false)
+	changes, err := collect(ctx, store, repo, false, name)
 	if err != nil {
 		return Diff{}, err
 	}

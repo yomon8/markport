@@ -1,0 +1,38 @@
+goos: linux
+goarch: amd64
+pkg: github.com/markport/markport/internal/gitdiff
+cpu: 13th Gen Intel(R) Core(TM) i5-1340P
+BenchmarkListAt-16    	      14	  96794875 ns/op	 5272570 B/op	   10662 allocs/op
+BenchmarkListAt-16    	      13	 109185464 ns/op	 5273658 B/op	   10663 allocs/op
+BenchmarkListAt-16    	      10	 108696133 ns/op	 5272860 B/op	   10663 allocs/op
+BenchmarkListAt-16    	      12	 108487124 ns/op	 5272077 B/op	   10658 allocs/op
+BenchmarkListAt-16    	      12	 105485477 ns/op	 5272293 B/op	   10660 allocs/op
+PASS
+ok  	github.com/markport/markport/internal/gitdiff	13.928s
+goos: linux
+goarch: amd64
+pkg: github.com/markport/markport/internal/render
+cpu: 13th Gen Intel(R) Core(TM) i5-1340P
+BenchmarkMarkdown-16    	      14	  81325912 ns/op	  12.85 MB/s	51569996 B/op	  691461 allocs/op
+BenchmarkMarkdown-16    	      15	  82388806 ns/op	  12.68 MB/s	51570134 B/op	  691461 allocs/op
+BenchmarkMarkdown-16    	      13	  79983924 ns/op	  13.07 MB/s	51570002 B/op	  691461 allocs/op
+BenchmarkMarkdown-16    	      14	  75905287 ns/op	  13.77 MB/s	51570181 B/op	  691461 allocs/op
+BenchmarkMarkdown-16    	      14	  75920428 ns/op	  13.76 MB/s	51570093 B/op	  691460 allocs/op
+BenchmarkCode-16        	       6	 181648090 ns/op	   0.59 MB/s	62295232 B/op	 1086089 allocs/op
+BenchmarkCode-16        	       7	 178329531 ns/op	   0.61 MB/s	62295061 B/op	 1086085 allocs/op
+BenchmarkCode-16        	       6	 176772003 ns/op	   0.61 MB/s	62294837 B/op	 1086084 allocs/op
+BenchmarkCode-16        	       6	 181065918 ns/op	   0.60 MB/s	62295517 B/op	 1086089 allocs/op
+BenchmarkCode-16        	       6	 178747610 ns/op	   0.60 MB/s	62295049 B/op	 1086087 allocs/op
+PASS
+ok  	github.com/markport/markport/internal/render	17.468s
+goos: linux
+goarch: amd64
+pkg: github.com/markport/markport/internal/files
+cpu: 13th Gen Intel(R) Core(TM) i5-1340P
+BenchmarkSearchContent-16    	       8	 154335463 ns/op	 139.95 MB/s	107733899 B/op	   60095 allocs/op
+BenchmarkSearchContent-16    	       7	 146018175 ns/op	 147.93 MB/s	107734200 B/op	   60095 allocs/op
+BenchmarkSearchContent-16    	       8	 150484092 ns/op	 143.54 MB/s	107734102 B/op	   60094 allocs/op
+BenchmarkSearchContent-16    	       7	 146539363 ns/op	 147.40 MB/s	107733949 B/op	   60095 allocs/op
+BenchmarkSearchContent-16    	       8	 153131811 ns/op	 141.05 MB/s	107734150 B/op	   60095 allocs/op
+PASS
+ok  	github.com/markport/markport/internal/files	8.929s

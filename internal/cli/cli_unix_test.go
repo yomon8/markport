@@ -16,16 +16,16 @@ import (
 	"time"
 )
 
-func TestShutdownWithSSE(t *testing.T) {
+func TestShutdown(t *testing.T) {
 	if os.Getenv("MARKPORT_CLI_HELPER") == "1" {
 		os.Exit(Run(os.Args[len(os.Args)-3:], os.Stdout, os.Stderr))
 	}
-	testShutdownWithSSE(t, syscall.SIGTERM)
+	testShutdown(t, syscall.SIGTERM)
 }
 
-func TestShutdownWithSSEInterrupt(t *testing.T) { testShutdownWithSSE(t, syscall.SIGINT) }
+func TestShutdownInterrupt(t *testing.T) { testShutdown(t, syscall.SIGINT) }
 
-func testShutdownWithSSE(t *testing.T, signal os.Signal) {
+func testShutdown(t *testing.T, signal os.Signal) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -33,7 +33,7 @@ func testShutdownWithSSE(t *testing.T, signal os.Signal) {
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
-	command := exec.Command(os.Args[0], "-test.run=TestShutdownWithSSE", t.TempDir(), "--port", strconv.Itoa(port))
+	command := exec.Command(os.Args[0], "-test.run=TestShutdown", t.TempDir(), "--port", strconv.Itoa(port))
 	command.Env = append(os.Environ(), "MARKPORT_CLI_HELPER=1")
 	cacheDirectory := t.TempDir()
 	if runtime.GOOS == "linux" {
@@ -46,7 +46,7 @@ func testShutdownWithSSE(t *testing.T, signal os.Signal) {
 		t.Fatal(err)
 	}
 	defer func() { _ = command.Process.Kill(); _ = command.Wait() }()
-	url := "http://127.0.0.1:" + strconv.Itoa(port) + "/api/events"
+	url := "http://127.0.0.1:" + strconv.Itoa(port) + "/api/instance"
 	client := http.Client{Timeout: 2 * time.Second}
 	var response *http.Response
 	deadline := time.Now().Add(3 * time.Second)
@@ -62,7 +62,7 @@ func testShutdownWithSSE(t *testing.T, signal os.Signal) {
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
-		t.Fatalf("SSE: %d", response.StatusCode)
+		t.Fatalf("instance: %d", response.StatusCode)
 	}
 	if runtime.GOOS == "linux" {
 		entries, err := os.ReadDir(filepath.Join(cacheDirectory, "markport", "instances"))
@@ -81,7 +81,7 @@ func testShutdownWithSSE(t *testing.T, signal os.Signal) {
 			t.Fatalf("shutdown: %v, %s", err, output.String())
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("shutdown blocked by SSE")
+		t.Fatal("shutdown timed out")
 	}
 	if runtime.GOOS == "linux" {
 		entries, err := os.ReadDir(filepath.Join(cacheDirectory, "markport", "instances"))

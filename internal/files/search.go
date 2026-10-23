@@ -1,6 +1,7 @@
 package files
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -89,6 +90,7 @@ func (s *Store) SearchContent(ctx context.Context, dir, query string) (ContentSe
 	}
 	_ = root.Close()
 	needle := strings.ToLower(query)
+	needleBytes := []byte(needle)
 	entriesSeen := 0
 	var visit func(string) error
 	visit = func(folder string) error {
@@ -187,36 +189,58 @@ func (s *Store) SearchContent(ctx context.Context, dir, query string) (ContentSe
 				continue
 			}
 			result.BytesRead += int64(len(data))
-			if !utf8.Valid(data) || strings.IndexFunc(string(data), func(r rune) bool { return r < 0x20 && r != '\n' && r != '\r' && r != '\t' && r != '\f' }) >= 0 {
+			if !utf8.Valid(data) || bytes.IndexFunc(data, func(r rune) bool { return r < 0x20 && r != '\n' && r != '\r' && r != '\t' && r != '\f' }) >= 0 {
 				continue
 			}
-			lines := strings.Split(string(data), "\n")
-			for i, line := range lines {
+			// Fold the file only as a filter: Unicode folding may change byte
+			// offsets, so line numbers and snippets always use the original data.
+			lowered := bytes.ToLower(data)
+			if strings.ContainsRune(needle, '\n') || !bytes.Contains(lowered, needleBytes) {
+				continue
+			}
+			previousStart, previousEnd, foldedStart := 0, 0, 0
+			for start, number := 0, 1; start <= len(data); number++ {
 				if err := ctx.Err(); err != nil {
 					return err
 				}
-				index := strings.Index(strings.ToLower(line), needle)
-				if index < 0 {
-					continue
+				end := len(data)
+				if newline := bytes.IndexByte(data[start:], '\n'); newline >= 0 {
+					end = start + newline
 				}
-				// Case folding may change byte lengths for some Unicode letters.
-				// In that case keep the full line rather than slicing at a wrong offset.
-				text := contextLine(line)
-				if len(strings.ToLower(line)) == len(line) {
-					text = searchSnippet(line, index, min(index+len(query), len(line)))
+				// Follow folded newlines independently, strictly as a filter.
+				// Original byte ranges above define source lines and their numbers.
+				foldedEnd := len(lowered)
+				if newline := bytes.IndexByte(lowered[foldedStart:], '\n'); newline >= 0 {
+					foldedEnd = foldedStart + newline
 				}
-				match := ContentMatch{Path: rel, Line: i + 1, Text: text}
-				if i > 0 {
-					match.Before = contextLine(lines[i-1])
+				if bytes.Contains(lowered[foldedStart:foldedEnd], needleBytes) {
+					line := string(data[start:end])
+					lowerLine := strings.ToLower(line)
+					index := strings.Index(lowerLine, needle)
+					text := contextLine(line)
+					if len(lowerLine) == len(line) {
+						text = searchSnippet(line, index, min(index+len(query), len(line)))
+					}
+					match := ContentMatch{Path: rel, Line: number, Text: text}
+					if number > 1 {
+						match.Before = contextLine(string(data[previousStart:previousEnd]))
+					}
+					if end < len(data) {
+						nextStart, nextEnd := end+1, len(data)
+						if newline := bytes.IndexByte(data[nextStart:], '\n'); newline >= 0 {
+							nextEnd = nextStart + newline
+						}
+						match.After = contextLine(string(data[nextStart:nextEnd]))
+					}
+					result.Matches = append(result.Matches, match)
+					if len(result.Matches) >= MaxSearchMatches {
+						result.Limit = "matches"
+						return nil
+					}
 				}
-				if i+1 < len(lines) {
-					match.After = contextLine(lines[i+1])
-				}
-				result.Matches = append(result.Matches, match)
-				if len(result.Matches) >= MaxSearchMatches {
-					result.Limit = "matches"
-					return nil
-				}
+				foldedStart = foldedEnd + 1
+				previousStart, previousEnd = start, end
+				start = end + 1
 			}
 		}
 		if truncated {

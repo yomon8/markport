@@ -1,0 +1,26 @@
+{
+  "git_processes": 6,
+  "traced_poll_wall_ms": 92.93893500580452,
+  "execve": [
+    "167983 execve(\"/usr/local/bin/git\", [\"/usr/local/bin/git\", \"--no-pager\", \"--literal-pathspecs\", \"-C\", \"/tmp/markport-perf-04zqtgef\", \"rev-parse\", \"--show-toplevel\"], 0x8d708c1e200 /* 30 vars */) = 0",
+    "167984 execve(\"/usr/local/bin/git\", [\"/usr/local/bin/git\", \"--no-pager\", \"--literal-pathspecs\", \"-C\", \"/tmp/markport-perf-04zqtgef\", \"rev-parse\", \"--verify\", \"HEAD\"], 0x8d708c64200 /* 30 vars */) = 0",
+    "167985 execve(\"/usr/local/bin/git\", [\"/usr/local/bin/git\", \"--no-pager\", \"--literal-pathspecs\", \"-C\", \"/tmp/markport-perf-04zqtgef\", \"status\", \"--porcelain=v1\", \"-z\", \"--untracked-files=all\", \"--no-renames\", \"--\", \".\"], 0x8d708c1e300 /* 30 vars */) = 0",
+    "167986 execve(\"/usr/local/bin/git\", [\"/usr/local/bin/git\", \"--no-pager\", \"--literal-pathspecs\", \"-C\", \"/tmp/markport-perf-04zqtgef\", \"diff\", \"--name-status\", \"-z\", \"--no-renames\", \"--no-ext-diff\", \"--no-textconv\", \"96f68b6b9988c137746025267587aea1\"..., \"--\", \".\"], 0x8d708ade100 /* 30 vars */) = 0",
+    "168002 execve(\"/usr/local/bin/git\", [\"/usr/local/bin/git\", \"--no-pager\", \"--literal-pathspecs\", \"-C\", \"/tmp/markport-perf-04zqtgef\", \"ls-files\", \"--others\", \"--exclude-standard\", \"-z\", \"--\", \".\"], 0x8d708ade200 /* 30 vars */) = 0",
+    "168003 execve(\"/usr/local/bin/git\", [\"/usr/local/bin/git\", \"--no-pager\", \"--literal-pathspecs\", \"-C\", \"/tmp/markport-perf-04zqtgef\", \"ls-tree\", \"-z\", \"96f68b6b9988c137746025267587aea1\"..., \"--\", \"file-000.txt\", \"file-001.txt\", \"file-002.txt\", \"file-003.txt\", \"file-004.txt\", \"file-005.txt\", \"file-006.txt\", \"file-007.txt\", \"file-008.txt\", \"file-009.txt\", \"file-010.txt\", \"file-011.txt\", \"file-012.txt\", \"file-013.txt\", \"file-014.txt\", \"file-015.txt\", \"file-016.txt\", \"file-017.txt\", \"file-018.txt\", \"file-019.txt\", \"file-020.txt\", \"file-021.txt\", \"file-022.txt\", ...], 0x8d708d92300 /* 30 vars */) = 0"
+  ],
+  "file_responses": {
+    "README.md": {
+      "seconds": 0.005649,
+      "bytes": 1162
+    },
+    "sample.py": {
+      "seconds": 0.008759,
+      "bytes": 2155
+    },
+    "large.md": {
+      "seconds": 0.109357,
+      "bytes": 1780048
+    }
+  }
+}

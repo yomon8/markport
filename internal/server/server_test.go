@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"image"
 	"image/color"
@@ -32,12 +31,11 @@ func newTestServer(t *testing.T) (*Server, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() { _ = s.Close() })
 	app, err := New(s, "127.0.0.1", 3000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(app.Close)
 	return app, dir
 }
 func request(app *Server, host, url string) *httptest.ResponseRecorder {
@@ -497,10 +495,9 @@ func TestSearchIndex(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "moved.md"), []byte("moved"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	app.Publish("refresh")
-	updated := request(app, "localhost:3000", "/api/search-index")
+	updated := request(app, "localhost:3000", "/api/search-index?refresh=1")
 	if updated.Code != http.StatusOK || !strings.Contains(updated.Body.String(), "moved.md") {
-		t.Fatalf("watch invalidation: %d %s", updated.Code, updated.Body.String())
+		t.Fatalf("forced invalidation: %d %s", updated.Code, updated.Body.String())
 	}
 }
 func TestImageFilePreview(t *testing.T) {
@@ -718,59 +715,6 @@ func TestFileRejectionsAndSVG(t *testing.T) {
 		t.Errorf("after errors: %d", r.Code)
 	}
 }
-func TestSSE(t *testing.T) {
-	app, _ := newTestServer(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	req := httptest.NewRequest("GET", "/api/events", nil).WithContext(ctx)
-	req.Host = "localhost:3000"
-	w := httptest.NewRecorder()
-	done := make(chan struct{})
-	go func() { app.ServeHTTP(w, req); close(done) }()
-	time.Sleep(20 * time.Millisecond)
-	app.Publish("refresh")
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("SSE did not exit")
-	}
-	if !strings.Contains(w.Body.String(), "event: ready") {
-		t.Fatal("missing ready")
-	}
-	if r := request(app, "evil.test:3000", "/api/events"); r.Code != 400 {
-		t.Errorf("SSE Host: %d", r.Code)
-	}
-}
-
-func TestSSEReplaysCurrentWatchStatus(t *testing.T) {
-	app, _ := newTestServer(t)
-	capture := func() string {
-		ctx, cancel := context.WithCancel(context.Background())
-		req := httptest.NewRequest("GET", "/api/events", nil).WithContext(ctx)
-		req.Host = "localhost:3000"
-		w := httptest.NewRecorder()
-		done := make(chan struct{})
-		go func() { app.ServeHTTP(w, req); close(done) }()
-		time.Sleep(10 * time.Millisecond)
-		cancel()
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Fatal("SSE did not close")
-		}
-		return w.Body.String()
-	}
-	app.Publish("watch-error")
-	if body := capture(); !strings.Contains(body, "event: ready") || !strings.Contains(body, "event: watch-error") {
-		t.Fatalf("missing persistent status: %s", body)
-	}
-	app.Publish("watch-ok")
-	if body := capture(); strings.Contains(body, "event: watch-error") {
-		t.Fatalf("stale error status: %s", body)
-	}
-}
-
 func TestInfoAPI(t *testing.T) {
 	app, _ := newTestServer(t)
 	app.WorkingDirectory = filepath.Join(t.TempDir(), "起動 <script> & quoted")
@@ -831,7 +775,6 @@ func TestConfigAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(restarted.Close)
 	_, restartedRoot := readConfig(restarted)
 	if restartedRoot != root {
 		t.Fatal("root identity changed after restart")

@@ -299,9 +299,21 @@ func TestFileGitRejectsOversizedContents(t *testing.T) {
 }
 
 func TestFileGitWithoutGit(t *testing.T) {
-	f := newFileHistoryFixture(t)
+	if os.Getenv("MARKPORT_TEST_NO_GIT") != "1" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestFileGitWithoutGit$")
+		cmd.Env = append(os.Environ(), "MARKPORT_TEST_NO_GIT=1", "PATH="+t.TempDir())
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("missing Git subprocess: %v: %s", err, output)
+		}
+		return
+	}
+	store, err := files.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	f := fileHistoryFixture{store: store}
 	ctx := context.Background()
-	t.Setenv("PATH", t.TempDir())
 	page, err := FileHistory(ctx, f.store, "a.go", "", 0)
 	if err != nil || page.Available || page.Reason != "git_unavailable" {
 		t.Fatalf("history availability: %+v, %v", page, err)

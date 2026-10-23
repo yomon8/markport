@@ -3,15 +3,11 @@
 package server
 
 import (
-	"context"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/markport/markport/internal/files"
 	"golang.org/x/sys/unix"
 )
 
@@ -40,63 +36,6 @@ func TestSpecialFilesDoNotBlockAPI(t *testing.T) {
 	if status := request(app, "localhost:3000", "/api/file?path=ok.md").Code; status != 200 {
 		t.Errorf("after FIFO: %d", status)
 	}
-}
-
-func TestStartupWatchErrorVisibleToLaterSSEClient(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission denial cannot be tested as root")
-	}
-	root := t.TempDir()
-	blocked := filepath.Join(root, "blocked")
-	if err := os.Mkdir(blocked, 0000); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chmod(blocked, 0700)
-	store, err := files.New(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	app, err := New(store, "127.0.0.1", 3000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer app.Close()
-	watcher, err := files.NewWatcher(store, app.Publish)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer watcher.Close()
-	ctx, cancel := context.WithCancel(context.Background())
-	req := httptest.NewRequest("GET", "/api/events", nil).WithContext(ctx)
-	req.Host = "localhost:3000"
-	w := httptest.NewRecorder()
-	done := make(chan struct{})
-	go func() { app.ServeHTTP(w, req); close(done) }()
-	time.Sleep(10 * time.Millisecond)
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("SSE did not close")
-	}
-	if !strings.Contains(w.Body.String(), "event: watch-error") {
-		t.Fatalf("missing startup watch error: %s", w.Body.String())
-	}
-	if err := os.Chmod(blocked, 0700); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		app.mu.Lock()
-		failed := app.watchError
-		app.mu.Unlock()
-		if !failed {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("watch status did not recover after directory became readable")
 }
 
 func TestIntermediateLinkRejectedByBothAPIs(t *testing.T) {

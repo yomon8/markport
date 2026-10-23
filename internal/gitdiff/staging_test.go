@@ -135,8 +135,8 @@ func TestStagingAndCancelledChanges(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, change := range listing.Changes {
-			if change.Path == "unstaged" && (change.Revision != revision || change.Staging != map[string]string{"add": "staged", "restore": "unstaged"}[args[0]]) {
-				t.Errorf("staging changed review revision: %+v", change)
+			if change.Path == "unstaged" && ((change.Revision == revision) != (args[0] == "restore") || change.Staging != map[string]string{"add": "staged", "restore": "unstaged"}[args[0]]) {
+				t.Errorf("unexpected staging revision: %+v", change)
 			}
 		}
 	}

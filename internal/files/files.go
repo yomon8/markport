@@ -176,7 +176,25 @@ func readBounded(reader io.Reader, observedSize, max int64) ([]byte, error) {
 }
 
 func (s *Store) ReadText(name string) (string, error) {
-	b, err := s.Read(name, MaxTextSize)
+	f, err := s.Open(name)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	return s.ReadTextFrom(f, info)
+}
+
+// ReadTextFrom reads an already opened Store handle from its current offset.
+// The caller owns the handle and must close it. Validation is shared with ReadText.
+func (s *Store) ReadTextFrom(f *os.File, info fs.FileInfo) (string, error) {
+	if !info.Mode().IsRegular() {
+		return "", ErrType
+	}
+	b, err := readBounded(f, info.Size(), MaxTextSize)
 	if err != nil {
 		return "", err
 	}

@@ -57,12 +57,9 @@ type Server struct {
 	Registry         *discovery.Registry
 	DiscoveryError   string
 	instance         string
-	mu               sync.Mutex
-	subs             map[chan string]struct{}
-	closed           bool
-	watchError       bool
 	static           http.Handler
 	searchMu         sync.Mutex
+	searchTag        string
 	searchPaths      []string
 	searchIgnored    []string
 	searchExpires    time.Time
@@ -79,46 +76,7 @@ func New(store *files.Store, host string, port int) (*Server, error) {
 	if _, err := rand.Read(instance); err != nil {
 		return nil, err
 	}
-	return &Server{Files: store, Host: host, Port: port, instance: hex.EncodeToString(instance), subs: make(map[chan string]struct{}), static: http.FileServer(http.FS(dist))}, nil
-}
-
-func (s *Server) Publish(event string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return
-	}
-	if event == "watch-error" {
-		s.watchError = true
-	}
-	if event == "watch-ok" {
-		s.watchError = false
-	}
-	if event == "refresh" {
-		s.searchMu.Lock()
-		s.searchExpires = time.Time{}
-		s.searchMu.Unlock()
-	}
-	for ch := range s.subs {
-		select {
-		case ch <- event:
-		default:
-			<-ch
-			ch <- event
-		}
-	}
-}
-func (s *Server) Close() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.closed {
-		return
-	}
-	s.closed = true
-	for ch := range s.subs {
-		close(ch)
-		delete(s.subs, ch)
-	}
+	return &Server{Files: store, Host: host, Port: port, instance: hex.EncodeToString(instance), static: http.FileServer(http.FS(dist))}, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -169,8 +127,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.download(w, r)
 	case "/api/pdf":
 		s.pdf(w, r)
-	case "/api/events":
-		s.events(w, r)
 	case "/api/git/changes":
 		s.gitChanges(w, r)
 	case "/api/git/diff":
@@ -190,12 +146,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/api/git/commit-diff":
 		s.gitCommitDiff(w, r)
 	case "/":
+		w.Header().Set("Cache-Control", "no-cache")
 		s.static.ServeHTTP(w, r)
 	default:
 		if strings.HasPrefix(r.URL.Path, "/api/preview/") || strings.HasPrefix(r.URL.Path, "/api/interactive/") {
 			s.preview(w, r)
 		} else if strings.HasPrefix(r.URL.Path, "/assets/") {
-			s.static.ServeHTTP(w, r)
+			s.static.ServeHTTP(assetCacheWriter{w}, r)
 		} else {
 			http.NotFound(w, r)
 		}
@@ -278,7 +235,9 @@ func validHost(raw, bindHost string, port int) bool {
 func jsonReply(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(v)
 }
 func apiError(w http.ResponseWriter, err error) {
 	status, code := http.StatusForbidden, "unreadable"
@@ -489,20 +448,11 @@ func (s *Server) gitCommitDiff(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) searchIndex(w http.ResponseWriter, r *http.Request) {
 	force := r.URL.Query().Get("refresh") == "1" || r.Header.Get("Cache-Control") == "no-cache"
-	paths, ignored, err := s.cachedSearchPaths(r.Context(), force)
+	paths, ignored, tag, err := s.cachedSearchPaths(r.Context(), force)
 	if err != nil {
 		apiError(w, err)
 		return
 	}
-	hash := sha256.New()
-	for _, name := range paths {
-		_, _ = io.WriteString(hash, name+"\x00")
-	}
-	_, _ = io.WriteString(hash, "\x01")
-	for _, name := range ignored {
-		_, _ = io.WriteString(hash, name+"\x00")
-	}
-	tag := `"` + hex.EncodeToString(hash.Sum(nil)) + `"`
 	w.Header().Set("ETag", tag)
 	if r.Header.Get("If-None-Match") == tag {
 		w.WriteHeader(http.StatusNotModified)
@@ -517,25 +467,25 @@ func (s *Server) searchIndex(w http.ResponseWriter, r *http.Request) {
 // A short cache bounds full-tree walks during search; a forced refresh bypasses
 // it. Concurrent requests share the same walk, including forced requests.
 // Ignored names come from one batched Git call; failures leave the list empty.
-func (s *Server) cachedSearchPaths(ctx context.Context, force bool) ([]string, []string, error) {
+func (s *Server) cachedSearchPaths(ctx context.Context, force bool) ([]string, []string, string, error) {
 	for {
 		s.searchMu.Lock()
 		if !force && s.searchPaths != nil && time.Now().Before(s.searchExpires) {
-			paths, ignored := s.searchPaths, s.searchIgnored
+			paths, ignored, tag := s.searchPaths, s.searchIgnored, s.searchTag
 			s.searchMu.Unlock()
-			return paths, ignored, nil
+			return paths, ignored, tag, nil
 		}
 		if flight := s.searchFlight; flight != nil {
 			s.searchMu.Unlock()
 			select {
 			case <-ctx.Done():
-				return nil, nil, ctx.Err()
+				return nil, nil, "", ctx.Err()
 			case <-flight:
 			}
 			s.searchMu.Lock()
-			paths, ignored, err := s.searchPaths, s.searchIgnored, s.searchErr
+			paths, ignored, tag, err := s.searchPaths, s.searchIgnored, s.searchTag, s.searchErr
 			s.searchMu.Unlock()
-			return paths, ignored, err
+			return paths, ignored, tag, err
 		}
 		flight := make(chan struct{})
 		s.searchFlight = flight
@@ -549,8 +499,13 @@ func (s *Server) cachedSearchPaths(ctx context.Context, force bool) ([]string, [
 			}
 		}
 		cancel()
+		tag := ""
+		if err == nil {
+			tag = searchPathsTag(paths, ignored)
+		}
 		s.searchMu.Lock()
 		if err == nil {
+			s.searchTag = tag
 			s.searchPaths = paths
 			s.searchIgnored = ignored
 			s.searchExpires = time.Now().Add(5 * time.Second)
@@ -559,7 +514,7 @@ func (s *Server) cachedSearchPaths(ctx context.Context, force bool) ([]string, [
 		s.searchFlight = nil
 		close(flight)
 		s.searchMu.Unlock()
-		return paths, ignored, err
+		return paths, ignored, tag, err
 	}
 }
 
@@ -692,7 +647,7 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info, err := f.Stat()
-	_ = f.Close()
+	defer f.Close()
 	if err != nil {
 		apiError(w, err)
 		return
@@ -708,7 +663,7 @@ func (s *Server) file(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
-	content, err := s.Files.ReadText(name)
+	content, err := s.Files.ReadTextFrom(f, info)
 	if err != nil {
 		apiError(w, err)
 		return
@@ -970,49 +925,26 @@ func validSVG(data []byte) bool {
 		}
 	}
 }
-func (s *Server) events(w http.ResponseWriter, r *http.Request) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "SSE unsupported", 500)
-		return
+
+// Cache only successful asset responses; missing files must remain retryable.
+type assetCacheWriter struct{ http.ResponseWriter }
+
+func (w assetCacheWriter) WriteHeader(status int) {
+	if status == http.StatusOK {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	ch := make(chan string, 8)
-	s.mu.Lock()
-	if s.closed {
-		s.mu.Unlock()
-		http.Error(w, "server closed", 503)
-		return
+	w.ResponseWriter.WriteHeader(status)
+}
+func (w assetCacheWriter) Write(data []byte) (int, error) { return w.ResponseWriter.Write(data) }
+
+func searchPathsTag(paths, ignored []string) string {
+	hash := sha256.New()
+	for _, name := range paths {
+		_, _ = io.WriteString(hash, name+"\x00")
 	}
-	s.subs[ch] = struct{}{}
-	initialWatchError := s.watchError
-	s.mu.Unlock()
-	defer func() {
-		s.mu.Lock()
-		if _, ok := s.subs[ch]; ok {
-			delete(s.subs, ch)
-			close(ch)
-		}
-		s.mu.Unlock()
-	}()
-	_, _ = fmt.Fprint(w, "event: ready\ndata: {}\n\n")
-	flusher.Flush()
-	if initialWatchError {
-		_, _ = fmt.Fprint(w, "event: watch-error\ndata: {}\n\n")
-		flusher.Flush()
+	_, _ = io.WriteString(hash, "\x01")
+	for _, name := range ignored {
+		_, _ = io.WriteString(hash, name+"\x00")
 	}
-	for {
-		select {
-		case <-r.Context().Done():
-			return
-		case event, ok := <-ch:
-			if !ok {
-				return
-			}
-			_, _ = fmt.Fprintf(w, "event: %s\ndata: {}\n\n", event)
-			flusher.Flush()
-		}
-	}
+	return `"` + hex.EncodeToString(hash.Sum(nil)) + `"`
 }

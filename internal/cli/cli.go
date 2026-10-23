@@ -262,7 +262,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		if !errors.Is(err, http.ErrServerClosed) {
 			fmt.Fprintln(stderr, err)
 			cancel()
-			app.Close()
 			return 1
 		}
 	}
@@ -273,6 +272,5 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		_ = httpServer.Close()
 	}
-	app.Close()
 	return 0
 }
