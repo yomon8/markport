@@ -143,6 +143,7 @@ test('Markdown widths preserve prose and expand only long top-level blocks', asy
   await page.setViewportSize({ width: 2560, height: 1100 });
   await writeFile(join(directory, 'width-fixture.md'), widthMarkdown());
   const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.message));
+  await page.addInitScript(() => { if (localStorage.getItem('markport-content-width') === null) localStorage.setItem('markport-content-width', 'standard'); });
   await page.goto(`http://127.0.0.1:${port}/?path=width-fixture.md`);
   const root = page.locator('#content'); const prose = root.locator(':scope > p').first();
   const width = () => prose.evaluate((element) => element.getBoundingClientRect().width);
@@ -178,6 +179,61 @@ test('Markdown widths preserve prose and expand only long top-level blocks', asy
   expect(errors).toEqual([]);
 });
 
+test('content width defaults to Full and w preserves focus, saves choices, and respects interaction contexts', async ({ page }) => {
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  const html = page.locator('html');
+  const control = page.locator('#file-title .content-width-toggle');
+  await expect(control).toHaveAttribute('aria-label', 'Content width: Full');
+  const prose = page.locator('#content > h1');
+  await expect.poll(() => prose.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(1024);
+  await control.focus();
+  await page.keyboard.press('w');
+  await expect(html).toHaveAttribute('data-content-width', 'standard');
+  await expect(control).toBeFocused();
+  await expect.poll(() => prose.evaluate((node) => node.getBoundingClientRect().width)).toBe(736);
+  await page.keyboard.press('w');
+  await expect(html).toHaveAttribute('data-content-width', 'wide');
+  await page.reload();
+  await expect(control).toHaveAttribute('aria-label', 'Content width: Wide');
+  await control.focus(); await page.keyboard.press('w');
+  await expect(html).toHaveAttribute('data-content-width', 'full');
+
+  for (const options of [{ repeat: true }, { isComposing: true }, { keyCode: 229 }, { ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }]) {
+    await control.dispatchEvent('keydown', { key: 'w', bubbles: true, cancelable: true, ...options });
+    await expect(html).toHaveAttribute('data-content-width', 'full');
+  }
+  await control.evaluate((node) => {
+    node.addEventListener('keydown', (event) => event.preventDefault(), { once: true });
+    node.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', bubbles: true, cancelable: true }));
+  });
+  await expect(html).toHaveAttribute('data-content-width', 'full');
+  // A menu must keep its keyboard interaction without changing the width.
+  await control.click(); await page.keyboard.press('w');
+  await expect(page.locator('#content-width-menu')).toBeVisible();
+  await expect(html).toHaveAttribute('data-content-width', 'full');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('?'); await page.keyboard.press('w');
+  await expect(page.locator('#shortcuts-dialog')).toBeVisible();
+  await expect(html).toHaveAttribute('data-content-width', 'full');
+  await page.keyboard.press('Escape');
+  await page.locator('#search').fill('w');
+  await expect(html).toHaveAttribute('data-content-width', 'full');
+  await page.locator('#search').fill('');
+  await prose.evaluate((node) => { node.setAttribute('contenteditable', 'true'); });
+  await prose.focus(); await page.keyboard.type('w');
+  await expect(html).toHaveAttribute('data-content-width', 'full');
+  await prose.evaluate((node) => node.removeAttribute('contenteditable'));
+  await page.setViewportSize({ width: 700, height: 844 });
+  await page.locator('#file-title').click(); await page.keyboard.press('w');
+  await expect(html).toHaveAttribute('data-content-width', 'full');
+  await page.setViewportSize({ width: 1800, height: 1000 });
+  await page.getByRole('button', { name: 'Source', exact: true }).first().click();
+  await expect(page.locator('.content-width-toggle:visible')).toHaveCount(0);
+  await page.keyboard.press('w');
+  await expect(html).toHaveAttribute('data-content-width', 'full');
+});
+
 test('width controls synchronize split panes and stay within resized panes', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 2560, height: 1100 });
   await writeFile(join(directory, 'width-split.md'), widthMarkdown());
@@ -186,6 +242,12 @@ test('width controls synchronize split panes and stay within resized panes', asy
   await page.locator('#right-title .content-width-toggle').click();
   await page.getByRole('menuitemradio', { name: 'Full', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Content width: Full', exact: true })).toHaveCount(2);
+  await page.locator('#right-title .content-width-toggle').focus();
+  for (const name of ['Standard', 'Wide', 'Full']) {
+    await page.keyboard.press('w');
+    await expect(page.getByRole('button', { name: `Content width: ${name}`, exact: true })).toHaveCount(2);
+    await expect(page.locator('#right-title .content-width-toggle')).toBeFocused();
+  }
   const fits = () => page.evaluate(() => ['#main', '#right-pane'].every((selector) => {
     const pane = document.querySelector(selector)!; const block = pane.querySelector('.table-frame')!;
     return pane.scrollWidth <= pane.clientWidth + 1 && block.getBoundingClientRect().right <= pane.getBoundingClientRect().right;
@@ -213,6 +275,8 @@ test('Paste previews share the width choice without changing the text editor wid
   await page.getByRole('textbox', { name: 'Markdown Text', exact: true }).fill(widthMarkdown());
   const editorWidth = await page.locator('.paste-editor').evaluate((element) => element.getBoundingClientRect().width);
   await page.getByRole('button', { name: 'Rendered', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Content width: Full', exact: true })).toBeVisible();
+  await page.keyboard.press('w');
   const prose = page.locator('.paste-preview > p').first();
   await expect.poll(() => prose.evaluate((element) => element.getBoundingClientRect().width)).toBe(736);
   await expect(page.locator('.paste-preview > .table-frame').first()).toHaveClass(/wide-content/);
@@ -221,7 +285,16 @@ test('Paste previews share the width choice without changing the text editor wid
   await expect.poll(() => prose.evaluate((element) => element.getBoundingClientRect().width)).toBe(1024);
   await page.getByRole('button', { name: 'Split', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Content width: Wide', exact: true })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Markdown Text', exact: true }).press('w');
+  await expect(page.locator('html')).toHaveAttribute('data-content-width', 'wide');
+  await page.getByRole('button', { name: 'Content width: Wide', exact: true }).focus();
+  await page.keyboard.press('w');
+  await expect(page.getByRole('button', { name: 'Content width: Full', exact: true })).toBeVisible();
+  await page.keyboard.press('w'); await page.keyboard.press('w');
   await page.getByRole('button', { name: 'Text', exact: true }).click();
+  await page.getByRole('button', { name: 'Text', exact: true }).focus();
+  await page.keyboard.press('w');
+  await expect(page.locator('html')).toHaveAttribute('data-content-width', 'wide');
   expect(await page.locator('.paste-editor').evaluate((element) => element.getBoundingClientRect().width)).toBe(editorWidth);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Rendered', exact: true }).click();
@@ -234,6 +307,7 @@ test('Paste previews share the width choice without changing the text editor wid
 test('width menu stays on screen, supports keyboard and touch, and retains changes through refresh', async ({ page, browser }) => {
   await page.setViewportSize({ width: 1000, height: 800 });
   await writeFile(join(directory, 'width-keyboard.md'), widthMarkdown());
+  await page.addInitScript(() => { if (localStorage.getItem('markport-content-width') === null) localStorage.setItem('markport-content-width', 'standard'); });
   await page.goto(`http://127.0.0.1:${port}/?path=width-keyboard.md`);
   const button = page.getByRole('button', { name: 'Content width: Standard', exact: true });
   await button.focus(); await button.press('ArrowDown');
@@ -252,6 +326,7 @@ test('width menu stays on screen, supports keyboard and touch, and retains chang
   await expect(page.getByRole('button', { name: 'Content width: Full', exact: true })).toBeVisible();
   const touch = await browser.newContext({ viewport: { width: 1000, height: 800 }, hasTouch: true, isMobile: true });
   try {
+    await touch.addInitScript(() => { if (localStorage.getItem('markport-content-width') === null) localStorage.setItem('markport-content-width', 'standard'); });
     const touchPage = await touch.newPage(); await touchPage.goto(`http://127.0.0.1:${port}/?path=width-keyboard.md`);
     const control = touchPage.getByRole('button', { name: 'Content width: Standard', exact: true });
     expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(40); await control.tap();
@@ -592,6 +667,7 @@ test('shortcut help opens by keyboard and mouse without interrupting editing', a
   await expect(dialog).toContainText('⌘I');
   await expect(dialog).toContainText('Open selected server in the same tab');
   await expect(dialog).toContainText('Next changed file');
+  await expect(dialog).toContainText('Cycle content width: Full → Standard → Wide → Full');
   await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
@@ -1485,6 +1561,7 @@ test('scrolls large tables, wraps cells on request, and expands them into an ove
   const wide = `| ${Array.from({ length: 8 }, (_, index) => `Column ${index}`).join(' | ')} |\n|${'---|'.repeat(8)}\n| ${Array.from({ length: 8 }, () => sentence).join(' | ')} |\n| [Link](small.md) |${' x |'.repeat(7)}`;
   await writeFile(join(directory, 'wide-table.md'), `# Tables\n\n| Small | Table |\n|---|---|\n| a | b |\n\n${wide}\n`);
   await page.setViewportSize({ width: 1400, height: 900 });
+  await page.addInitScript(() => { if (localStorage.getItem('markport-content-width') === null) localStorage.setItem('markport-content-width', 'standard'); });
   await page.goto(`http://127.0.0.1:${port}/?path=wide-table.md`);
   const small = page.locator('#content .table-frame').nth(0);
   const large = page.locator('#content .table-frame').nth(1);
@@ -2471,6 +2548,8 @@ test('uses the available paste viewport and aligns the native editor with Markdo
   await input.focus(); await input.press('Control+Enter');
   await expect(page.getByRole('button', { name: 'Rendered', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.paste-preview h1')).toHaveText('日本語 Heading');
+  await page.getByRole('button', { name: 'Content width: Full', exact: true }).click();
+  await page.getByRole('menuitemradio', { name: 'Standard', exact: true }).click();
   expect((await page.locator('.paste-preview h1').boundingBox())!.width).toBeLessThanOrEqual(736);
   expect((await page.locator('.paste-preview').boundingBox())!.width).toBeGreaterThan(736);
   await page.getByRole('button', { name: 'Rendered', exact: true }).press('Control+Enter');

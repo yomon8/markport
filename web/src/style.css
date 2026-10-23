@@ -404,7 +404,8 @@ article[data-kind=paste][data-paste-view=split] #paste-resize{grid-column:2;grid
 .active-pane-badge{flex:none;margin-left:8px;padding:1px 5px;border-radius:4px;font-size:10px;font-weight:600;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
 
 /* Markdown prose keeps its chosen measure; wide blocks can use the whole pane. */
-:root{--reading-width:46em}
+:root{--reading-width:100%}
+:root[data-content-width=standard]{--reading-width:46em}
 :root[data-content-width=wide]{--reading-width:64em}
 :root[data-content-width=full]{--reading-width:100%}
 :is(article[data-kind=markdown],.paste-preview).markdown-layout{max-width:none;min-width:0;display:flow-root}

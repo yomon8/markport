@@ -11,6 +11,7 @@ const choices: { id: Width; label: string; em: number }[] = [
 /** One preference and menu shared by every Markdown preview in this tab. */
 export function createContentWidth(): {
   createButton: () => HTMLButtonElement;
+  cycle: () => void;
   decorate: (root: HTMLElement) => void;
   refresh: () => void;
   dispose: () => void;
@@ -27,9 +28,7 @@ export function createContentWidth(): {
     const item = document.createElement('button'); item.type = 'button'; item.textContent = choice.label;
     item.setAttribute('role', 'menuitemradio'); item.tabIndex = -1;
     item.addEventListener('click', () => {
-      selected = choice.id;
-      try { localStorage.setItem(storageKey, selected); } catch { /* Keep the selection in this tab. */ }
-      apply(); close(true);
+      select(choice.id); close(true);
     }, { signal });
     menu.append(item); return item;
   });
@@ -42,8 +41,13 @@ export function createContentWidth(): {
   }) : undefined;
 
   function read(): Width {
-    try { const saved = localStorage.getItem(storageKey); return choices.find((choice) => choice.id === saved)?.id ?? 'standard'; }
-    catch { return 'standard'; }
+    try { const saved = localStorage.getItem(storageKey); return choices.find((choice) => choice.id === saved)?.id ?? 'full'; }
+    catch { return 'full'; }
+  }
+  function select(width: Width): void {
+    selected = width;
+    try { localStorage.setItem(storageKey, selected); } catch { /* Keep the selection in this tab. */ }
+    apply();
   }
   function label(): string { return `Content width: ${choices.find((choice) => choice.id === selected)!.label}`; }
   function apply(): void {
@@ -143,6 +147,7 @@ export function createContentWidth(): {
   }, { signal });
   apply();
   return {
+    cycle: () => select(choices[(choices.findIndex((choice) => choice.id === selected) + 1) % choices.length].id),
     createButton: () => {
       for (const button of buttons) if (!button.isConnected) buttons.delete(button);
       const button = createToolButton('contentWidth', label()); button.classList.add('content-width-toggle');

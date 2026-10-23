@@ -1515,6 +1515,12 @@ window.addEventListener('hashchange', () => { highlightCodeLines(true); });
 window.addEventListener('keydown', (event) => {
   if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
   if (editingShortcutTarget(event.target)) return;
+  if (matchesShortcut(event, 'contentWidth')) {
+    if (event.repeat || window.innerWidth <= 700 || document.querySelector('dialog[open]')) return;
+    if ([...document.querySelectorAll<HTMLElement>('[role="menu"]')].some((menu) => menu.getClientRects().length > 0)) return;
+    if (![...document.querySelectorAll<HTMLButtonElement>('.content-width-toggle')].some((button) => !button.hidden && button.getClientRects().length > 0)) return;
+    event.preventDefault(); contentWidth.cycle(); return;
+  }
   if (selectedMode() === 'diff' && !event.ctrlKey && !event.metaKey && !event.altKey) {
     if (matchesShortcut(event, 'nextChange') || matchesShortcut(event, 'previousChange')) {
       const next = diffNeighbor(selected(), matchesShortcut(event, 'nextChange') ? 1 : -1, onlyUnreviewed);

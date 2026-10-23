@@ -1,5 +1,5 @@
 type Binding = { key: string; mod?: boolean; shift?: boolean };
-export type ShortcutId = 'pasteView' | 'pasteEscape' | 'pasteIndent' | 'pasteUnindent' | 'serverInfo' | 'serverNext' | 'serverPrevious' | 'serverOpen' | 'search' | 'sidebar' | 'help' | 'close' | 'nextChange' | 'previousChange' | 'reviewNext' | 'treeTab' | 'treeExpand' | 'treeCollapse' | 'treeNext' | 'treePrevious' | 'treeFirst' | 'treeLast' | 'treeOpen' | 'treeClear' | 'tabSwitch' | 'tabFirst' | 'tabLast';
+export type ShortcutId = 'contentWidth' | 'pasteView' | 'pasteEscape' | 'pasteIndent' | 'pasteUnindent' | 'serverInfo' | 'serverNext' | 'serverPrevious' | 'serverOpen' | 'search' | 'sidebar' | 'help' | 'close' | 'nextChange' | 'previousChange' | 'reviewNext' | 'treeTab' | 'treeExpand' | 'treeCollapse' | 'treeNext' | 'treePrevious' | 'treeFirst' | 'treeLast' | 'treeOpen' | 'treeClear' | 'tabSwitch' | 'tabFirst' | 'tabLast';
 type Shortcut = { id: ShortcutId; description: string; group: string; bindings: Binding[] };
 
 export const shortcuts: Shortcut[] = [
@@ -7,6 +7,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'pasteEscape', description: 'Leave the editor; Tab moves focus normally', group: 'Paste Markdown', bindings: [{ key: 'Escape' }] },
   { id: 'pasteIndent', description: 'Indent selected lines (2 spaces)', group: 'Paste Markdown', bindings: [{ key: 'Tab' }] },
   { id: 'pasteUnindent', description: 'Unindent selected lines', group: 'Paste Markdown', bindings: [{ key: 'Tab', shift: true }] },
+  { id: 'contentWidth', description: 'Cycle content width: Full → Standard → Wide → Full', group: 'General', bindings: [{ key: 'w' }] },
   { id: 'search', description: 'Search files', group: 'General', bindings: [{ key: '/' }, { key: 'k', mod: true }] },
   { id: 'sidebar', description: 'Toggle file list', group: 'General', bindings: [{ key: 'b', mod: true }] },
   { id: 'serverInfo', description: 'Open server info', group: 'General', bindings: [{ key: 'i', mod: true }] },

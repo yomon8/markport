@@ -125,7 +125,7 @@ Use the arrow beside a file in the sidebar or a search result to open it on the 
 
 ### Markdown content width
 
-Use the **Content width** icon in a Markdown title bar to choose **Standard** (46em, the default), **Wide** (64em), or **Full** (the available pane width). The choice is saved in this browser per host and port and applies to both split panes and the Rendered/Split previews in **Paste Markdown**. The width control is hidden on screens 700px wide or narrower; your saved choice is retained. Paste's text editor width is a separate setting.
+Use the **Content width** icon in a Markdown title bar to choose **Standard** (46em), **Wide** (64em), or **Full** (the available pane width, the default). Existing saved choices are retained. Press `w` to cycle Full → Standard → Wide → Full while the width control is visible, outside text entry, dialogs, and menus. The choice is saved in this browser per host and port and applies to both split panes and the Rendered/Split previews in **Paste Markdown**. The width control is hidden on screens 700px wide or narrower; your saved choice is retained. Paste's text editor width is a separate setting.
 
 Wide top-level tables, code blocks, and Mermaid diagrams automatically use the available space beyond the prose width, leaving room for the sidebar and Contents outline. Smaller blocks stay aligned with the text. Blocks inside lists, quotes, or details stay within their parent. Content that still does not fit scrolls inside its own block; existing wrapping and Expand controls remain available. Source views and print layouts keep their existing widths.
 
@@ -256,6 +256,7 @@ Press `?` or the help button in the header to see shortcuts in Markport. On macO
 | `/` or `Ctrl+K` | Focus file search |
 | `Ctrl+B` | Toggle the file list |
 | `Ctrl+I` | Open Server info |
+| `w` | Cycle Content width: Full → Standard → Wide → Full |
 | `?` | Show keyboard shortcuts |
 | `Esc` | Close a dialog or menu; clear file search |
 | `n` / `p` | Next / previous changed file in Diff view |

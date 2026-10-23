@@ -30,9 +30,23 @@ afterEach(async () => {
 });
 
 describe('Markdown width preference', () => {
-  it.each([['wide', 'wide'], ['full', 'full'], ['unknown', 'standard'], ['', 'standard']])('restores %s as %s', (saved, expected) => {
+  it.each([['standard', 'standard'], ['wide', 'wide'], ['full', 'full'], ['unknown', 'full'], ['', 'full']])('restores %s as %s', (saved, expected) => {
     localStorage.setItem('markport-content-width', saved); controller = createContentWidth();
     expect(document.documentElement.dataset.contentWidth).toBe(expected);
+  });
+
+  it('defaults to Full and cycles all widths without moving focus', () => {
+    controller = createContentWidth(); const left = button(); const right = button(); left.focus();
+    expect(document.documentElement.dataset.contentWidth).toBe('full');
+    expect(localStorage.getItem('markport-content-width')).toBeNull();
+    for (const [value, name] of [['standard', 'Standard'], ['wide', 'Wide'], ['full', 'Full']]) {
+      controller.cycle();
+      expect(document.documentElement.dataset.contentWidth).toBe(value);
+      expect(localStorage.getItem('markport-content-width')).toBe(value);
+      expect(right.getAttribute('aria-label')).toBe(`Content width: ${name}`);
+      expect(document.querySelector('[role=menuitemradio][aria-checked=true]')?.textContent).toBe(name);
+      expect(document.activeElement).toBe(left);
+    }
   });
 
   it('saves a choice and synchronizes every pane control, including controls created later', () => {
@@ -48,9 +62,13 @@ describe('Markdown width preference', () => {
   it('keeps the choice in this tab when browser storage is blocked', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
-    controller = createContentWidth(); choose(button(), 'Full');
+    controller = createContentWidth();
     expect(document.documentElement.dataset.contentWidth).toBe('full');
-    expect(button().getAttribute('aria-label')).toBe('Content width: Full');
+    controller.cycle();
+    expect(button().getAttribute('aria-label')).toBe('Content width: Standard');
+    choose(button(), 'Wide');
+    expect(document.documentElement.dataset.contentWidth).toBe('wide');
+    expect(button().getAttribute('aria-label')).toBe('Content width: Wide');
   });
 
   it('updates on cross-tab storage changes and resets on storage clear', () => {
@@ -58,10 +76,11 @@ describe('Markdown width preference', () => {
     localStorage.setItem('markport-content-width', 'wide'); window.dispatchEvent(new StorageEvent('storage', { key: 'markport-content-width' }));
     expect(control.getAttribute('aria-label')).toBe('Content width: Wide');
     localStorage.clear(); window.dispatchEvent(new StorageEvent('storage', { key: null }));
-    expect(control.getAttribute('aria-label')).toBe('Content width: Standard');
+    expect(control.getAttribute('aria-label')).toBe('Content width: Full');
   });
 
   it('supports arrow keys, Home, End, Escape and focus return', () => {
+    localStorage.setItem('markport-content-width', 'standard');
     controller = createContentWidth(); const control = button();
     control.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
     const menu = document.querySelector<HTMLElement>('#content-width-menu')!;
@@ -83,6 +102,7 @@ describe('Markdown width preference', () => {
 
 describe('Markdown block widths', () => {
   it('expands only long top-level blocks, recalculates on width selection, and leaves source structure intact', async () => {
+    localStorage.setItem('markport-content-width', 'standard');
     controller = createContentWidth(); const control = button();
     const root = document.createElement('article'); root.dataset.kind = 'markdown'; root.style.fontSize = '16px';
     root.innerHTML = '<p>日本語の本文</p><div data-language="text"><div class="code-frame wrapped"><pre>long source</pre></div></div><div class="code-frame"><pre>short</pre></div><blockquote><div class="code-frame"><pre>nested</pre></div></blockquote>';
