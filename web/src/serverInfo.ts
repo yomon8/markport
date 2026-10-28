@@ -26,6 +26,10 @@ export class ServerInfo {
   private readonly servers = document.createElement('section');
   private readonly list = document.createElement('ul');
   private readonly listMessage = document.createElement('p');
+  private readonly filter = document.createElement('input');
+  private readonly filterStatus = document.createElement('p');
+  private instances: InstanceInfo[] | undefined;
+  private selectedURL: string | undefined;
   private focusVersion = 0;
   private request = 0;
   private disposed = false;
@@ -44,12 +48,36 @@ export class ServerInfo {
     const serversHeading = document.createElement('h3'); serversHeading.textContent = 'Running Markport servers';
     this.servers.className = 'server-info-servers'; this.servers.setAttribute('aria-label', 'Running Markport servers');
     this.listMessage.setAttribute('role', 'status');
-    this.servers.append(serversHeading, this.listMessage, this.list); this.servers.hidden = true;
+    const label = document.createElement('label'); label.htmlFor = 'server-info-filter'; label.textContent = 'Filter by directory';
+    this.filter.id = label.htmlFor; this.filter.type = 'search'; this.filter.autocomplete = 'off';
+    this.list.id = 'server-info-list'; this.filter.setAttribute('aria-controls', this.list.id);
+    this.filterStatus.id = 'server-info-filter-status'; this.filterStatus.setAttribute('role', 'status');
+    this.filter.setAttribute('aria-describedby', this.filterStatus.id);
+    this.filter.addEventListener('input', () => this.renderInstances());
+    this.servers.append(serversHeading, label, this.filter, this.listMessage, this.filterStatus, this.list);
     const actions = document.createElement('div'); actions.className = 'server-info-actions'; actions.append(this.refresh, this.retry, close);
     this.dialog.append(heading, this.message, this.details, this.servers, actions); document.body.append(this.dialog);
-    this.dialog.addEventListener('focusin', () => { this.focusVersion++; });
+    this.dialog.addEventListener('focusin', (event) => {
+      this.focusVersion++;
+      if (event.target instanceof HTMLAnchorElement && this.list.contains(event.target)) this.select(event.target);
+    });
     this.dialog.addEventListener('keydown', (event) => {
       event.stopPropagation();
+      if (event.target === this.filter) {
+        if (matchesShortcut(event, 'close')) {
+          event.preventDefault(); this.dialog.close(); return;
+        }
+        const links = [...this.list.querySelectorAll('a')];
+        if (matchesShortcut(event, 'serverOpen') && this.selectedURL) {
+          event.preventDefault(); links.find((link) => link.href === this.selectedURL)?.click();
+        } else if (links.length && (matchesShortcut(event, 'serverNext') || matchesShortcut(event, 'serverPrevious'))) {
+          event.preventDefault();
+          const index = links.findIndex((link) => link.href === this.selectedURL);
+          const next = Math.max(0, Math.min(links.length - 1, index + (matchesShortcut(event, 'serverNext') ? 1 : -1)));
+          this.select(links[next]); links[next].scrollIntoView?.({ block: 'nearest' });
+        }
+        return;
+      }
       if (editingShortcutTarget(event.target)) return;
       const down = matchesShortcut(event, 'serverNext');
       if (!down && !matchesShortcut(event, 'serverPrevious')) return;
@@ -66,20 +94,23 @@ export class ServerInfo {
 
   open(): void {
     if (this.disposed || this.dialog.open) return;
-    this.dialog.showModal(); this.close.focus(); void this.reloadIfOpen(true);
+    this.filter.value = ''; this.selectedURL = undefined;
+    this.dialog.showModal(); this.filter.focus(); void this.reloadIfOpen();
   }
 
-  async reloadIfOpen(focusFirst = false): Promise<void> {
+  async reloadIfOpen(): Promise<void> {
     if (this.disposed || !this.dialog.open) return;
     const active = document.activeElement;
     const selectedURL = active instanceof HTMLAnchorElement && this.list.contains(active) ? active.href : undefined;
+    const selection = selectedURL ?? this.selectedURL;
+    const query = this.filter.value;
     const action = active === this.refresh ? this.refresh : active === this.retry ? this.retry : undefined;
     if (selectedURL || action) this.close.focus();
     const focusVersion = this.focusVersion;
     this.cancel();
     const request = this.request;
     const controller = new AbortController(); this.controller = controller;
-    this.details.replaceChildren(); this.list.replaceChildren(); this.servers.hidden = true; this.refresh.hidden = true; this.retry.hidden = true; this.message.textContent = 'Loading server info…';
+    this.details.replaceChildren(); this.list.replaceChildren(); this.instances = undefined; this.selectedURL = undefined; this.listMessage.textContent = ''; this.filterStatus.textContent = ''; this.refresh.hidden = true; this.retry.hidden = true; this.message.textContent = 'Loading server info…';
     try {
       const response = await fetch('/api/info', { cache: 'no-store', signal: controller.signal });
       if (!response.ok) throw new Error('Cannot load server info');
@@ -91,12 +122,12 @@ export class ServerInfo {
       if (this.disposed || !this.dialog.open || request !== this.request) return;
       const instances = 'instances' in info && Array.isArray(info.instances) && info.instances.every(isInstance) ? info.instances : undefined;
       const instancesError = 'instancesError' in info && typeof info.instancesError === 'string' ? info.instancesError : undefined;
-      this.render({ rootPath: info.rootPath, workingDirectory: info.workingDirectory, version: info.version, instances, instancesError });
+      this.render({ rootPath: info.rootPath, workingDirectory: info.workingDirectory, version: info.version, instances, instancesError }, query === this.filter.value ? selection : undefined);
       this.refresh.hidden = false;
       this.message.textContent = '';
       if (focusVersion === this.focusVersion && document.activeElement === this.close) {
         const links = [...this.list.querySelectorAll('a')];
-        if (focusFirst || selectedURL) (links.find((link) => link.href === selectedURL) ?? links[0] ?? this.close).focus();
+        if (selectedURL) (links.find((link) => link.href === selectedURL) ?? links[0] ?? this.close).focus();
         else if (action && !action.hidden) action.focus();
       }
     } catch {
@@ -109,7 +140,7 @@ export class ServerInfo {
 
   private cancel(): void { this.request++; this.controller?.abort(); this.controller = undefined; }
 
-  private render(info: ServerInfoReply): void {
+  private render(info: ServerInfoReply, selectedURL?: string): void {
     for (const [label, value] of [
       ['Browsing directory', info.rootPath],
       ['Working directory at startup', info.workingDirectory],
@@ -123,7 +154,15 @@ export class ServerInfo {
     this.servers.hidden = false;
     this.listMessage.textContent = info.instancesError ?? (info.instances ? '' : 'Server discovery is unavailable.');
     this.retry.hidden = !info.instancesError;
-    for (const instance of info.instances ?? []) {
+    this.instances = info.instances;
+    this.renderInstances(selectedURL);
+  }
+
+  private renderInstances(selectedURL?: string): void {
+    this.list.replaceChildren();
+    const query = this.filter.value.trim().toLowerCase();
+    const instances = this.instances?.filter((instance) => instance.rootPath.toLowerCase().includes(query));
+    for (const instance of instances ?? []) {
       const row = document.createElement('li');
       const name = document.createElement(instance.url ? 'a' : 'span'); name.textContent = instance.rootPath;
       if (name instanceof HTMLAnchorElement) name.href = instance.url;
@@ -131,5 +170,18 @@ export class ServerInfo {
       details.textContent = [instance.url || instance.unavailableReason, instance.version, instance.current ? 'Current' : ''].filter(Boolean).join(' · ');
       row.append(name, details); this.list.append(row);
     }
+    const links = [...this.list.querySelectorAll('a')];
+    this.select(links.find((link) => link.href === selectedURL) ?? links[0]);
+  }
+
+  private select(link?: HTMLAnchorElement): void {
+    this.selectedURL = link?.href;
+    for (const item of this.list.querySelectorAll('a')) {
+      item.classList.toggle('server-info-selected', item === link);
+      if (item === link) item.setAttribute('aria-current', 'true');
+      else item.removeAttribute('aria-current');
+    }
+    this.filterStatus.textContent = link ? `Selected: ${link.textContent}. ↑ / ↓ to select, Enter to open.`
+      : this.instances ? (this.list.children.length ? 'No available server links.' : 'No matching servers.') : '';
   }
 }

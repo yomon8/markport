@@ -717,7 +717,7 @@ test('server info shows actual startup details and returns keyboard focus', asyn
   await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'i', ctrlKey: true, isComposing: true, bubbles: true })));
   await expect(dialog).toBeHidden();
   await page.keyboard.press('Control+i');
-  await expect(dialog.getByRole('link').first()).toBeFocused();
+  await expect(dialog.getByRole('searchbox', { name: 'Filter by directory' })).toBeFocused();
   await expect(button).toHaveAttribute('title', /Ctrl\+I/);
   await expect(dialog.locator('dd')).toHaveText([
     await realpath(directory), process.cwd(), execFileSync(resolve('../dist/markport'), ['--version'], { encoding: 'utf8' }).trim(), `http://127.0.0.1:${port}`,
@@ -750,6 +750,8 @@ test('server info navigates to another running server and refreshes after shutdo
     await expect(link).toHaveAttribute('href', `http://127.0.0.1:${otherPort}/`);
     await page.screenshot({ path: testInfo.outputPath('running-servers.png') });
     const currentLink = dialog.getByRole('link', { name: await realpath(directory), exact: true });
+    await expect(dialog.getByRole('searchbox', { name: 'Filter by directory' })).toBeFocused();
+    await page.keyboard.press('Tab');
     await expect(currentLink).toBeFocused();
     await page.keyboard.press('ArrowUp'); await expect(currentLink).toBeFocused();
     await page.keyboard.press('Tab');
@@ -757,6 +759,13 @@ test('server info navigates to another running server and refreshes after shutdo
     await page.keyboard.press('ArrowUp'); await expect(currentLink).toBeFocused();
     await page.keyboard.press('ArrowDown'); await expect(link).toBeFocused();
     await page.keyboard.press('ArrowDown'); await expect(link).toBeFocused();
+    const filter = dialog.getByRole('searchbox', { name: 'Filter by directory' });
+    await filter.focus();
+    await page.keyboard.type('MARKPORT-OTHER-');
+    await expect(currentLink).toHaveCount(0);
+    await expect(link).toHaveAttribute('aria-current', 'true');
+    await expect(filter).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath('running-servers-filtered.png') });
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL((url) => url.origin === `http://127.0.0.1:${otherPort}`);
     await expect(page.locator('#content h1')).toHaveText('Other server');
@@ -772,6 +781,38 @@ test('server info navigates to another running server and refreshes after shutdo
   } finally {
     await stopOther(); await rm(otherDirectory, { recursive: true, force: true });
   }
+});
+
+test('server info keeps directory filtering through refresh and clears it on reopening', async ({ page }) => {
+  const instances = [
+    { rootPath: '/work/Alpha', version: 'dev', url: 'http://127.0.0.1:3000/', current: true },
+    { rootPath: '/work/作業', version: 'dev', url: 'http://127.0.0.1:4000/', current: false },
+  ];
+  await page.route('**/api/info', (route) => route.fulfill({ json: {
+    rootPath: '/work/Alpha', workingDirectory: '/work', version: 'dev', instances,
+  } }));
+  await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
+  await page.keyboard.press('Control+i');
+  const dialog = page.getByRole('dialog', { name: 'Server info', exact: true });
+  const filter = dialog.getByRole('searchbox', { name: 'Filter by directory' });
+  await expect(filter).toBeFocused();
+  await filter.fill('作業');
+  await expect(dialog.getByRole('link')).toHaveCount(1);
+  await expect(dialog.getByRole('link')).toHaveAttribute('aria-current', 'true');
+  await dialog.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(dialog.getByRole('link')).toHaveCount(1);
+  await expect(filter).toHaveValue('作業');
+  await filter.fill('no matching directory');
+  await expect(dialog.getByRole('link')).toHaveCount(0);
+  await expect(dialog).toContainText('No matching servers.');
+  await page.keyboard.press('Enter');
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await page.keyboard.press('Control+i');
+  await expect(filter).toHaveValue('');
+  await expect(filter).toBeFocused();
+  await expect(dialog.getByRole('link')).toHaveCount(2);
 });
 
 test('server info wraps long paths on desktop and mobile in both themes', async ({ page }, testInfo) => {
@@ -790,6 +831,10 @@ test('server info wraps long paths on desktop and mobile in both themes', async 
       await expect(button).toBeVisible(); await button.click();
       const dialog = page.getByRole('dialog', { name: 'Server info', exact: true });
       await expect(dialog.locator('dd').first()).toHaveText(rootPath);
+      const filter = dialog.getByRole('searchbox', { name: 'Filter by directory' });
+      await expect(filter).toBeFocused();
+      await filter.fill('作業');
+      await expect(dialog.getByRole('link')).toHaveCount(2);
       expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
       expect(await page.locator('header').evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`server-info-${width}-${theme}.png`) });

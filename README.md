@@ -196,7 +196,7 @@ For an individual file, use **File / Diff / History / Blame** above the content.
 
 Click **Server info** (ⓘ) in the header or press `Ctrl+I` to see the browsing folder's absolute path (with symbolic links resolved), the working directory at startup, the Markport version, and the connection URL.
 
-**Running Markport servers** lists servers started by the same OS user on this host, with their folders, URLs, and versions. The current server is listed first and marked **Current**. Click a folder link, or select it with `↑` / `↓` and press `Enter`, to open that server in the same tab. Use **Refresh** to update the list.
+**Running Markport servers** lists servers started by the same OS user on this host, with their folders, URLs, and versions. The current server is listed first and marked **Current**. Click a folder link, or select it with `↑` / `↓` and press `Enter`, to open that server in the same tab. **Filter by directory** is focused when the dialog opens: type part of a directory path to filter the list (case-insensitive). While typing, use `↑` / `↓` to select a candidate and `Enter` to open it. **Refresh** updates the list while keeping the filter; closing and reopening clears it.
 
 - Links work for local and direct LAN access. During LAN access, servers listening only on loopback are marked **Local access only** and have no link.
 - Discovery needs servers that support this feature and share the same user cache directory and network. Other OS users, separate containers, reverse proxies, and tunnels are not supported.

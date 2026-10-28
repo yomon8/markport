@@ -117,7 +117,8 @@ describe('server info', () => {
       { ...other, url: '', unavailableReason: 'Local access only' }, other] }));
     controller.open(); await flush();
     const links = [...dialog().querySelectorAll('a')];
-    expect(document.activeElement).toBe(links[0]);
+    expect(document.activeElement).toBe(dialog().querySelector('input'));
+    links[0].focus();
     expect(press('ArrowUp').defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(links[0]);
     press('ArrowDown'); expect(document.activeElement).toBe(links[1]);
@@ -150,7 +151,7 @@ describe('server info', () => {
       .mockResolvedValueOnce(response({ ...info, instances: [] }))
       .mockRejectedValue(new Error('offline'));
     vi.stubGlobal('fetch', fetch);
-    controller.open(); await flush(); press('ArrowDown');
+    controller.open(); await flush(); dialog().querySelector('a')!.focus(); press('ArrowDown');
     await controller.reloadIfOpen(); expect((document.activeElement as HTMLAnchorElement).href).toBe(other.url);
     await controller.reloadIfOpen(); expect((document.activeElement as HTMLAnchorElement).href).toBe(current.url);
     await controller.reloadIfOpen(); expect(document.activeElement?.textContent).toBe('Close');
@@ -166,6 +167,96 @@ describe('server info', () => {
     refresh.focus(); await controller.reloadIfOpen(); expect(document.activeElement).toBe(refresh);
     const input = document.createElement('input'); dialog().append(input); input.focus();
     expect(press('ArrowDown').defaultPrevented).toBe(false); expect(document.activeElement).toBe(input);
+  });
+
+  const filter = () => dialog().querySelector<HTMLInputElement>('#server-info-filter')!;
+  const type = (value: string) => { filter().value = value; filter().dispatchEvent(new Event('input')); };
+
+  it('filters directory paths locally and resets the query on reopening', async () => {
+    const fetch = vi.fn(async () => response({ ...info, instances: [current, other,
+      { ...other, rootPath: '/Work/作業 <script>', url: '', unavailableReason: 'Local access only' }] }));
+    vi.stubGlobal('fetch', fetch);
+    controller.open(); await flush();
+    expect(document.activeElement).toBe(filter());
+    type('  WORK/作業  ');
+    expect(dialog().querySelectorAll('li')).toHaveLength(1);
+    expect(dialog().querySelector('li')?.textContent).toContain('/Work/作業 <script>');
+    expect(dialog().querySelector('script')).toBeNull();
+    expect(dialog().querySelector('a')).toBeNull();
+    type('127.0.0.1'); expect(dialog().textContent).toContain('No matching servers.');
+    type('dev'); expect(dialog().querySelectorAll('li')).toHaveLength(0);
+    type(''); expect(dialog().querySelectorAll('li')).toHaveLength(3);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    type('other'); click('Close'); controller.open(); await flush();
+    expect(filter().value).toBe(''); expect(dialog().querySelectorAll('li')).toHaveLength(3);
+  });
+
+  it('selects filtered links without moving focus and opens only on non-IME Enter', async () => {
+    vi.stubGlobal('fetch', async () => response({ ...info, instances: [current,
+      { ...other, rootPath: '/unavailable', url: '', unavailableReason: 'Local access only' }, other] }));
+    controller.open(); await flush();
+    const links = [...dialog().querySelectorAll('a')];
+    const selected = () => dialog().querySelector('a[aria-current="true"]');
+    expect(selected()).toBe(links[0]);
+    press('ArrowUp'); expect(selected()).toBe(links[0]);
+    press('ArrowDown'); expect(selected()).toBe(links[1]);
+    press('ArrowDown'); expect(selected()).toBe(links[1]);
+    expect(document.activeElement).toBe(filter());
+    const clickLink = vi.fn((event: Event) => event.preventDefault()); links[1].addEventListener('click', clickLink);
+    for (const options of [{ isComposing: true }, { keyCode: 229 }, { ctrlKey: true }, { metaKey: true }, { altKey: true }, { shiftKey: true }]) {
+      expect(press('Enter', options).defaultPrevented).toBe(false);
+      expect(press('ArrowUp', options).defaultPrevented).toBe(false);
+      expect(selected()).toBe(links[1]);
+    }
+    expect(clickLink).not.toHaveBeenCalled();
+    expect(press('Enter').defaultPrevented).toBe(true); expect(clickLink).toHaveBeenCalledTimes(1);
+    type('self'); expect(selected()?.textContent).toBe('/self');
+    type('missing'); expect(selected()).toBeNull(); expect(press('Enter').defaultPrevented).toBe(false);
+  });
+
+  it('accepts typing before loading and reapplies it through refresh and retry', async () => {
+    let resolve!: (value: Response) => void;
+    const fetch = vi.fn().mockImplementationOnce(() => new Promise<Response>((done) => { resolve = done; }))
+      .mockResolvedValue(response({ ...info, instances: [current, other] }));
+    vi.stubGlobal('fetch', fetch);
+    controller.open(); type('OTHER');
+    expect(press('Enter').defaultPrevented).toBe(false);
+    resolve(response({ ...info, instances: [current, other] })); await flush();
+    expect(document.activeElement).toBe(filter()); expect(dialog().querySelectorAll('li')).toHaveLength(1);
+    await controller.reloadIfOpen(); expect(filter().value).toBe('OTHER');
+    expect(document.activeElement).toBe(filter()); expect(dialog().querySelector('a')?.textContent).toBe('/other');
+    fetch.mockRejectedValueOnce(new Error('offline'));
+    await controller.reloadIfOpen(); expect(dialog().querySelector('a')).toBeNull();
+    expect(press('Enter').defaultPrevented).toBe(false);
+    click('Retry'); await flush(); expect(filter().value).toBe('OTHER');
+    expect(dialog().querySelector('a')?.textContent).toBe('/other');
+  });
+
+  it('retains the selected URL across refresh while focus stays in the input', async () => {
+    const fetch = vi.fn().mockResolvedValue(response({ ...info, instances: [current, other] }));
+    vi.stubGlobal('fetch', fetch);
+    controller.open(); await flush(); press('ArrowDown');
+    await controller.reloadIfOpen();
+    expect(dialog().querySelector('a[aria-current="true"]')?.textContent).toBe('/other');
+    expect(document.activeElement).toBe(filter());
+    fetch.mockResolvedValue(response({ ...info, instances: [current] })); await controller.reloadIfOpen();
+    expect(dialog().querySelector('a[aria-current="true"]')?.textContent).toBe('/self');
+  });
+
+  it('uses edits made during refresh and does not steal focus on completion', async () => {
+    let resolve!: (value: Response) => void;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(response({ ...info, instances: [current, other] }))
+      .mockImplementationOnce(() => new Promise<Response>((done) => { resolve = done; })));
+    controller.open(); await flush(); press('ArrowDown');
+    const loading = controller.reloadIfOpen(); type('self');
+    const close = [...dialog().querySelectorAll('button')].find((item) => item.textContent === 'Close')!;
+    close.focus();
+    resolve(response({ ...info, instances: [current, other] })); await loading;
+    expect(filter().value).toBe('self');
+    expect(dialog().querySelectorAll('a')).toHaveLength(1);
+    expect(dialog().querySelector('a[aria-current="true"]')?.textContent).toBe('/self');
+    expect(document.activeElement).toBe(close);
+    filter().focus(); press('Escape'); expect(dialog().open).toBe(false);
   });
 
 });
