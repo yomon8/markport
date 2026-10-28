@@ -172,6 +172,29 @@ describe('server info', () => {
   const filter = () => dialog().querySelector<HTMLInputElement>('#server-info-filter')!;
   const type = (value: string) => { filter().value = value; filter().dispatchEvent(new Event('input')); };
 
+  it.each(['Escape', 'Close', 'cancel'])('reopens before the queued close event after %s without losing focus or aborting the new request', async (action) => {
+    Object.defineProperty(dialog(), 'close', { value: () => { dialog().open = false; } });
+    let resolve!: (value: Response) => void;
+    const fetch = vi.fn().mockResolvedValueOnce(response({ ...info, instances: [current, other] }))
+      .mockImplementationOnce(() => new Promise<Response>((done) => { resolve = done; }));
+    vi.stubGlobal('fetch', fetch);
+    controller.open(); await flush(); type('other');
+    if (action === 'Escape') press('Escape');
+    else if (action === 'Close') click('Close');
+    else dialog().dispatchEvent(new Event('cancel', { cancelable: true }));
+    expect(dialog().open).toBe(false);
+    expect(document.activeElement).toBe(button);
+    expect((fetch.mock.calls[0][1] as RequestInit).signal?.aborted).toBe(true);
+    controller.open();
+    dialog().dispatchEvent(new Event('close'));
+    expect(document.activeElement).toBe(filter());
+    expect((fetch.mock.calls[1][1] as RequestInit).signal?.aborted).toBe(false);
+    resolve(response({ ...info, instances: [current, other] })); await flush();
+    expect(filter().value).toBe('');
+    expect(dialog().querySelectorAll('a')).toHaveLength(2);
+    expect(document.activeElement).toBe(filter());
+  });
+
   it('filters directory paths locally and resets the query on reopening', async () => {
     const fetch = vi.fn(async () => response({ ...info, instances: [current, other,
       { ...other, rootPath: '/Work/作業 <script>', url: '', unavailableReason: 'Local access only' }] }));

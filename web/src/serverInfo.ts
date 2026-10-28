@@ -42,7 +42,7 @@ export class ServerInfo {
     this.retry.type = 'button'; this.retry.textContent = 'Retry'; this.retry.hidden = true;
     this.retry.addEventListener('click', () => { void this.reloadIfOpen(); });
     const close = this.close; close.type = 'button'; close.textContent = 'Close';
-    close.addEventListener('click', () => this.dialog.close());
+    close.addEventListener('click', () => this.closeDialog());
     this.refresh.type = 'button'; this.refresh.textContent = 'Refresh'; this.refresh.hidden = true;
     this.refresh.addEventListener('click', () => { void this.reloadIfOpen(); });
     const serversHeading = document.createElement('h3'); serversHeading.textContent = 'Running Markport servers';
@@ -65,7 +65,7 @@ export class ServerInfo {
       event.stopPropagation();
       if (event.target === this.filter) {
         if (matchesShortcut(event, 'close')) {
-          event.preventDefault(); this.dialog.close(); return;
+          event.preventDefault(); this.closeDialog(); return;
         }
         const links = [...this.list.querySelectorAll('a')];
         if (matchesShortcut(event, 'serverOpen') && this.selectedURL) {
@@ -88,7 +88,11 @@ export class ServerInfo {
       const next = index < 0 ? (down ? 0 : links.length - 1) : Math.max(0, Math.min(links.length - 1, index + (down ? 1 : -1)));
       links[next].focus();
     });
-    this.dialog.addEventListener('close', () => { this.cancel(); button.focus(); });
+    this.dialog.addEventListener('cancel', (event) => { event.preventDefault(); this.closeDialog(); });
+    this.dialog.addEventListener('close', () => {
+      // A queued close event may arrive after the dialog has already reopened.
+      if (!this.dialog.open) { this.cancel(); button.focus(); }
+    });
     button.addEventListener('click', () => this.open());
   }
 
@@ -137,6 +141,12 @@ export class ServerInfo {
   }
 
   dispose(): void { this.disposed = true; this.cancel(); }
+
+  private closeDialog(): void {
+    this.dialog.close();
+    // Restore focus before another keyboard shortcut can target the hidden input.
+    this.cancel(); this.button.focus();
+  }
 
   private cancel(): void { this.request++; this.controller?.abort(); this.controller = undefined; }
 
