@@ -9,8 +9,8 @@ let view: TreeView;
 let tree: HTMLElement;
 let search: HTMLInputElement;
 let selected: string;
-let onOpen: ReturnType<typeof vi.fn>;
-let onPage: ReturnType<typeof vi.fn>;
+let onOpen: ReturnType<typeof vi.fn<(path: string) => void>>;
+let onPage: ReturnType<typeof vi.fn<(path: string, offset: number) => void>>;
 const rows = (): HTMLElement[] => [...tree.querySelectorAll<HTMLElement>('summary, a, button[data-dir]')];
 const key = (key: string, options: KeyboardEventInit = {}): void => {
   document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...options }));
