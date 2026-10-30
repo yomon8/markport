@@ -76,7 +76,7 @@ jobs:
           done
           test "$(dist/markport_${GITHUB_REF_NAME}_linux_amd64 --version)" = "$GITHUB_REF_NAME"
           cd dist && sha256sum --check "checksums_${GITHUB_REF_NAME}.txt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-assets
           path: |
