@@ -693,7 +693,7 @@ test('theme colors follow the selected theme and HTML keeps document colors', as
   });
   const light = await colors();
   await page.getByRole('button', { name: 'Theme: Light' }).click();
-  await page.getByRole('menuitemradio', { name: 'Dark' }).click();
+  await page.getByRole('menuitemradio', { name: 'Dark', exact: true }).click();
   const dark = await colors();
   expect(dark.every((value, index) => value !== light[index])).toBe(true);
   for (const name of ['first.html', 'transparent.html', 'colored.html']) {
@@ -889,7 +889,7 @@ test('header controls stay aligned and theme choices work by keyboard on mobile'
   }
   await page.getByRole('button', { name: 'App settings' }).click();
   await page.getByRole('button', { name: 'Theme: Dark' }).click();
-  await expect(page.getByRole('menuitemradio', { name: 'Dark' })).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByRole('menuitemradio', { name: 'Dark', exact: true })).toHaveAttribute('aria-checked', 'true');
   await page.keyboard.press('Home');
   await expect(page.getByRole('menuitemradio', { name: 'Auto' })).toBeFocused();
   await page.keyboard.press('ArrowDown');
@@ -2032,7 +2032,7 @@ test('desktop and mobile views in both themes', async ({ page }, testInfo) => {
   await page.reload();
   if (!(await page.locator('#theme-toggle').isVisible())) await page.getByRole('button', { name: 'App settings' }).click();
   await page.getByRole('button', { name: 'Theme: Light' }).click();
-  await page.getByRole('menuitemradio', { name: 'Dark' }).click();
+  await page.getByRole('menuitemradio', { name: 'Dark', exact: true }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   const switchedSvg = await page.locator('.brand-symbol').evaluate(async (image: HTMLImageElement) => (await fetch(image.src)).text());
   expect(switchedSvg).toContain('#75B7FF');

@@ -28,6 +28,8 @@ const presets = [
   { label: 'Rosé Pine Dawn', id: 'rose-pine-dawn', scheme: 'light', background: 'rgb(250, 244, 237)', node: 'rgb(238, 228, 229)', string: 'rgb(56, 107, 90)' },
   { label: 'Tokyo Night', id: 'tokyo-night', scheme: 'dark', background: 'rgb(26, 27, 38)', node: 'rgb(37, 43, 64)', string: 'rgb(158, 206, 106)' },
   { label: 'Tokyo Night Light', id: 'tokyo-night-light', scheme: 'light', background: 'rgb(225, 226, 231)', node: 'rgb(211, 218, 234)', string: 'rgb(72, 99, 47)' },
+  { label: 'GitHub Light', id: 'github-light', scheme: 'light', background: 'rgb(255, 255, 255)', node: 'rgb(221, 244, 255)', string: 'rgb(10, 48, 105)' },
+  { label: 'GitHub Dark Dimmed', id: 'github-dark-dimmed', scheme: 'dark', background: 'rgb(34, 39, 46)', node: 'rgb(38, 59, 80)', string: 'rgb(150, 208, 255)' },
 ] as const;
 
 const url = (query: string): string => `http://127.0.0.1:${port}/${query}`;
@@ -157,8 +159,8 @@ for (const width of [1280, 390, 320]) {
     const menu = await page.locator('#theme-menu').boundingBox();
     expect(menu!.x).toBeGreaterThanOrEqual(0);
     expect(menu!.x + menu!.width).toBeLessThanOrEqual(width);
-    await expect(page.getByRole('menuitemradio')).toHaveText(['Auto', 'Light', 'Dark', 'Sepia', 'Nord', 'Catppuccin Mocha', 'Solarized Light', 'Rosé Pine Dawn', 'Tokyo Night', 'Tokyo Night Light']);
-    await page.keyboard.press('End'); await expect(page.getByRole('menuitemradio', { name: 'Tokyo Night Light', exact: true })).toBeFocused();
+    await expect(page.getByRole('menuitemradio')).toHaveText(['Auto', 'Light', 'Dark', 'Sepia', 'Nord', 'Catppuccin Mocha', 'Solarized Light', 'Rosé Pine Dawn', 'Tokyo Night', 'Tokyo Night Light', 'GitHub Light', 'GitHub Dark Dimmed']);
+    await page.keyboard.press('End'); await expect(page.getByRole('menuitemradio', { name: 'GitHub Dark Dimmed', exact: true })).toBeFocused();
     await page.keyboard.press('Home'); await expect(page.getByRole('menuitemradio', { name: 'Auto', exact: true })).toBeFocused();
     await page.keyboard.press('Escape'); await expect(page.locator('#theme-toggle')).toBeFocused();
     for (const preset of presets) {
@@ -193,6 +195,8 @@ for (const width of [1280, 390, 320]) {
       ['rgb(224, 233, 221)', 'rgb(243, 224, 227)'],
       ['rgb(41, 58, 50)', 'rgb(60, 40, 60)'],
       ['rgb(213, 223, 202)', 'rgb(235, 213, 222)'],
+      ['rgb(218, 251, 225)', 'rgb(255, 235, 233)'],
+      ['rgb(43, 59, 45)', 'rgb(70, 46, 50)'],
     ];
     for (const [index, preset] of presets.slice(2).entries()) {
       await choose(page, preset.label);
@@ -202,9 +206,11 @@ for (const width of [1280, 390, 320]) {
     await page.goto(url('?path=preview.html'));
     await expect(page.frameLocator('.html-preview').locator('body')).toHaveCSS('background-color', 'rgb(255, 128, 128)');
     await expect(page.locator('.html-preview')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
-    await choose(page, 'Nord');
-    await expect(page.frameLocator('.html-preview').locator('body')).toHaveCSS('background-color', 'rgb(255, 128, 128)');
-    await expect(page.locator('.html-preview')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    for (const label of ['Nord', 'GitHub Light', 'GitHub Dark Dimmed']) {
+      await choose(page, label);
+      await expect(page.frameLocator('.html-preview').locator('body')).toHaveCSS('background-color', 'rgb(255, 128, 128)');
+      await expect(page.locator('.html-preview')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+    }
   });
 }
 

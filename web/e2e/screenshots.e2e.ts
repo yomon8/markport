@@ -128,7 +128,7 @@ test('mobile', async ({ page }) => {
   await page.screenshot({ path: join(output, 'mobile.png') });
 });
 
-for (const theme of ['light', 'dark', 'sepia', 'nord', 'catppuccin-mocha', 'solarized-light', 'rose-pine-dawn', 'tokyo-night', 'tokyo-night-light']) {
+for (const theme of ['light', 'dark', 'sepia', 'nord', 'catppuccin-mocha', 'solarized-light', 'rose-pine-dawn', 'tokyo-night', 'tokyo-night-light', 'github-light', 'github-dark-dimmed']) {
   test(`paste editor ${theme}`, async ({ page }) => {
     await page.addInitScript((value) => localStorage.setItem('markport-theme', value), theme);
     await page.goto(url('?view=paste'));

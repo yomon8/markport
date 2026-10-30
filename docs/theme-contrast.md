@@ -47,3 +47,14 @@ These palettes also meet the 4.5:1 text contrast target checked in `web/tests/th
 | Tokyo Night Light | 7.97:1 | 4.78:1 | 4.92:1 | 4.53:1 |
 
 Sources: [Catppuccin Mocha](https://catppuccin.com/palette/), [Solarized](https://ethanschoonover.com/solarized/), [Rosé Pine Dawn](https://rosepinetheme.com/palette/), and [Tokyo Night](https://github.com/folke/tokyonight.nvim) (Night and Day variants). Backgrounds and primary accents follow the source palettes; muted text, some syntax colors, and highlight/diff backgrounds are adapted for readability. Solarized Light and Rosé Pine Dawn use darker syntax accents to preserve contrast on light backgrounds. Tokyo Night comments and line numbers are brightened. Tokyo Night Light uses the Day background with darker blue, purple, green, and cyan foregrounds. HTML previews retain a white iframe background and each document's own colors.
+
+## GitHub themes
+
+GitHub Light and GitHub Dark Dimmed are based on [Primer's official color tokens](https://github.com/primer/primitives/tree/main/src/tokens/base/color), using the Light and Dark Dimmed palettes. They retain the white/light-gray and muted dark-gray surfaces with blue accents. To meet the same contrast checks as the other named themes, GitHub Light uses darker links, builtins, line numbers, and whitespace; GitHub Dark Dimmed uses brighter muted text, comments, line numbers, keywords, and error text. Search, selected-line, and diff backgrounds are adapted for readability.
+
+| Theme | Body on background | Muted text on sidebar | Link on background | Minimum syntax contrast |
+| --- | ---: | ---: | ---: | ---: |
+| GitHub Light | 15.80:1 | 5.74:1 | 7.59:1 | 4.97:1 |
+| GitHub Dark Dimmed | 7.60:1 | 6.88:1 | 6.99:1 | 4.82:1 |
+
+Both themes meet the existing 4.5:1 text and 3:1 diagram-line contrast targets. Auto continues to use the original Light and Dark themes.

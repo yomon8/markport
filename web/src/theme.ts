@@ -1,6 +1,6 @@
 import { setIcon, type IconName } from './icons';
 
-export type ThemeId = 'light' | 'dark' | 'sepia' | 'nord' | 'catppuccin-mocha' | 'solarized-light' | 'rose-pine-dawn' | 'tokyo-night' | 'tokyo-night-light';
+export type ThemeId = 'light' | 'dark' | 'sepia' | 'nord' | 'catppuccin-mocha' | 'solarized-light' | 'rose-pine-dawn' | 'tokyo-night' | 'tokyo-night-light' | 'github-light' | 'github-dark-dimmed';
 export type Theme = 'auto' | ThemeId;
 export type ColorScheme = 'light' | 'dark';
 
@@ -15,6 +15,8 @@ const themes: { id: Theme; label: string; scheme?: ColorScheme; icon: IconName }
   { id: 'rose-pine-dawn', label: 'Rosé Pine Dawn', scheme: 'light', icon: 'sun' },
   { id: 'tokyo-night', label: 'Tokyo Night', scheme: 'dark', icon: 'moon' },
   { id: 'tokyo-night-light', label: 'Tokyo Night Light', scheme: 'light', icon: 'sun' },
+  { id: 'github-light', label: 'GitHub Light', scheme: 'light', icon: 'sun' },
+  { id: 'github-dark-dimmed', label: 'GitHub Dark Dimmed', scheme: 'dark', icon: 'moon' },
 ];
 let sessionPreference: Theme | undefined;
 

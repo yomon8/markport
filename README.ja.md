@@ -232,6 +232,8 @@ markport --list-servers --json
 | Rosé Pine Dawn | 暖かな紙の色 |
 | Tokyo Night | 深い青に紫と青のアクセント |
 | Tokyo Night Light | 涼しげなグレーに青と紫のアクセント |
+| GitHub Light | 白とライトグレーに青のアクセント |
+| GitHub Dark Dimmed | 落ち着いたダークグレーと柔らかな構文色 |
 
 コードの構文色、Git 差分、Mermaid 図にもテーマが適用されます。HTML プレビューは文書自身の配色を保ち、PDF と画像は元の見た目のまま表示します。選択はホスト・ポートごとにブラウザに保存されます。
 

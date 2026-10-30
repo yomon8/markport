@@ -58,14 +58,14 @@ describe('Mermaid themes', () => {
     localStorage.setItem('markport-theme', 'dark'); await drawMermaid(container(), () => true);
     expect(mermaid.initialize).toHaveBeenLastCalledWith(expect.objectContaining({ ...common, theme: 'base', themeVariables: expect.objectContaining({ darkMode: true }) }));
   });
-  it.each(['light', 'dark', 'sepia', 'nord', 'catppuccin-mocha', 'solarized-light', 'rose-pine-dawn', 'tokyo-night', 'tokyo-night-light'])('uses readable shared typography and CSS colors for %s', async (theme) => {
+  it.each(['light', 'dark', 'sepia', 'nord', 'catppuccin-mocha', 'solarized-light', 'rose-pine-dawn', 'tokyo-night', 'tokyo-night-light', 'github-light', 'github-dark-dimmed'])('uses readable shared typography and CSS colors for %s', async (theme) => {
     localStorage.setItem('markport-theme', theme);
     const { drawMermaid } = await import('../src/mermaid');
     await drawMermaid(container(), () => true);
     expect(mermaid.initialize).toHaveBeenCalledWith(expect.objectContaining({
       ...common, theme: 'base', themeVariables: expect.objectContaining({
         fontFamily: common.fontFamily, fontSize: '16px',
-        darkMode: ['dark', 'nord', 'catppuccin-mocha', 'tokyo-night'].includes(theme),
+        darkMode: ['dark', 'nord', 'catppuccin-mocha', 'tokyo-night', 'github-dark-dimmed'].includes(theme),
         background: colors['--surface'], primaryColor: colors['--accent-soft'], primaryTextColor: colors['--text'],
         primaryBorderColor: colors['--text-muted'], lineColor: colors['--text-muted'],
         clusterBkg: colors['--sidebar'], edgeLabelBackground: colors['--surface'],

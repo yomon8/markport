@@ -30,6 +30,7 @@ describe('theme preferences', () => {
     ['catppuccin-mocha', 'catppuccin-mocha', 'dark'], ['solarized-light', 'solarized-light', 'light'],
     ['rose-pine-dawn', 'rose-pine-dawn', 'light'], ['tokyo-night', 'tokyo-night', 'dark'],
     ['tokyo-night-light', 'tokyo-night-light', 'light'],
+    ['github-light', 'github-light', 'light'], ['github-dark-dimmed', 'github-dark-dimmed', 'dark'],
     ['auto', 'light', 'light'], ['unknown', 'light', 'light'], ['', 'light', 'light'],
   ])('restores %s as %s / %s', async (saved, id, scheme) => {
     if (saved) localStorage.setItem('markport-theme', saved);
@@ -41,6 +42,7 @@ describe('theme preferences', () => {
   });
 
   it.each([
+    ['GitHub Light', 'github-light', 'light'], ['GitHub Dark Dimmed', 'github-dark-dimmed', 'dark'],
     ['Catppuccin Mocha', 'catppuccin-mocha', 'dark'], ['Solarized Light', 'solarized-light', 'light'],
     ['Rosé Pine Dawn', 'rose-pine-dawn', 'light'], ['Tokyo Night', 'tokyo-night', 'dark'], ['Tokyo Night Light', 'tokyo-night-light', 'light'],
   ])('selects %s and ignores later OS changes', async (label, id, scheme) => {
@@ -76,15 +78,15 @@ describe('theme preferences', () => {
     select('Nord'); expect(effectiveThemeId()).toBe('nord'); expect(save).toHaveBeenCalledWith('markport-theme', 'nord');
   });
 
-  it('offers all ten choices and supports keyboard navigation, selection, and Escape', async () => {
+  it('offers all twelve choices and supports keyboard navigation, selection, and Escape', async () => {
     const { button } = await setup(); button.click();
     const items = [...document.querySelectorAll<HTMLButtonElement>('#theme-menu button')];
-    expect(items.map((item) => item.textContent)).toEqual(['Auto', 'Light', 'Dark', 'Sepia', 'Nord', 'Catppuccin Mocha', 'Solarized Light', 'Rosé Pine Dawn', 'Tokyo Night', 'Tokyo Night Light']);
+    expect(items.map((item) => item.textContent)).toEqual(['Auto', 'Light', 'Dark', 'Sepia', 'Nord', 'Catppuccin Mocha', 'Solarized Light', 'Rosé Pine Dawn', 'Tokyo Night', 'Tokyo Night Light', 'GitHub Light', 'GitHub Dark Dimmed']);
     expect(document.activeElement).toBe(items[0]);
     const key = (key: string): void => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })); };
-    key('End'); expect(document.activeElement).toBe(items[9]);
+    key('End'); expect(document.activeElement).toBe(items[11]);
     key('ArrowDown'); expect(document.activeElement).toBe(items[0]);
-    key('ArrowUp'); expect(document.activeElement).toBe(items[9]);
+    key('ArrowUp'); expect(document.activeElement).toBe(items[11]);
     key('Home'); key('ArrowDown'); expect(document.activeElement).toBe(items[1]);
     items[3].click();
     expect(items[3].getAttribute('aria-checked')).toBe('true');

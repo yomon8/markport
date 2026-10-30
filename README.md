@@ -232,6 +232,8 @@ Choose **Theme** in the header (under **App settings** on mobile):
 | Rosé Pine Dawn | Warm paper tones |
 | Tokyo Night | Deep blue with purple and blue accents |
 | Tokyo Night Light | Cool gray with blue and purple accents |
+| GitHub Light | White and light gray with blue accents |
+| GitHub Dark Dimmed | Muted dark gray with soft syntax colors |
 
 Themes also apply to code highlighting, Git diffs, and Mermaid diagrams. HTML previews keep the document's own colors; PDFs and images keep their original appearance. The choice is saved in this browser per host and port.
 
