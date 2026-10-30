@@ -105,7 +105,8 @@ describe('print preparation', () => {
     vi.stubGlobal('fetch', fetch); const signal = new AbortController().signal;
     await printFile('docs/a & b.md').load(signal);
     expect(fetch).toHaveBeenLastCalledWith('/api/file?path=docs%2Fa%20%26%20b.md', { cache: 'no-store', signal });
-    let text = '# Captured'; const input = printMarkdown(text); text = '# New input'; await input.load(signal);
+    const draft = document.createElement('textarea'); draft.value = '# Captured';
+    const input = printMarkdown(draft.value); draft.value = '# New input'; await input.load(signal);
     expect(fetch).toHaveBeenLastCalledWith('/api/render', expect.objectContaining({ body: JSON.stringify({ markdown: '# Captured' }), signal }));
   });
 });

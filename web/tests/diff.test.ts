@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { gitStatusIndicator, renderChanges, renderDiff, reviewButton, summarizeChanges, type Change, type ChangesReply } from '../src/diff';
 
 const changes: Change[] = [
@@ -15,6 +15,18 @@ const render = (compact: boolean, reviewed: string[] = []): HTMLElement => {
 };
 
 describe('changes overview', () => {
+  it('ignores queued folder toggles from a replaced changes tree', () => {
+    const target = document.createElement('div'); document.body.append(target);
+    const toggleFolder = vi.fn();
+    renderChanges(target, reply, () => false, () => {}, false, () => {}, true, () => {}, new Set(), toggleFolder);
+    const folder = target.querySelector('details')!;
+    folder.open = false; folder.dispatchEvent(new Event('toggle'));
+    expect(toggleFolder).toHaveBeenLastCalledWith('docs', false);
+    toggleFolder.mockClear(); target.replaceChildren();
+    folder.open = true; folder.dispatchEvent(new Event('toggle'));
+    expect(toggleFolder).not.toHaveBeenCalled(); target.remove();
+  });
+
   it.each([false, true])('preserves two status columns in tree and flat lists (compact=%s)', (compact) => {
     const codes = ['M ', ' M', 'MM', 'A ', 'AM', 'AD', ' D', 'D ', '??', 'UU', 'AU', 'DU', 'DD', 'UA', 'UD', 'AA', ' T'];
     const stagedReply: ChangesReply = { ...reply, base: 'abc1234', changes: codes.map((code, index) => ({ ...changes[0], path: `docs/${index}.md`, gitStatuses: [code] })) };

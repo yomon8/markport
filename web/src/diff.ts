@@ -157,7 +157,9 @@ export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed
         const item = document.createElement('li'); item.className = 'change-folder';
         const details = document.createElement('details'); details.dataset.path = child.path;
         details.open = !collapsed.has(child.path);
-        details.addEventListener('toggle', () => toggleFolder(child.path, details.open));
+        details.addEventListener('toggle', () => {
+          if (details.isConnected) toggleFolder(child.path, details.open);
+        });
         const summary = document.createElement('summary'); summary.title = child.path;
         const chevron = document.createElement('span'); chevron.className = 'chevron'; chevron.setAttribute('aria-hidden', 'true'); chevron.textContent = '›';
         const label = document.createElement('span'); label.className = 'node-label'; label.textContent = child.name;

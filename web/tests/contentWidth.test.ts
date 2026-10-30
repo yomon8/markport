@@ -82,8 +82,10 @@ describe('Markdown width preference', () => {
   it('supports arrow keys, Home, End, Escape and focus return', () => {
     localStorage.setItem('markport-content-width', 'standard');
     controller = createContentWidth(); const control = button();
-    control.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
     const menu = document.querySelector<HTMLElement>('#content-width-menu')!;
+    // jsdom hides popovers but does not implement showPopover to reveal them.
+    menu.style.display = 'block';
+    control.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
     expect(document.activeElement?.textContent).toBe('Standard');
     for (const [key, expected] of [['ArrowDown', 'Wide'], ['End', 'Full'], ['ArrowDown', 'Standard'], ['ArrowUp', 'Full'], ['Home', 'Standard']]) {
       menu.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })); expect(document.activeElement?.textContent).toBe(expected);
