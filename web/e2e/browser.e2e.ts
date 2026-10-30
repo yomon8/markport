@@ -2665,6 +2665,9 @@ test('reuses hashed assets from the browser cache on a second navigation', async
   const first = await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
   expect(first?.headers()['cache-control']).toBe('no-cache');
   await expect(page.locator('#content h1')).toHaveText('Demo');
+  // Wait for lazy diagram chunks and fonts before navigating away from the cold load.
+  await expect(page.locator('#content [data-mermaid] .diagram-image svg')).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
   const assets = await page.evaluate(() => performance.getEntriesByType('resource')
     .filter((entry) => new URL(entry.name).pathname.startsWith('/assets/'))
     .map((entry) => ({ name: entry.name, bytes: (entry as PerformanceResourceTiming).transferSize })));
@@ -2674,9 +2677,11 @@ test('reuses hashed assets from the browser cache on a second navigation', async
   await page.goto('about:blank');
   await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
   await expect(page.locator('#content h1')).toHaveText('Demo');
+  await expect(page.locator('#content [data-mermaid] .diagram-image svg')).toBeVisible();
+  await page.evaluate(() => document.fonts.ready);
   const cached = await page.evaluate(() => performance.getEntriesByType('resource')
     .filter((entry) => new URL(entry.name).pathname.startsWith('/assets/'))
     .map((entry) => ({ name: entry.name, bytes: (entry as PerformanceResourceTiming).transferSize })));
   expect(cached.length).toBeGreaterThan(0);
-  expect(cached.every((asset) => asset.bytes === 0)).toBe(true);
+  expect(cached.every((asset) => asset.bytes === 0), JSON.stringify(cached)).toBe(true);
 });
