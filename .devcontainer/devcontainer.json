@@ -2,7 +2,7 @@
   "name": "markport",
   "image": "mcr.microsoft.com/devcontainers/go:1.27-bookworm",
   "mounts": [
-    "source=${localEnv:HOME}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,readonly"
+    "source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind,consistency=cached"
   ],
   "features": {
     "ghcr.io/devcontainers/features/node:2": {
