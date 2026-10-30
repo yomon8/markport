@@ -246,6 +246,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		defer cleanup()
 	}
 	httpServer := &http.Server{Handler: app, BaseContext: func(net.Listener) context.Context { return base }}
+	// Handle shutdown signals before requests or the startup URL announce readiness.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sig)
 	serveDone := make(chan error, 1)
 	go func() { serveDone <- httpServer.Serve(listener) }()
 	if o.Host == "0.0.0.0" {
@@ -253,9 +257,6 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	} else {
 		fmt.Fprintf(stdout, "http://%s:%d/\n", o.Host, o.Port)
 	}
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sig)
 	select {
 	case <-sig:
 	case err := <-serveDone:
