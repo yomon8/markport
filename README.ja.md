@@ -258,6 +258,8 @@ markport ./notes --title "作業ノート"
 | `/` または `Ctrl+K` | ファイル名検索へ移動 |
 | `Ctrl+B` | ファイル一覧の開閉 |
 | `Ctrl+I` | Server info を開く |
+| `m` | Paste Markdown モードへ移動 |
+| `t` | テーマメニューを開く。矢印・Home / End で移動、Enter / Space で確定、Esc で閉じる |
 | `w` | Content width を Full → Standard → Wide → Full の順に切り替え |
 | `?` | ショートカット一覧を開く |
 | `Esc` | ダイアログやメニューを閉じる／ファイル検索をクリア |

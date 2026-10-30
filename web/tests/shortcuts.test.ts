@@ -44,3 +44,13 @@ describe('paste editor shortcuts', () => {
     expect(shortcutText('pasteUnindent')).toBe('Shift+Tab');
   });
 });
+
+describe.each([['pasteMode', 'm'], ['themeMenu', 't']] as const)('%s shortcut', (id, key) => {
+  it('matches the plain key and rejects modifiers and composition', () => {
+    expect(matchesShortcut(new KeyboardEvent('keydown', { key }), id)).toBe(true);
+    expect(shortcutText(id)).toBe(key);
+    for (const options of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { isComposing: true }, { keyCode: 229 }]) {
+      expect(matchesShortcut(new KeyboardEvent('keydown', { key, ...options }), id)).toBe(false);
+    }
+  });
+});

@@ -1,3 +1,4 @@
+import { shortcutText } from './shortcuts';
 import { setIcon, type IconName } from './icons';
 
 export type ThemeId = 'light' | 'dark' | 'sepia' | 'nord' | 'catppuccin-mocha' | 'solarized-light' | 'rose-pine-dawn' | 'tokyo-night' | 'tokyo-night-light' | 'github-light' | 'github-dark-dimmed';
@@ -63,7 +64,7 @@ export function initTheme(button: HTMLButtonElement, redraw: () => void): void {
     document.documentElement.dataset.theme = id;
     document.documentElement.dataset.colorScheme = effectiveTheme();
     setIcon(button, theme.icon); button.setAttribute('aria-label', `Theme: ${theme.label}`);
-    button.title = `Theme: ${theme.label}`;
+    button.title = `Theme: ${theme.label} (${shortcutText('themeMenu')})`;
     items.forEach((item, index) => item.setAttribute('aria-checked', String(themes[index].id === selected)));
     return changed;
   }

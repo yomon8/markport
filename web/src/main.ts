@@ -86,6 +86,7 @@ infoToggle.setAttribute('aria-label', 'Server info'); infoToggle.title = `Server
 helpToggle.before(infoToggle);
 const serverInfo = new ServerInfo(infoToggle);
 const pasteToggle = document.querySelector<HTMLButtonElement>('#paste-toggle')!;
+pasteToggle.title = `Paste Markdown (${shortcutText('pasteMode')})`;
 const headerMore = document.querySelector<HTMLButtonElement>('#header-more')!;
 const headerExtras = document.querySelector<HTMLElement>('#header-extras')!;
 const tabTitleButton = document.createElement('button'); tabTitleButton.id = 'tab-title-toggle'; tabTitleButton.type = 'button';
@@ -1515,6 +1516,17 @@ window.addEventListener('hashchange', () => { highlightCodeLines(true); });
 window.addEventListener('keydown', (event) => {
   if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
   if (editingShortcutTarget(event.target)) return;
+  if (matchesShortcut(event, 'pasteMode') || matchesShortcut(event, 'themeMenu')) {
+    if (event.repeat || document.querySelector('dialog[open]')) return;
+    if ([...document.querySelectorAll<HTMLElement>('[role="menu"]')].some((menu) => menu.getClientRects().length > 0)) return;
+    event.preventDefault();
+    if (matchesShortcut(event, 'pasteMode')) { if (selectedMode() !== 'paste') pasteToggle.click(); }
+    else {
+      if (window.innerWidth <= 700) { headerExtras.classList.add('open'); headerMore.setAttribute('aria-expanded', 'true'); }
+      document.querySelector<HTMLButtonElement>('#theme-toggle')!.click();
+    }
+    return;
+  }
   if (matchesShortcut(event, 'contentWidth')) {
     if (event.repeat || window.innerWidth <= 700 || document.querySelector('dialog[open]')) return;
     if ([...document.querySelectorAll<HTMLElement>('[role="menu"]')].some((menu) => menu.getClientRects().length > 0)) return;

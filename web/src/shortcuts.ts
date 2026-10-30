@@ -1,8 +1,10 @@
 type Binding = { key: string; mod?: boolean; shift?: boolean };
-export type ShortcutId = 'contentWidth' | 'pasteView' | 'pasteEscape' | 'pasteIndent' | 'pasteUnindent' | 'serverInfo' | 'serverNext' | 'serverPrevious' | 'serverOpen' | 'search' | 'sidebar' | 'help' | 'close' | 'nextChange' | 'previousChange' | 'reviewNext' | 'treeTab' | 'treeExpand' | 'treeCollapse' | 'treeNext' | 'treePrevious' | 'treeFirst' | 'treeLast' | 'treeOpen' | 'treeClear' | 'tabSwitch' | 'tabFirst' | 'tabLast';
+export type ShortcutId = 'pasteMode' | 'themeMenu' | 'contentWidth' | 'pasteView' | 'pasteEscape' | 'pasteIndent' | 'pasteUnindent' | 'serverInfo' | 'serverNext' | 'serverPrevious' | 'serverOpen' | 'search' | 'sidebar' | 'help' | 'close' | 'nextChange' | 'previousChange' | 'reviewNext' | 'treeTab' | 'treeExpand' | 'treeCollapse' | 'treeNext' | 'treePrevious' | 'treeFirst' | 'treeLast' | 'treeOpen' | 'treeClear' | 'tabSwitch' | 'tabFirst' | 'tabLast';
 type Shortcut = { id: ShortcutId; description: string; group: string; bindings: Binding[] };
 
 export const shortcuts: Shortcut[] = [
+  { id: 'pasteMode', description: 'Open Paste Markdown', group: 'General', bindings: [{ key: 'm' }] },
+  { id: 'themeMenu', description: 'Choose a theme', group: 'General', bindings: [{ key: 't' }] },
   { id: 'pasteView', description: 'Switch Text and Rendered views', group: 'Paste Markdown', bindings: [{ key: 'Enter', mod: true }] },
   { id: 'pasteEscape', description: 'Leave the editor; Tab moves focus normally', group: 'Paste Markdown', bindings: [{ key: 'Escape' }] },
   { id: 'pasteIndent', description: 'Indent selected lines (2 spaces)', group: 'Paste Markdown', bindings: [{ key: 'Tab' }] },

@@ -643,8 +643,9 @@ test('keeps global shortcuts out of Markdown and editable text', async ({ page }
   });
   await editable;
   await page.locator('#shortcut-editable').focus();
-  await page.keyboard.type('a/b');
-  await expect(page.locator('#shortcut-editable')).toHaveText('a/b');
+  await page.keyboard.type('a/bmt');
+  await expect(page.locator('#shortcut-editable')).toHaveText('a/bmt');
+  await expect(page.locator('#theme-menu')).toBeHidden();
   await page.keyboard.press('Control+i');
   await expect(page.locator('#server-info-dialog')).toBeHidden();
   await expect(page.locator('#shortcut-editable')).toBeFocused();
@@ -2685,3 +2686,50 @@ test('reuses hashed assets from the browser cache on a second navigation', async
   expect(cached.length).toBeGreaterThan(0);
   expect(cached.every((asset) => asset.bytes === 0), JSON.stringify(cached)).toBe(true);
 });
+
+for (const width of [1280, 390]) {
+  test(`opens Paste Markdown and theme selection with shortcuts at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await writeFile(join(directory, 'shortcut-mode.md'), '# Shortcut mode\n');
+    await page.goto(`http://127.0.0.1:${port}/?path=shortcut-mode.md&right=shortcut-mode.md`);
+    await expect(page.locator('#content h1')).toHaveText('Shortcut mode');
+    await page.keyboard.press('m');
+    const input = page.getByLabel('Markdown Text');
+    await expect(input).toBeFocused();
+    await input.fill('# Saved mt');
+    await page.keyboard.type('mt');
+    await expect(input).toHaveValue('# Saved mtmt');
+    await expect(page.locator('#theme-menu')).toBeHidden();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('m');
+    await expect(input).toHaveValue('# Saved mtmt');
+    await page.evaluate(() => {
+      for (const key of ['m', 't']) for (const options of [{ repeat: true }, { isComposing: true }, { keyCode: 229 }]) {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...options }));
+      }
+    });
+    await expect(page.locator('#theme-menu')).toBeHidden();
+    await page.keyboard.press('t');
+    await expect(page.locator('#theme-menu')).toBeVisible();
+    await page.keyboard.press('t');
+    await expect(page.locator('#theme-menu')).toBeVisible();
+    await expect(page.locator('#theme-menu [aria-checked=true]')).toBeFocused();
+    await page.keyboard.press('End');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'github-dark-dimmed');
+    await expect(page.locator('#theme-toggle')).toBeFocused();
+    await expect(page.locator('#theme-toggle')).toHaveAttribute('title', 'Theme: GitHub Dark Dimmed (t)');
+    await page.keyboard.press('t');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#theme-menu')).toBeHidden();
+    await expect(page.locator('#theme-toggle')).toBeFocused();
+    if (width <= 700) await page.keyboard.press('Escape');
+    await page.keyboard.press('?');
+    await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('Open Paste Markdown');
+    await page.keyboard.press('m'); await page.keyboard.press('t');
+    await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible();
+    await expect(page.locator('#theme-menu')).toBeHidden();
+    await page.keyboard.press('Escape');
+    await input.focus(); await expect(input).toHaveValue('# Saved mtmt');
+  });
+}
