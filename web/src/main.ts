@@ -1,3 +1,4 @@
+import { createRefreshScheduler } from './refresh';
 import { createFileSearch } from './fileSearch';
 import { createOutline } from './outline';
 import { createContentDecoration } from './contentDecorate';
@@ -143,10 +144,9 @@ drawerToggle.title = `Open file list (${shortcutText('sidebar')})`;
 const sidebarToggle = document.querySelector<HTMLButtonElement>('#sidebar-toggle')!;
 sidebarToggle.title = `Collapse sidebar (${shortcutText('sidebar')})`;
 const view = new TreeView(tree, search, count, collapseAll, selectedFile,
-  (path) => { const current = revision; void loadPage(path, 0, '', false, current).then(() => loadOpenDirectories(current)).catch(() => status('Refresh failed. Please try again.', 'error')); },
-  (path, offset) => { const current = revision; void loadPage(path, offset, '', false, current).catch(() => status('Refresh failed. Please try again.', 'error')); },
+  (path) => { const current = refresh.revision; void loadPage(path, 0, '', false, current).then(() => loadOpenDirectories(current)).catch(() => status('Refresh failed. Please try again.', 'error')); },
+  (path, offset) => { const current = refresh.revision; void loadPage(path, offset, '', false, current).catch(() => status('Refresh failed. Please try again.', 'error')); },
   (query) => onSearchChange(query));
-let revision = 0; let pending = false; let pendingForeground = false; let activeForeground = false; let running = false;
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = new URL(location.href).searchParams.get('source') === '1';
 let displayedMode: FileView | 'changes' | 'paste' | 'history' = 'file'; let lastFilePath = '';
 let sidebarPanel: 'file' | 'changes' | 'history' = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file';
@@ -181,6 +181,7 @@ let loadingTimer: ReturnType<typeof setTimeout> | undefined;
 let updatedTimer: ReturnType<typeof setTimeout> | undefined;
 const fileSearch = createFileSearch({ getQuery: () => search.value, view });
 const { loadSearchIndex, onSearchChange } = fileSearch;
+const refresh = createRefreshScheduler({ run: refreshLoop, interval: 3000, onVisible: fileSearch.refreshIfStale });
 const outlineController = createOutline({ content, outline, main, rightContent, rightOutline, rightContents });
 const { updateOutline, updateRightOutline } = outlineController;
 const decoration = createContentDecoration({
@@ -195,11 +196,11 @@ if (savedWidth >= 200 && savedWidth <= 480) document.documentElement.style.setPr
 function selected(): string { return new URL(location.href).searchParams.get('path') ?? ''; }
 function selectedFile(): string { return activePane.current() === 'right' && rightSelected() ? rightSelected() : selected(); }
 async function syncSelectedFile(): Promise<void> {
-  const version = ++fileSelectionVersion; const path = selectedFile(); const current = revision;
+  const version = ++fileSelectionVersion; const path = selectedFile(); const current = refresh.revision;
   view.render();
   try {
     if (view.shouldLoadSelectedPath(path)) await ensureSelectedPath(path, current);
-    if (version !== fileSelectionVersion || current !== revision || path !== selectedFile()) return;
+    if (version !== fileSelectionVersion || current !== refresh.revision || path !== selectedFile()) return;
     await loadOpenDirectories(current);
   } catch (error) {
     if (!(error instanceof RequestError && error.code === 'not_found') && version === fileSelectionVersion) status('Refresh failed. Please try again.', 'error');
@@ -452,7 +453,7 @@ async function getPage(path: string, offset: number, focus: string, conditional:
   const body = await response.json() as Page & ApiError;
   if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
   const value = response.headers?.get('ETag');
-  if (value && (expectedRevision === undefined || expectedRevision === revision)) pageTags.set(path, { value, checkedAt: Date.now() });
+  if (value && (expectedRevision === undefined || expectedRevision === refresh.revision)) pageTags.set(path, { value, checkedAt: Date.now() });
   return body;
 }
 async function getFile(path: string, source: boolean, expectedRevision: number): Promise<FileReply | null> {
@@ -464,7 +465,7 @@ async function getFile(path: string, source: boolean, expectedRevision: number):
   if (response.status === 304) return null;
   const body = await response.json() as FileReply & ApiError;
   if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
-  if (expectedRevision === revision) {
+  if (expectedRevision === refresh.revision) {
     displayedTag = response.headers?.get('ETag') ?? '';
     displayedTagCheckedAt = Date.now();
   }
@@ -489,7 +490,7 @@ async function loadPage(path: string, offset = 0, focus = '', conditional = fals
   if (!view.has(path)) view.setLoading(path, true);
   try {
     const page = await getPage(path, offset, focus, conditional, expectedRevision);
-    if (expectedRevision !== undefined && expectedRevision !== revision) return null;
+    if (expectedRevision !== undefined && expectedRevision !== refresh.revision) return null;
     if (!page) return null;
     view.setPage(path, page);
     if (path === '') { rootName = page.root || rootName; document.querySelector('#root-name')!.textContent = rootName; }
@@ -501,14 +502,14 @@ async function ensureSelectedPath(path: string, expectedRevision: number): Promi
   const parts = path.split('/');
   let parent = '';
   for (const part of parts) {
-    if (expectedRevision !== revision) return;
+    if (expectedRevision !== refresh.revision) return;
     if (!view.hasChild(parent, part)) await loadPage(parent, 0, part, false, expectedRevision);
     parent = parent ? `${parent}/${part}` : part;
   }
 }
 async function loadOpenDirectories(expectedRevision: number): Promise<void> {
   for (;;) {
-    if (expectedRevision !== revision) return;
+    if (expectedRevision !== refresh.revision) return;
     const next = view.unloadedOpenPaths()[0];
     if (!next) return;
     try { await loadPage(next, 0, '', false, expectedRevision); }
@@ -533,18 +534,18 @@ async function refreshDirectory(path: string, expectedRevision: number): Promise
 async function refreshDirectories(path: string, expectedRevision: number): Promise<void> {
   const activeBefore = view.expandedPaths();
   await refreshDirectory('', expectedRevision);
-  if (expectedRevision !== revision) return;
+  if (expectedRevision !== refresh.revision) return;
   try { if (view.shouldLoadSelectedPath(path)) await ensureSelectedPath(path, expectedRevision); }
   catch (error) { if (!(error instanceof RequestError && error.code === 'not_found')) throw error; }
   for (const dir of activeBefore) if (dir && view.has(dir) && view.isActive(dir)) {
-    if (expectedRevision !== revision) return;
+    if (expectedRevision !== refresh.revision) return;
     try { await refreshDirectory(dir, expectedRevision); }
     catch (error) {
       if (!(error instanceof RequestError && error.code === 'not_found')) throw error;
       view.forget(dir);
     }
   }
-  if (expectedRevision !== revision) return;
+  if (expectedRevision !== refresh.revision) return;
   try { if (view.shouldLoadSelectedPath(path)) await ensureSelectedPath(path, expectedRevision); }
   catch (error) { if (!(error instanceof RequestError && error.code === 'not_found')) throw error; }
   for (const key of pageTags.keys()) if (!view.has(key)) pageTags.delete(key);
@@ -873,10 +874,7 @@ function showRightTitle(path: string, kind: FileReply['type'] | 'diff' | 'Histor
 }
 function beginLoading(): void { content.setAttribute('aria-busy', 'true'); reload.disabled = true; clearTimeout(loadingTimer); loadingTimer = setTimeout(() => { progress.hidden = false; }, 200); }
 function endLoading(): void { clearTimeout(loadingTimer); progress.hidden = true; reload.disabled = false; content.setAttribute('aria-busy', 'false'); }
-function requestRefresh(foreground = true): void {
-  if (!foreground && (activeForeground || pendingForeground)) return;
-  revision++; pending = true; pendingForeground ||= foreground; if (!running) void refreshLoop();
-}
+function requestRefresh(foreground = true): void { refresh.request(foreground); }
 function manualRefresh(): void {
   void tabTitle.reload();
   void serverInfo.reloadIfOpen();
@@ -1013,160 +1011,154 @@ async function refreshRight(): Promise<void> {
     rightShownPath = path; rightShownKey = '';
   } finally { if (request === rightRequest) rightContent.setAttribute('aria-busy', 'false'); }
 }
-async function refreshLoop(): Promise<void> {
-  running = true;
+async function refreshLoop({ revision: current, foreground }: { revision: number; foreground: boolean }): Promise<void> {
+  const path = selected(); const source = sourceMode; const mode = selectedMode(); const commitID = new URL(location.href).searchParams.get('commit') ?? ''; const base = selectedBase(); const knownHistoryHead = historyPage?.head; const preserveTabFocus = keepTabFocus; keepTabFocus = false;
+  if (mode === 'changes' || mode === 'diff') rememberedBase = base;
+  void refreshRight();
+  showSidebar(sidebarPanel);
+  syncComparisonControls();
+  if (path !== displayedPath || mode !== displayedMode) displayedTag = '';
+  if (foreground) { beginLoading(); }
+  const treePromise = refreshDirectories(mode === 'changes' || mode === 'paste' || mode === 'history' ? '' : selectedFile(), current);
+  const gitPromise = mode === 'changes' || mode === 'diff' ? getGit<ChangesReply>(`/api/git/changes${base ? `?base=${encodeURIComponent(base)}` : ''}`)
+    : ['file', 'file-history', 'blame'].includes(mode) ? getGit<ChangesReply>(`/api/git/changes${rememberedBase ? `?base=${encodeURIComponent(rememberedBase)}` : ''}`).catch(() => undefined) : Promise.resolve(undefined);
+  const historyPromise = mode === 'history' ? getGit<HistoryPage>('/api/git/history') : Promise.resolve(undefined);
+  const commitPromise = mode === 'history' && commitID ? cachedCommit?.id === commitID && knownHistoryHead ? Promise.resolve(cachedCommit) : getGit<CommitDetail>(`/api/git/commit?id=${encodeURIComponent(commitID)}`) : Promise.resolve(undefined);
+  const historicalDiffPromise = mode === 'history' && commitID && path ? cachedHistoricalDiff?.id === commitID && cachedHistoricalDiff.path === path && knownHistoryHead ? Promise.resolve(cachedHistoricalDiff.value) : getGit<DiffReply>(`/api/git/commit-diff?id=${encodeURIComponent(commitID)}&path=${encodeURIComponent(path)}`) : Promise.resolve(undefined);
+  const filePromise = mode === 'diff' ? getGit<DiffReply>(`/api/git/diff?path=${encodeURIComponent(path)}${base ? `&base=${encodeURIComponent(base)}` : ''}`).then((value) => ({ value }), (error: unknown) => ({ error }))
+    : mode === 'file' && path ? getFile(path, source, current).then((value) => ({ value }), (error: unknown) => ({ error })) : Promise.resolve(null);
   try {
-    while (pending) {
-      pending = false; const foreground = pendingForeground; pendingForeground = false;
-      const current = revision; const path = selected(); const source = sourceMode; const mode = selectedMode(); const commitID = new URL(location.href).searchParams.get('commit') ?? ''; const base = selectedBase(); const knownHistoryHead = historyPage?.head; const preserveTabFocus = keepTabFocus; keepTabFocus = false;
-      if (mode === 'changes' || mode === 'diff') rememberedBase = base;
-      void refreshRight();
-      showSidebar(sidebarPanel);
-      syncComparisonControls();
-      if (path !== displayedPath || mode !== displayedMode) displayedTag = '';
-      if (foreground) { activeForeground = true; beginLoading(); }
-      const treePromise = refreshDirectories(mode === 'changes' || mode === 'paste' || mode === 'history' ? '' : selectedFile(), current);
-      const gitPromise = mode === 'changes' || mode === 'diff' ? getGit<ChangesReply>(`/api/git/changes${base ? `?base=${encodeURIComponent(base)}` : ''}`)
-        : ['file', 'file-history', 'blame'].includes(mode) ? getGit<ChangesReply>(`/api/git/changes${rememberedBase ? `?base=${encodeURIComponent(rememberedBase)}` : ''}`).catch(() => undefined) : Promise.resolve(undefined);
-      const historyPromise = mode === 'history' ? getGit<HistoryPage>('/api/git/history') : Promise.resolve(undefined);
-      const commitPromise = mode === 'history' && commitID ? cachedCommit?.id === commitID && knownHistoryHead ? Promise.resolve(cachedCommit) : getGit<CommitDetail>(`/api/git/commit?id=${encodeURIComponent(commitID)}`) : Promise.resolve(undefined);
-      const historicalDiffPromise = mode === 'history' && commitID && path ? cachedHistoricalDiff?.id === commitID && cachedHistoricalDiff.path === path && knownHistoryHead ? Promise.resolve(cachedHistoricalDiff.value) : getGit<DiffReply>(`/api/git/commit-diff?id=${encodeURIComponent(commitID)}&path=${encodeURIComponent(path)}`) : Promise.resolve(undefined);
-      const filePromise = mode === 'diff' ? getGit<DiffReply>(`/api/git/diff?path=${encodeURIComponent(path)}${base ? `&base=${encodeURIComponent(base)}` : ''}`).then((value) => ({ value }), (error: unknown) => ({ error }))
-        : mode === 'file' && path ? getFile(path, source, current).then((value) => ({ value }), (error: unknown) => ({ error })) : Promise.resolve(null);
-      try {
-        const [, fileReply, changesReply, firstHistory, commitReply, historyDiffReply] = await Promise.all([treePromise, filePromise, gitPromise, historyPromise, commitPromise, historicalDiffPromise]);
-        if (current !== revision || path !== selected() || mode !== selectedMode() || commitID !== (new URL(location.href).searchParams.get('commit') ?? '') || base !== selectedBase()) { pending = true; continue; }
-        if ((mode === 'changes' || mode === 'diff') && changesReply?.base && changesReply.base !== base) {
-          const canonical = new URL(location.href); canonical.searchParams.set('base', changesReply.base);
-          history.replaceState(history.state, '', canonical); rememberedBase = changesReply.base; syncComparisonControls();
-        }
-        if (mode === 'file' && !path && view.firstReadme()) { history.replaceState({ scroll: 0 }, '', fileURL(view.firstReadme()!)); pending = true; pendingForeground ||= foreground; revision++; continue; }
-        const pathChanged = path !== displayedPath || mode !== displayedMode;
-        if (mode !== 'paste' && pasteEditor) { pasteEditor.dispose(); pasteEditor = undefined; refreshPastedPreview = undefined; }
-        if (pathChanged) { main.scrollTop = history.state?.scroll ?? 0; displayedHTML = ''; view.pruneInactive(); }
-        displayedPath = path; displayedMode = mode;
-        if (path && mode !== 'history') lastFilePath = path;
-        if (changesReply) {
-          currentChanges = changesReply;
-          if (mode === 'changes' || mode === 'diff') comparisonError.hidden = true;
-          if (review.sync(changesReply)) reviewVersion++;
-          updateChangeViews();
-          syncDiffButton(path);
-        }
-        if (firstHistory) {
-          if (knownHistoryHead && firstHistory.head !== knownHistoryHead) {
-            historyPage = firstHistory; cachedCommit = undefined; cachedHistoricalDiff = undefined; displayedHistoryList = '';
-            revision++; pending = true; continue;
-          }
-          const previous = historyPage;
-          historyPage = previous?.head && previous.head === firstHistory.head && firstHistory.available
-            ? { ...firstHistory, commits: [...firstHistory.commits, ...previous.commits.slice(firstHistory.commits.length)], nextOffset: previous.nextOffset }
-            : firstHistory;
-          updateHistoryViews();
-        }
-        if (mode === 'history') {
-          if (!commitID && historyPage?.commits.length) {
-            history.replaceState(history.state, '', historyURL(historyPage.commits[0].id));
-            revision++; pending = true; continue;
-          }
-          if (!historyPage?.available || !historyPage.commits.length && !commitID) {
-            if (pathChanged || content.dataset.kind !== 'history-empty') {
-              content.dataset.kind = 'history-empty'; content.replaceChildren();
-              const hint = document.createElement('p'); hint.className = 'hint';
-              hint.textContent = historyPage?.available ? 'No commits to display.' : historyPage?.reason === 'git_unavailable' ? 'Git was not found. Git is required to show history.' : 'This directory is not a Git repository.';
-              content.append(hint); displayedHTML = hint.textContent; outline.hidden = true; showTitle('');
-            }
-          } else if (commitReply) {
-            cachedCommit = commitReply;
-            if (historyDiffReply) cachedHistoricalDiff = { id: commitID, path, value: historyDiffReply };
-            const key = historyDiffReply ? JSON.stringify([commitReply.id, path, historyDiffReply]) : JSON.stringify(commitReply);
-            if (pathChanged || displayedHTML !== key) {
-              content.dataset.kind = historyDiffReply ? 'diff' : 'history';
-              if (historyDiffReply) renderCommitDiff(content, commitReply, historyDiffReply);
-              else renderCommit(content, commitReply);
-              displayedHTML = key; outline.hidden = true; showTitle('');
-            }
-          }
-          status(liveMessage, 'ok'); continue;
-        }
-        if (mode === 'file-history' || mode === 'blame') {
-          outline.hidden = true;
-          if (pathChanged || content.dataset.kind !== 'file-git') showTitle(path, mode === 'blame' ? 'Blame' : 'History');
-          await leftFileGit.refresh(path);
-          if (pathChanged && activePane.current() === 'left' && keyboardTreePath !== path) view.reveal(path);
-          if (pathChanged && !preserveTabFocus && keyboardTreePath !== path) activePane.withoutActivation(() => title.focus({ preventScroll: true }));
-          status(liveMessage, 'ok'); continue;
-        }
-        leftFileGit.invalidate();
-        if (mode === 'changes') {
-          status(liveMessage, 'ok'); continue;
-        }
-        if (mode === 'paste') {
-          if (pathChanged || content.dataset.kind !== 'paste') showPaste();
-          status(liveMessage, 'ok'); continue;
-        }
-        if (!path) { if (pathChanged) showTitle(''); showEmpty(); status(liveMessage, 'ok'); continue; }
-        if (fileReply && 'error' in fileReply) {
-          if (fileReply.error instanceof RequestError && fileReply.error.code === 'network') throw fileReply.error;
-          showError(fileReply.error, path); displayedHTML = ''; displayedTag = ''; status(liveMessage, 'ok'); continue;
-        }
-        if (mode === 'diff' && fileReply && 'value' in fileReply) {
-          const diff = fileReply.value as DiffReply;
-          const displayKey = `${diff.kind}\n${diff.patch}`;
-          if (displayedHTML !== displayKey) {
-            content.dataset.kind = 'diff'; renderDiff(content, diff); displayedHTML = displayKey;
-            outline.hidden = true; showTitle(path, 'diff');
-          }
-          status(liveMessage, 'ok'); continue;
-        }
-        if (fileReply && 'value' in fileReply) {
-          const file = fileReply.value as FileReply | null;
-          if (!file) { highlightCodeLines(pendingLineJump); pendingLineJump = false; status(liveMessage, 'ok'); continue; }
-          const displayKey = filePreviewKey(file, path);
-          const changed = displayedHTML !== displayKey || displayedSource !== source;
-          if (changed) {
-            const oldScroll = main.scrollTop;
-            content.dataset.kind = file.type === 'image' || file.type === 'pdf' ? file.type : source ? 'code' : file.type;
-            if (file.type === 'pdf') {
-              content.replaceChildren(createPDFFrame(file.previewUrl, path));
-            } else if ('previewUrl' in file) {
-              content.replaceChildren(createPreviewFrame(file.previewUrl, path, 'left'));
-            } else if (file.type === 'image') {
-              const img = document.createElement('img'); img.className = 'image-preview'; img.alt = path.split('/').at(-1) ?? path;
-              img.addEventListener('error', () => { if (img.isConnected && selected() === path) { displayedHTML = ''; showError(new RequestError('invalid_asset', 'image load failed'), path); } });
-              img.src = file.assetUrl; content.replaceChildren(img);
-            } else { content.innerHTML = file.html; decorateContent(); }
-            displayedHTML = displayKey; displayedSource = source;
-            updateOutline(); showTitle(path, file.type);
-            if (location.hash && file.type !== 'html' && !highlightCodeLines(pathChanged)) {
-              try { if (pathChanged) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ }
-            }
-            if (!pathChanged && current > 1) {
-              title.classList.add('updated'); const note = document.createElement('span'); note.className = 'update-note'; note.textContent = 'Updated'; title.querySelector('.title-actions')?.prepend(note);
-              clearTimeout(updatedTimer); updatedTimer = setTimeout(() => { title.classList.remove('updated'); note.remove(); }, 3500);
-            }
-            if (!pathChanged && oldScroll > 0) main.scrollTop = oldScroll;
-            void drawMermaid(content, () => path === selected() && source === sourceMode);
-            void drawMath(content, () => selectedMode() === 'file' && path === selected() && !sourceMode);
-          }
-          highlightCodeLines(pendingLineJump); pendingLineJump = false;
-          if (pathChanged && activePane.current() === 'left' && keyboardTreePath !== path) view.reveal(path);
-          if (pathChanged && !preserveTabFocus && keyboardTreePath !== path) activePane.withoutActivation(() => title.focus({ preventScroll: true }));
-        }
-        status(liveMessage, 'ok');
-      } catch (error) {
-        if (current !== revision) { pending = true; continue; }
-        if ((mode === 'changes' || mode === 'diff') && base !== (currentChanges?.base ?? '')) {
-          currentChanges = undefined; displayedChanges = '';
-          const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = 'Cannot load this comparison.';
-          comparisonError.textContent = 'Cannot load this comparison.'; comparisonError.hidden = false;
-          changesTree.replaceChildren(hint);
-        }
-        if (foreground || path !== displayedPath || mode !== displayedMode || !(error instanceof RequestError && error.code === 'network')) showError(error, path);
-        status('Refresh failed. Please try again.', 'error');
-      } finally { if (foreground) { activeForeground = false; endLoading(); } }
+    const [, fileReply, changesReply, firstHistory, commitReply, historyDiffReply] = await Promise.all([treePromise, filePromise, gitPromise, historyPromise, commitPromise, historicalDiffPromise]);
+    if (current !== refresh.revision || path !== selected() || mode !== selectedMode() || commitID !== (new URL(location.href).searchParams.get('commit') ?? '') || base !== selectedBase()) { refresh.retry(); return; }
+    if ((mode === 'changes' || mode === 'diff') && changesReply?.base && changesReply.base !== base) {
+      const canonical = new URL(location.href); canonical.searchParams.set('base', changesReply.base);
+      history.replaceState(history.state, '', canonical); rememberedBase = changesReply.base; syncComparisonControls();
     }
-  } finally { running = false; if (pending) void refreshLoop(); }
+    if (mode === 'file' && !path && view.firstReadme()) { history.replaceState({ scroll: 0 }, '', fileURL(view.firstReadme()!)); refresh.retry(foreground, true); return; }
+    const pathChanged = path !== displayedPath || mode !== displayedMode;
+    if (mode !== 'paste' && pasteEditor) { pasteEditor.dispose(); pasteEditor = undefined; refreshPastedPreview = undefined; }
+    if (pathChanged) { main.scrollTop = history.state?.scroll ?? 0; displayedHTML = ''; view.pruneInactive(); }
+    displayedPath = path; displayedMode = mode;
+    if (path && mode !== 'history') lastFilePath = path;
+    if (changesReply) {
+      currentChanges = changesReply;
+      if (mode === 'changes' || mode === 'diff') comparisonError.hidden = true;
+      if (review.sync(changesReply)) reviewVersion++;
+      updateChangeViews();
+      syncDiffButton(path);
+    }
+    if (firstHistory) {
+      if (knownHistoryHead && firstHistory.head !== knownHistoryHead) {
+        historyPage = firstHistory; cachedCommit = undefined; cachedHistoricalDiff = undefined; displayedHistoryList = '';
+        refresh.retry(false, true); return;
+      }
+      const previous = historyPage;
+      historyPage = previous?.head && previous.head === firstHistory.head && firstHistory.available
+        ? { ...firstHistory, commits: [...firstHistory.commits, ...previous.commits.slice(firstHistory.commits.length)], nextOffset: previous.nextOffset }
+        : firstHistory;
+      updateHistoryViews();
+    }
+    if (mode === 'history') {
+      if (!commitID && historyPage?.commits.length) {
+        history.replaceState(history.state, '', historyURL(historyPage.commits[0].id));
+        refresh.retry(false, true); return;
+      }
+      if (!historyPage?.available || !historyPage.commits.length && !commitID) {
+        if (pathChanged || content.dataset.kind !== 'history-empty') {
+          content.dataset.kind = 'history-empty'; content.replaceChildren();
+          const hint = document.createElement('p'); hint.className = 'hint';
+          hint.textContent = historyPage?.available ? 'No commits to display.' : historyPage?.reason === 'git_unavailable' ? 'Git was not found. Git is required to show history.' : 'This directory is not a Git repository.';
+          content.append(hint); displayedHTML = hint.textContent; outline.hidden = true; showTitle('');
+        }
+      } else if (commitReply) {
+        cachedCommit = commitReply;
+        if (historyDiffReply) cachedHistoricalDiff = { id: commitID, path, value: historyDiffReply };
+        const key = historyDiffReply ? JSON.stringify([commitReply.id, path, historyDiffReply]) : JSON.stringify(commitReply);
+        if (pathChanged || displayedHTML !== key) {
+          content.dataset.kind = historyDiffReply ? 'diff' : 'history';
+          if (historyDiffReply) renderCommitDiff(content, commitReply, historyDiffReply);
+          else renderCommit(content, commitReply);
+          displayedHTML = key; outline.hidden = true; showTitle('');
+        }
+      }
+      status(liveMessage, 'ok'); return;
+    }
+    if (mode === 'file-history' || mode === 'blame') {
+      outline.hidden = true;
+      if (pathChanged || content.dataset.kind !== 'file-git') showTitle(path, mode === 'blame' ? 'Blame' : 'History');
+      await leftFileGit.refresh(path);
+      if (pathChanged && activePane.current() === 'left' && keyboardTreePath !== path) view.reveal(path);
+      if (pathChanged && !preserveTabFocus && keyboardTreePath !== path) activePane.withoutActivation(() => title.focus({ preventScroll: true }));
+      status(liveMessage, 'ok'); return;
+    }
+    leftFileGit.invalidate();
+    if (mode === 'changes') {
+      status(liveMessage, 'ok'); return;
+    }
+    if (mode === 'paste') {
+      if (pathChanged || content.dataset.kind !== 'paste') showPaste();
+      status(liveMessage, 'ok'); return;
+    }
+    if (!path) { if (pathChanged) showTitle(''); showEmpty(); status(liveMessage, 'ok'); return; }
+    if (fileReply && 'error' in fileReply) {
+      if (fileReply.error instanceof RequestError && fileReply.error.code === 'network') throw fileReply.error;
+      showError(fileReply.error, path); displayedHTML = ''; displayedTag = ''; status(liveMessage, 'ok'); return;
+    }
+    if (mode === 'diff' && fileReply && 'value' in fileReply) {
+      const diff = fileReply.value as DiffReply;
+      const displayKey = `${diff.kind}\n${diff.patch}`;
+      if (displayedHTML !== displayKey) {
+        content.dataset.kind = 'diff'; renderDiff(content, diff); displayedHTML = displayKey;
+        outline.hidden = true; showTitle(path, 'diff');
+      }
+      status(liveMessage, 'ok'); return;
+    }
+    if (fileReply && 'value' in fileReply) {
+      const file = fileReply.value as FileReply | null;
+      if (!file) { highlightCodeLines(pendingLineJump); pendingLineJump = false; status(liveMessage, 'ok'); return; }
+      const displayKey = filePreviewKey(file, path);
+      const changed = displayedHTML !== displayKey || displayedSource !== source;
+      if (changed) {
+        const oldScroll = main.scrollTop;
+        content.dataset.kind = file.type === 'image' || file.type === 'pdf' ? file.type : source ? 'code' : file.type;
+        if (file.type === 'pdf') {
+          content.replaceChildren(createPDFFrame(file.previewUrl, path));
+        } else if ('previewUrl' in file) {
+          content.replaceChildren(createPreviewFrame(file.previewUrl, path, 'left'));
+        } else if (file.type === 'image') {
+          const img = document.createElement('img'); img.className = 'image-preview'; img.alt = path.split('/').at(-1) ?? path;
+          img.addEventListener('error', () => { if (img.isConnected && selected() === path) { displayedHTML = ''; showError(new RequestError('invalid_asset', 'image load failed'), path); } });
+          img.src = file.assetUrl; content.replaceChildren(img);
+        } else { content.innerHTML = file.html; decorateContent(); }
+        displayedHTML = displayKey; displayedSource = source;
+        updateOutline(); showTitle(path, file.type);
+        if (location.hash && file.type !== 'html' && !highlightCodeLines(pathChanged)) {
+          try { if (pathChanged) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ }
+        }
+        if (!pathChanged && current > 1) {
+          title.classList.add('updated'); const note = document.createElement('span'); note.className = 'update-note'; note.textContent = 'Updated'; title.querySelector('.title-actions')?.prepend(note);
+          clearTimeout(updatedTimer); updatedTimer = setTimeout(() => { title.classList.remove('updated'); note.remove(); }, 3500);
+        }
+        if (!pathChanged && oldScroll > 0) main.scrollTop = oldScroll;
+        void drawMermaid(content, () => path === selected() && source === sourceMode);
+        void drawMath(content, () => selectedMode() === 'file' && path === selected() && !sourceMode);
+      }
+      highlightCodeLines(pendingLineJump); pendingLineJump = false;
+      if (pathChanged && activePane.current() === 'left' && keyboardTreePath !== path) view.reveal(path);
+      if (pathChanged && !preserveTabFocus && keyboardTreePath !== path) activePane.withoutActivation(() => title.focus({ preventScroll: true }));
+    }
+    status(liveMessage, 'ok');
+  } catch (error) {
+    if (current !== refresh.revision) { refresh.retry(); return; }
+    if ((mode === 'changes' || mode === 'diff') && base !== (currentChanges?.base ?? '')) {
+      currentChanges = undefined; displayedChanges = '';
+      const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = 'Cannot load this comparison.';
+      comparisonError.textContent = 'Cannot load this comparison.'; comparisonError.hidden = false;
+      changesTree.replaceChildren(hint);
+    }
+    if (foreground || path !== displayedPath || mode !== displayedMode || !(error instanceof RequestError && error.code === 'network')) showError(error, path);
+    status('Refresh failed. Please try again.', 'error');
+  } finally { if (foreground) { endLoading(); } }
 }
 
 tree.addEventListener('click', (event) => {
@@ -1329,11 +1321,4 @@ initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => {
 updateBrand();
 status(liveMessage, 'ok');
 requestRefresh();
-const pollTimer = setInterval(() => { if (!document.hidden) requestRefresh(false); }, 3000);
-window.addEventListener('pagehide', () => { outlineController.dispose(); decoration.dispose(); contentWidth.dispose(); activePane.dispose(); splitResize.dispose(); printView.close(); pasteEditor?.dispose(); clearInterval(pollTimer); fileSearch.dispose(); tabTitle.dispose(); serverInfo.dispose(); });
-document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) {
-    requestRefresh(false);
-    fileSearch.refreshIfStale();
-  }
-});
+window.addEventListener('pagehide', () => { outlineController.dispose(); decoration.dispose(); contentWidth.dispose(); activePane.dispose(); splitResize.dispose(); printView.close(); pasteEditor?.dispose(); refresh.dispose(); fileSearch.dispose(); tabTitle.dispose(); serverInfo.dispose(); });
