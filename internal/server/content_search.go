@@ -51,6 +51,20 @@ func (s *Server) contentSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	paths, ignored, _, err := s.cachedSearchPaths(ctx, false)
+	if err == nil && opts.Folder != "" {
+		found := false
+		for _, name := range paths {
+			if strings.HasPrefix(name, opts.Folder+"/") {
+				found = true
+				break
+			}
+		}
+		// A folder can have appeared since the filename index was cached.
+		// Recheck an unrepresented scope before reporting an empty result.
+		if !found {
+			paths, ignored, _, err = s.cachedSearchPaths(ctx, true)
+		}
+	}
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			jsonReply(w, http.StatusOK, files.ContentSearch{Matches: []files.ContentMatch{}, Limit: "timeout"})

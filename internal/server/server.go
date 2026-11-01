@@ -48,23 +48,24 @@ func imageContentType(name string) (string, bool) {
 }
 
 type Server struct {
-	Files            *files.Store
-	Host             string
-	Port             int
-	Title            string
-	WorkingDirectory string
-	Version          string
-	Registry         *discovery.Registry
-	DiscoveryError   string
-	instance         string
-	static           http.Handler
-	searchMu         sync.Mutex
-	searchTag        string
-	searchPaths      []string
-	searchIgnored    []string
-	searchExpires    time.Time
-	searchFlight     chan struct{}
-	searchErr        error
+	Files               *files.Store
+	Host                string
+	Port                int
+	Title               string
+	WorkingDirectory    string
+	Version             string
+	Registry            *discovery.Registry
+	DiscoveryError      string
+	instance            string
+	static              http.Handler
+	searchMu            sync.Mutex
+	searchTag           string
+	searchPaths         []string
+	searchIgnored       []string
+	searchExpires       time.Time
+	searchFlight        chan struct{}
+	searchErr           error
+	searchDirectoryTags map[string]string
 }
 
 func New(store *files.Store, host string, port int) (*Server, error) {
@@ -557,6 +558,15 @@ func (s *Server) tree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	version := fileVersion(info, false)
+	s.searchMu.Lock()
+	if s.searchDirectoryTags == nil {
+		s.searchDirectoryTags = make(map[string]string)
+	}
+	if s.searchDirectoryTags[dir] != version {
+		s.searchExpires = time.Time{}
+		s.searchDirectoryTags[dir] = version
+	}
+	s.searchMu.Unlock()
 	w.Header().Set("ETag", version)
 	if focus == "" && offset == 0 && r.Header.Get("If-None-Match") == version {
 		w.WriteHeader(http.StatusNotModified)

@@ -99,3 +99,41 @@ func TestContentSearchWithoutGitAndTimeout(t *testing.T) {
 		t.Fatalf("timeout: %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestContentSearchNewFolderAfterCachedIndex(t *testing.T) {
+	app, dir := newTestServer(t)
+	if w := request(app, "localhost:3000", "/api/search-index"); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	if err := os.Mkdir(filepath.Join(dir, "new-folder"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new-folder", "a.md"), []byte("needle"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	w := request(app, "localhost:3000", "/api/content-search?q=needle&folder=new-folder")
+	var result files.ContentSearch
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Matches) != 1 {
+		t.Fatalf("stale scoped index: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDirectoryRefreshInvalidatesSearchCandidates(t *testing.T) {
+	app, dir := newTestServer(t)
+	for _, endpoint := range []string{"/api/tree", "/api/search-index"} {
+		if w := request(app, "localhost:3000", endpoint); w.Code != 200 {
+			t.Fatal(w.Body.String())
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new.md"), []byte("needle"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if w := request(app, "localhost:3000", "/api/tree"); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	w := request(app, "localhost:3000", "/api/content-search?q=needle")
+	var result files.ContentSearch
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Matches) != 1 || result.Matches[0].Path != "new.md" {
+		t.Fatalf("stale candidates after directory refresh: %d %s", w.Code, w.Body.String())
+	}
+}
