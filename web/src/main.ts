@@ -1,3 +1,4 @@
+import { createDirectoryBrowser } from './directoryBrowser';
 import { createChangesView } from './changesView';
 import { RequestError, type FileReply, type ApiError } from './api';
 import { createRightPane } from './rightPane';
@@ -14,7 +15,7 @@ import { createActivePane } from './activePane';
 import { createSplitResize } from './splitResize';
 import { drawMermaid } from './mermaid';
 import { drawMath } from './math';
-import { TreeView, type Page } from './tree';
+import { TreeView } from './tree';
 import { effectiveTheme, initTheme } from './theme';
 import { renderDiff, diffURL, type ChangesReply, type DiffReply } from './diff';
 import { comparisonURL, historyURL, type HistoryPage } from './history';
@@ -114,7 +115,6 @@ let keyboardTreePath = '';
 let rememberedBase = new URL(location.href).searchParams.get('base') ?? '';
 let displayedTag = '';
 let displayedTagCheckedAt = 0;
-const pageTags = new Map<string, { value: string; checkedAt: number }>();
 let rootName = '';
 let pasteVersion = 0;
 let refreshPastedPreview: (() => void) | undefined;
@@ -152,6 +152,12 @@ const decoration = createContentDecoration({
   onLineStart: (line) => { if (!lineRangeAnchor) lineRangeAnchor = line; },
 });
 const { decorateContent, highlightCodeLines } = decoration;
+const directoryBrowser = createDirectoryBrowser({
+  view, getRevision: () => refresh.revision, syncPreviewInstance,
+  onRoot: (name) => { rootName = name || rootName; document.querySelector('#root-name')!.textContent = rootName; },
+  onError: () => status('Refresh failed. Please try again.', 'error'),
+});
+const { loadPage, ensureSelectedPath, loadOpenDirectories, refreshDirectories } = directoryBrowser;
 const changesView = createChangesView({
   content, title, outline, main, changesTree, historyTree, changesTab, sidebar, sidebarToggle,
   view, tabTitle, contentWidth, preview, printView, selected, selectedMode, selectedBase,
@@ -239,24 +245,6 @@ function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
     if (state === 'error') { const button = document.createElement('button'); button.textContent = 'Refresh now'; button.addEventListener('click', manualRefresh); banner.append(button); }
   }
 }
-async function getPage(path: string, offset: number, focus: string, conditional: boolean, expectedRevision?: number): Promise<Page | null> {
-  const tag = pageTags.get(path);
-  const headers: Record<string, string> = {};
-  if (conditional && !focus && offset === 0 && view.has(path) && tag && Date.now() - tag.checkedAt < 60000) headers['If-None-Match'] = tag.value;
-  let response: Response;
-  try { response = await fetch(pageURL(path, offset, focus), { cache: 'no-store', headers }); }
-  catch { throw new RequestError('network', 'Cannot connect'); }
-  if (path === '') {
-    const instance = response.headers?.get('X-Markport-Instance') ?? '';
-    if (/^[a-f0-9]{32}$/.test(instance)) syncPreviewInstance(instance);
-  }
-  if (response.status === 304) return null;
-  const body = await response.json() as Page & ApiError;
-  if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
-  const value = response.headers?.get('ETag');
-  if (value && (expectedRevision === undefined || expectedRevision === refresh.revision)) pageTags.set(path, { value, checkedAt: Date.now() });
-  return body;
-}
 async function getFile(path: string, source: boolean, expectedRevision: number): Promise<FileReply | null> {
   const headers: Record<string, string> = {};
   if (path === displayedPath && source === displayedSource && displayedHTML && displayedTag && Date.now() - displayedTagCheckedAt < 60000) headers['If-None-Match'] = displayedTag;
@@ -279,78 +267,6 @@ async function getGit<T>(url: string): Promise<T> {
   const body = await response.json() as T & ApiError;
   if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
   return body;
-}
-function pageURL(path: string, offset = 0, focus = ''): string {
-  const query = new URLSearchParams();
-  if (path) query.set('path', path);
-  if (offset) query.set('offset', String(offset));
-  if (focus) query.set('focus', focus);
-  return `/api/tree${query.size ? `?${query}` : ''}`;
-}
-async function loadPage(path: string, offset = 0, focus = '', conditional = false, expectedRevision?: number): Promise<Page | null> {
-  if (!view.has(path)) view.setLoading(path, true);
-  try {
-    const page = await getPage(path, offset, focus, conditional, expectedRevision);
-    if (expectedRevision !== undefined && expectedRevision !== refresh.revision) return null;
-    if (!page) return null;
-    view.setPage(path, page);
-    if (path === '') { rootName = page.root || rootName; document.querySelector('#root-name')!.textContent = rootName; }
-    return page;
-  } finally { view.setLoading(path, false); }
-}
-async function ensureSelectedPath(path: string, expectedRevision: number): Promise<void> {
-  if (!path) return;
-  const parts = path.split('/');
-  let parent = '';
-  for (const part of parts) {
-    if (expectedRevision !== refresh.revision) return;
-    if (!view.hasChild(parent, part)) await loadPage(parent, 0, part, false, expectedRevision);
-    parent = parent ? `${parent}/${part}` : part;
-  }
-}
-async function loadOpenDirectories(expectedRevision: number): Promise<void> {
-  for (;;) {
-    if (expectedRevision !== refresh.revision) return;
-    const next = view.unloadedOpenPaths()[0];
-    if (!next) return;
-    try { await loadPage(next, 0, '', false, expectedRevision); }
-    catch (error) {
-      if (!(error instanceof RequestError && error.code === 'not_found')) throw error;
-      view.forget(next);
-    }
-  }
-}
-async function refreshDirectory(path: string, expectedRevision: number): Promise<void> {
-  const before = view.revision(path);
-  const offsets = view.offsets(path);
-  const first = await loadPage(path, 0, '', true, expectedRevision);
-  if (first && before && before !== first.revision) {
-    for (const offset of offsets) {
-      if (offset === 0) continue;
-      const page = await loadPage(path, offset, '', false, expectedRevision);
-      if (page?.revision !== first.revision) break;
-    }
-  }
-}
-async function refreshDirectories(path: string, expectedRevision: number): Promise<void> {
-  const activeBefore = view.expandedPaths();
-  await refreshDirectory('', expectedRevision);
-  if (expectedRevision !== refresh.revision) return;
-  try { if (view.shouldLoadSelectedPath(path)) await ensureSelectedPath(path, expectedRevision); }
-  catch (error) { if (!(error instanceof RequestError && error.code === 'not_found')) throw error; }
-  for (const dir of activeBefore) if (dir && view.has(dir) && view.isActive(dir)) {
-    if (expectedRevision !== refresh.revision) return;
-    try { await refreshDirectory(dir, expectedRevision); }
-    catch (error) {
-      if (!(error instanceof RequestError && error.code === 'not_found')) throw error;
-      view.forget(dir);
-    }
-  }
-  if (expectedRevision !== refresh.revision) return;
-  try { if (view.shouldLoadSelectedPath(path)) await ensureSelectedPath(path, expectedRevision); }
-  catch (error) { if (!(error instanceof RequestError && error.code === 'not_found')) throw error; }
-  for (const key of pageTags.keys()) if (!view.has(key)) pageTags.delete(key);
-  void loadOpenDirectories(expectedRevision).catch(() => status('Refresh failed. Please try again.', 'error'));
 }
 function showEmpty(): void {
   const detailText = 'Select a file from the list, or press / to search.';
@@ -414,7 +330,7 @@ function requestRefresh(foreground = true): void { refresh.request(foreground); 
 function manualRefresh(): void {
   void tabTitle.reload();
   void serverInfo.reloadIfOpen();
-  displayedTag = ''; rightController.invalidateTag(); pageTags.clear(); preview.reload(); requestRefresh();
+  displayedTag = ''; rightController.invalidateTag(); directoryBrowser.clearTags(); preview.reload(); requestRefresh();
   if (selectedMode() === 'paste') refreshPastedPreview?.();
   if (search.value.trim()) void loadSearchIndex(true);
 }
