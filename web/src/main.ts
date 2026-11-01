@@ -1,3 +1,4 @@
+import { createChangesView } from './changesView';
 import { RequestError, type FileReply, type ApiError } from './api';
 import { createRightPane } from './rightPane';
 import { createPreview } from './preview';
@@ -7,7 +8,7 @@ import { createOutline } from './outline';
 import { createContentDecoration } from './contentDecorate';
 import { createVimKeys, scrollVim, vimBlocked } from './vimNavigation';
 import { FileGitView, fileView, fileViewURL, type FileView } from './fileGit';
-import { iconSVG, setIcon, type IconName } from './icons';
+import { iconSVG, setIcon } from './icons';
 import './style.css';
 import { createActivePane } from './activePane';
 import { createSplitResize } from './splitResize';
@@ -15,11 +16,9 @@ import { drawMermaid } from './mermaid';
 import { drawMath } from './math';
 import { TreeView, type Page } from './tree';
 import { effectiveTheme, initTheme } from './theme';
-import { renderChanges, renderDiff, diffURL, orderedChanges, reviewButton, gitStatusIndicator, type Change, type ChangesReply, type DiffReply } from './diff';
-import { comparisonBase, comparisonOptions, comparisonURL, historyURL, renderCommit, renderCommitDiff, renderHistoryList, type Commit, type CommitDetail, type HistoryPage } from './history';
-import { ReviewState } from './review';
+import { renderDiff, diffURL, type ChangesReply, type DiffReply } from './diff';
+import { comparisonURL, historyURL, type HistoryPage } from './history';
 import { initContentSearch } from './contentSearch';
-import { copyWithFeedback } from './copyControls';
 import { setToolButton } from './toolButtons';
 import { createPasteEditor } from './pasteEditor';
 import { createContentWidth } from './contentWidth';
@@ -64,16 +63,6 @@ const changesTab = document.querySelector<HTMLButtonElement>('#changes-tab')!;
 const historyTab = document.querySelector<HTMLButtonElement>('#history-tab')!;
 const content = document.querySelector<HTMLElement>('#content')!;
 const title = document.querySelector<HTMLElement>('#file-title')!;
-const comparisonControls = document.createElement('div'); comparisonControls.className = 'comparison-controls'; comparisonControls.hidden = true;
-const comparisonForm = document.createElement('form'); comparisonForm.className = 'comparison-form';
-const comparisonLabel = document.createElement('label'); comparisonLabel.htmlFor = 'comparison-base'; comparisonLabel.textContent = 'Compare with current from';
-const comparisonInput = document.createElement('input'); comparisonInput.id = 'comparison-base'; comparisonInput.type = 'text'; comparisonInput.placeholder = 'Commit ID or HEAD'; comparisonInput.autocomplete = 'off'; comparisonInput.spellcheck = false; comparisonInput.setAttribute('list', 'comparison-options');
-const comparisonList = document.createElement('datalist'); comparisonList.id = 'comparison-options';
-const comparisonError = document.createElement('span'); comparisonError.className = 'comparison-error'; comparisonError.setAttribute('role', 'alert'); comparisonError.hidden = true;
-const comparisonSubmit = document.createElement('button'); comparisonSubmit.type = 'submit'; comparisonSubmit.textContent = 'Compare';
-const comparisonReset = document.createElement('button'); comparisonReset.type = 'button'; comparisonReset.textContent = 'Use HEAD';
-const comparisonCurrent = document.createElement('span'); comparisonCurrent.className = 'comparison-current';
-comparisonForm.append(comparisonLabel, comparisonInput, comparisonList, comparisonSubmit); comparisonControls.append(comparisonForm, comparisonReset, comparisonError, comparisonCurrent); title.after(comparisonControls);
 const search = document.querySelector<HTMLInputElement>('#search')!;
 const count = document.querySelector<HTMLElement>('#result-count')!;
 const collapseAll = document.querySelector<HTMLButtonElement>('#collapse-all')!;
@@ -122,21 +111,7 @@ let displayedMode: FileView | 'changes' | 'paste' | 'history' = 'file'; let last
 let sidebarPanel: 'file' | 'changes' | 'history' = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file';
 let keepTabFocus = false;
 let keyboardTreePath = '';
-let currentChanges: ChangesReply | undefined;
-let historyPage: HistoryPage | undefined;
-let displayedHistoryList = '';
-let cachedCommit: CommitDetail | undefined;
-let cachedHistoricalDiff: { id: string; path: string; value: DiffReply } | undefined;
-let displayedChanges = '';
-const review = new ReviewState();
-let reviewVersion = 0;
-let onlyUnreviewed = false;
-let treeChanges = true;
-const collapsedChangeFolders = new Set<string>();
-let changeRootId = '';
 let rememberedBase = new URL(location.href).searchParams.get('base') ?? '';
-let shownBase: string | undefined;
-let lastRevealedDiff = '';
 let displayedTag = '';
 let displayedTagCheckedAt = 0;
 const pageTags = new Map<string, { value: string; checkedAt: number }>();
@@ -155,7 +130,7 @@ const preview = createPreview({
   invalidate: () => { displayedHTML = ''; displayedTag = ''; rightController.invalidate(); },
   onInstance: () => { void tabTitle.reload(true); void serverInfo.reloadIfOpen(); },
 });
-const { syncPreviewInstance, setInteractive, createPreviewFrame, createPDFFrame, filePreviewKey } = preview;
+const { syncPreviewInstance, createPreviewFrame, createPDFFrame, filePreviewKey } = preview;
 const rightController = createRightPane({
   main, layout, rightPane, rightContent, sidebar, contentWidth, activePane, splitResize,
   selected, selectedMode, getSourceMode: () => sourceMode, setSourceMode: (value) => { sourceMode = value; },
@@ -177,6 +152,17 @@ const decoration = createContentDecoration({
   onLineStart: (line) => { if (!lineRangeAnchor) lineRangeAnchor = line; },
 });
 const { decorateContent, highlightCodeLines } = decoration;
+const changesView = createChangesView({
+  content, title, outline, main, changesTree, historyTree, changesTab, sidebar, sidebarToggle,
+  view, tabTitle, contentWidth, preview, printView, selected, selectedMode, selectedBase,
+  getSourceMode: () => sourceMode, setSourceMode: (value) => { sourceMode = value; },
+  getRememberedBase: () => rememberedBase, getRootName: () => rootName,
+  getDisplayedHTML: () => displayedHTML, setDisplayedHTML: (html) => { displayedHTML = html; },
+  getDisplayedPath: () => displayedPath, getDisplayedMode: () => displayedMode,
+  showFiles: () => { sidebarPanel = 'file'; showSidebar(sidebarPanel); },
+  selectFileView, navigate, openRight, openPDF, downloadFile, requestRefresh, getGit,
+});
+const { showTitle, syncComparisonControls, diffNeighbor, markReviewedAndNext } = changesView;
 const savedWidth = Number(localStorage.getItem('markport-sidebar-width'));
 if (savedWidth >= 200 && savedWidth <= 480) document.documentElement.style.setProperty('--sidebar-width', `${savedWidth}px`);
 
@@ -202,43 +188,6 @@ function openSelectedFile(href: string, keepTreeFocus = false): void {
   } else { activePane.select('left'); navigate(href, keepTreeFocus); }
 }
 function selectedBase(): string { return new URL(location.href).searchParams.get('base') ?? ''; }
-function syncComparisonControls(): void {
-  const mode = selectedMode(); const active = mode === 'changes' || mode === 'diff';
-  comparisonControls.hidden = !active;
-  if (!active) return;
-  const base = selectedBase();
-  if (shownBase !== base) { comparisonInput.value = base; shownBase = base; }
-  comparisonCurrent.textContent = `Base: ${base ? base.slice(0, 12) : 'HEAD'} → current working files`;
-  comparisonReset.hidden = !base;
-}
-let comparisonCommits: Commit[] = []; let comparisonLoadedAt = 0;
-function fillComparisonOptions(): void {
-  comparisonList.replaceChildren(...comparisonOptions(comparisonCommits).map((choice) => {
-    const option = document.createElement('option'); option.value = choice.value; option.label = choice.label; option.textContent = choice.label; return option;
-  }));
-}
-async function loadComparisonOptions(): Promise<void> {
-  if (Date.now() - comparisonLoadedAt < 30000) return;
-  comparisonLoadedAt = Date.now();
-  try {
-    const reply = await getGit<HistoryPage>('/api/git/history');
-    if (reply.available) { comparisonCommits = reply.commits; fillComparisonOptions(); }
-  } catch { comparisonLoadedAt = 0; }
-}
-fillComparisonOptions();
-comparisonInput.addEventListener('focus', () => { void loadComparisonOptions(); });
-function submitComparison(): void {
-  const base = comparisonBase(comparisonInput.value, comparisonCommits);
-  if (base === null) { comparisonError.textContent = 'Cannot load this comparison.'; comparisonError.hidden = false; return; }
-  navigate(comparisonURL(base));
-}
-comparisonInput.addEventListener('input', (event) => {
-  comparisonError.hidden = true;
-  const chosen = event instanceof InputEvent ? event.inputType === 'insertReplacementText' : true;
-  if (chosen && [...comparisonList.children].some((option) => (option as HTMLOptionElement).value === comparisonInput.value)) submitComparison();
-});
-comparisonForm.addEventListener('submit', (event) => { event.preventDefault(); submitComparison(); });
-comparisonReset.addEventListener('click', () => navigate(comparisonURL()));
 function fileURL(path: string): string { return `/?path=${encodeURIComponent(path)}`; }
 function downloadFile(path: string): void {
   const link = document.createElement('a');
@@ -403,254 +352,6 @@ async function refreshDirectories(path: string, expectedRevision: number): Promi
   for (const key of pageTags.keys()) if (!view.has(key)) pageTags.delete(key);
   void loadOpenDirectories(expectedRevision).catch(() => status('Refresh failed. Please try again.', 'error'));
 }
-function applyDiffAvailability(button: HTMLButtonElement, path: string): void {
-  button.querySelector('.change-dot')?.remove();
-  if (!currentChanges?.available) { button.disabled = false; button.title = ''; return; }
-  const changed = currentChanges.changes.some((change) => change.path === path);
-  button.disabled = !changed;
-  button.title = changed ? 'Changed since the comparison base' : `No changes against ${rememberedBase ? rememberedBase.slice(0, 7) : 'HEAD'}`;
-  if (changed) { const dot = document.createElement('span'); dot.className = 'change-dot'; dot.setAttribute('aria-hidden', 'true'); button.append(dot); }
-}
-function syncDiffButton(path: string): void {
-  const button = ['file', 'file-history', 'blame'].includes(selectedMode()) ? title.querySelector<HTMLButtonElement>('.view-segment button[data-diff]') : null;
-  if (button) applyDiffAvailability(button, path);
-}
-function showTitle(path: string, kind = '', missing = false, canDownload = true): void {
-  title.replaceChildren();
-  if (selectedMode() === 'history') {
-    const heading = document.createElement('strong'); heading.textContent = `Git history${new URL(location.href).searchParams.get('commit') ? ` · ${new URL(location.href).searchParams.get('commit')!.slice(0, 7)}` : ''}`;
-    title.append(heading); tabTitle.setFallback('Git history — markport'); return;
-  }
-  if (selectedMode() === 'changes') {
-    const heading = document.createElement('strong'); heading.textContent = 'Git changes'; title.append(heading); tabTitle.setFallback('Git changes — markport'); return;
-  }
-  if (!path) { title.textContent = rootName || 'markport'; tabTitle.setFallback('markport'); return; }
-  const crumbs = document.createElement('div'); crumbs.className = 'breadcrumbs';
-  const parts = path.split('/');
-  parts.forEach((part, index) => {
-    if (index) { const separator = document.createElement('span'); separator.className = 'crumb-separator'; separator.textContent = ' / '; crumbs.append(separator); }
-    if (index < parts.length - 1) {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'crumb'; button.textContent = part;
-      button.addEventListener('click', () => {
-        sidebarPanel = 'file'; showSidebar(sidebarPanel);
-        if (sidebar.classList.contains('collapsed')) sidebarToggle.click();
-        if (window.innerWidth <= 700) sidebar.classList.add('open');
-        view.revealDirectory(parts.slice(0, index + 1).join('/'));
-      }); crumbs.append(button);
-    } else { const label = document.createElement('strong'); label.textContent = part; if (missing) label.className = 'missing'; crumbs.append(label); }
-  });
-  title.append(crumbs);
-  const actions = document.createElement('div'); actions.className = 'title-actions';
-  const segment = (choices: { label: string; selected: boolean; disabled?: boolean; diff?: boolean; select: () => void }[]): void => {
-    const group = document.createElement('div'); group.className = 'view-segment'; group.setAttribute('role', 'group'); group.setAttribute('aria-label', choices.map((choice) => choice.label).join(' or '));
-    for (const choice of choices) {
-      const button = document.createElement('button'); button.type = 'button'; button.textContent = choice.label;
-      button.setAttribute('aria-pressed', String(choice.selected)); button.disabled = Boolean(choice.disabled);
-      if (choice.diff) { button.dataset.diff = ''; if (!choice.selected) applyDiffAvailability(button, path); }
-      button.addEventListener('click', choice.select); group.append(button);
-    }
-    actions.append(group);
-  };
-  if (kind) {
-    const badge = document.createElement('span'); badge.className = 'kind-badge';
-    const extension = path.split('.').at(-1)?.toLowerCase() ?? '';
-    const languages: Record<string, string> = { py: 'Python', go: 'Go', js: 'JavaScript', ts: 'TypeScript', tsx: 'TypeScript', jsx: 'JavaScript', rs: 'Rust', java: 'Java', sh: 'Shell', html: 'HTML', css: 'CSS', json: 'JSON', yaml: 'YAML', yml: 'YAML' };
-    badge.textContent = kind === 'History' || kind === 'Blame' ? kind : kind === 'diff' ? 'Git Diff' : kind === 'markdown' ? 'Markdown' : kind === 'html' ? 'HTML' : ((languages[extension] ?? extension.toUpperCase()) || 'Code'); actions.append(badge);
-  }
-  if (selectedMode() === 'diff') {
-    const change = currentChanges?.changes.find((item) => item.path === path);
-    if (change) {
-      crumbs.prepend(gitStatusIndicator(change));
-      const reviewed = review.has(change.path, change.revision);
-      actions.append(reviewButton(change, reviewed, () => toggleReview(change)));
-      const previous = diffNeighbor(path, -1, onlyUnreviewed);
-      const next = diffNeighbor(path, 1, onlyUnreviewed);
-      const navigation = document.createElement('div'); navigation.className = 'diff-navigation';
-      const addNavigation = (label: string, target: Change | undefined): void => {
-        const button = document.createElement('button'); button.type = 'button'; button.textContent = label;
-        button.disabled = !target; button.title = target ? `${label}: ${target.path}` : `No ${label.toLowerCase()} file`;
-        button.addEventListener('click', () => { if (target) navigate(diffURL(target.path, selectedBase())); }); navigation.append(button);
-      };
-      addNavigation(`Previous (${shortcutText('previousChange')})`, previous);
-      addNavigation(`Next (${shortcutText('nextChange')})`, next);
-      const reviewNext = document.createElement('button'); reviewNext.type = 'button'; reviewNext.textContent = `Review and next (${shortcutText('reviewNext')})`;
-      reviewNext.addEventListener('click', markReviewedAndNext); navigation.append(reviewNext);
-      actions.append(navigation);
-    }
-    const deleted = currentChanges?.changes.find((change) => change.path === path)?.status === 'deleted';
-    segment([{ label: 'File', selected: false, disabled: deleted, select: () => selectFileView('file') }, { label: 'Diff', selected: true, select: () => {} },
-      { label: 'History', selected: false, select: () => selectFileView('file-history') }, { label: 'Blame', selected: false, disabled: deleted, select: () => selectFileView('blame') }]);
-  } else {
-    segment([{ label: 'File', selected: selectedMode() === 'file', select: () => selectFileView('file') },
-      { label: 'Diff', selected: false, diff: true, select: () => selectFileView('diff') },
-      { label: 'History', selected: selectedMode() === 'file-history', select: () => selectFileView('file-history') },
-      { label: 'Blame', selected: selectedMode() === 'blame', select: () => selectFileView('blame') }]);
-  }
-  if (selectedMode() === 'file' && (kind === 'markdown' || kind === 'html')) {
-    segment([{ label: 'Preview', selected: !sourceMode, select: () => { if (sourceMode) { sourceMode = false; const url = new URL(location.href); url.searchParams.delete('source'); history.pushState({ ...history.state, scroll: main.scrollTop }, '', url); requestRefresh(); } } }, { label: 'Source', selected: sourceMode, select: () => { if (!sourceMode) { sourceMode = true; const url = new URL(location.href); url.searchParams.set('source', '1'); history.pushState({ ...history.state, scroll: main.scrollTop }, '', url); requestRefresh(); } } }]);
-  }
-  if (kind === 'html') {
-    const interactive = document.createElement('button'); interactive.type = 'button'; interactive.className = 'interactive-toggle';
-    const enabled = preview.hasInteractive(path);
-    interactive.textContent = enabled ? 'Disable JavaScript' : 'Enable JavaScript';
-    interactive.setAttribute('aria-pressed', String(enabled));
-    interactive.title = 'Allow scripts in this HTML preview until this tab is closed';
-    interactive.addEventListener('click', () => setInteractive(path, !enabled)); actions.append(interactive);
-  }
-  const auxiliary = document.createElement('div'); auxiliary.className = 'title-auxiliary';
-  if (kind === 'markdown' && content.dataset.kind === 'markdown' && selectedMode() === 'file' && !missing) actions.append(contentWidth.createButton());
-  const menuButton = document.createElement('button'); menuButton.type = 'button'; menuButton.className = 'title-more'; setIcon(menuButton, 'more'); menuButton.title = 'File actions'; menuButton.setAttribute('aria-label', 'File actions'); menuButton.setAttribute('aria-expanded', 'false'); menuButton.setAttribute('aria-haspopup', 'menu');
-  const menu = document.createElement('div'); menu.className = 'title-menu'; menu.setAttribute('role', 'menu'); menu.hidden = true;
-  const closeMenu = (): void => { menu.hidden = true; menuButton.setAttribute('aria-expanded', 'false'); menuButton.focus(); };
-  menuButton.addEventListener('click', () => { menu.hidden = !menu.hidden; menuButton.setAttribute('aria-expanded', String(!menu.hidden)); if (!menu.hidden) menu.querySelector<HTMLButtonElement>('button')?.focus(); });
-  menu.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') { event.preventDefault(); closeMenu(); return; }
-    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-    event.preventDefault(); const items = [...menu.querySelectorAll<HTMLButtonElement>('button')]; const index = items.indexOf(document.activeElement as HTMLButtonElement);
-    items[(index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
-  });
-  const addAux = (label: string, icon: IconName, action: (button: HTMLButtonElement) => void, visible = true): void => {
-    if (!visible) return;
-    const desktop = document.createElement('button'); desktop.type = 'button'; desktop.className = 'title-icon'; setIcon(desktop, icon); desktop.title = label; desktop.setAttribute('aria-label', label); desktop.addEventListener('click', () => action(desktop)); auxiliary.append(desktop);
-    const mobile = document.createElement('button'); mobile.type = 'button'; mobile.setAttribute('role', 'menuitem'); mobile.textContent = label; mobile.addEventListener('click', () => { action(mobile); closeMenu(); }); menu.append(mobile);
-  };
-  addAux('Open on right', 'panelRight', () => openRight(path), selectedMode() === 'file');
-  addAux('Open PDF in new tab', 'external', () => openPDF(path), kind === 'pdf');
-  addAux('Print / Save as PDF', 'printer', (button) => printView.open(printFile(path), menu.contains(button) ? menuButton : button), kind === 'markdown' && selectedMode() === 'file' && !missing);
-  addAux('Download', 'download', () => downloadFile(path), ['file', 'diff'].includes(selectedMode()) && canDownload && !missing && (selectedMode() !== 'diff' || currentChanges?.changes.find((change) => change.path === path)?.status !== 'deleted'));
-  addAux('Copy path', 'copy', (button) => copyWithFeedback(button, path, 'Copy path'));
-  addAux('Contents', 'list', () => outline.classList.toggle('open'), !outline.hidden);
-  const mobileChoices = [...actions.querySelectorAll<HTMLButtonElement>('.view-segment button, .review-toggle, .diff-navigation button, .interactive-toggle')].map((control) => {
-    const item = document.createElement('button'); item.type = 'button';
-    item.textContent = control.getAttribute('aria-label') ?? control.textContent;
-    item.disabled = control.disabled;
-    if (control.hasAttribute('aria-pressed')) {
-      item.setAttribute('role', 'menuitemradio'); item.setAttribute('aria-checked', control.getAttribute('aria-pressed')!);
-    } else item.setAttribute('role', 'menuitem');
-    item.addEventListener('click', () => { closeMenu(); control.click(); });
-    return item;
-  });
-  menu.prepend(...mobileChoices);
-  const parentCrumb = [...crumbs.querySelectorAll<HTMLButtonElement>('.crumb')].at(-1);
-  if (parentCrumb) {
-    const parentAction = document.createElement('button'); parentAction.type = 'button'; parentAction.textContent = 'Show parent folder'; parentAction.setAttribute('role', 'menuitem');
-    parentAction.addEventListener('click', () => { closeMenu(); parentCrumb.click(); });
-    menu.append(parentAction);
-  }
-  actions.append(auxiliary, menuButton, menu);
-  title.append(actions); tabTitle.setFallback(`${parts.at(-1)} — markport`);
-}
-function toggleReview(change: Change): void {
-  review.set(change.path, change.revision, !review.has(change.path, change.revision));
-  reviewVersion++;
-  updateChangeViews();
-  if (selectedMode() === 'diff' && selected() === change.path) showTitle(change.path, 'diff');
-}
-function diffNeighbor(path: string, direction: -1 | 1, unreviewedOnly: boolean): Change | undefined {
-  const changes = orderedChanges(currentChanges?.changes ?? [], treeChanges);
-  const index = changes.findIndex((change) => change.path === path);
-  if (index < 0) return undefined;
-  for (let next = index + direction; next >= 0 && next < changes.length; next += direction) {
-    const change = changes[next];
-    if (!unreviewedOnly || !review.has(change.path, change.revision)) return change;
-  }
-  return undefined;
-}
-function markReviewedAndNext(): void {
-  if (selectedMode() !== 'diff') return;
-  const path = selected(); const change = currentChanges?.changes.find((item) => item.path === path);
-  if (!change) return;
-  review.set(change.path, change.revision, true); reviewVersion++;
-  const next = diffNeighbor(path, 1, true);
-  updateChangeViews();
-  if (next) navigate(diffURL(next.path, selectedBase())); else showTitle(path, 'diff');
-}
-function setReviewFilter(value: boolean): void {
-  onlyUnreviewed = value;
-  reviewVersion++;
-  updateChangeViews();
-  if (selectedMode() === 'diff') showTitle(selected(), 'diff');
-}
-function setTreeChanges(value: boolean): void { treeChanges = value; reviewVersion++; updateChangeViews(); }
-function toggleChangeFolder(path: string, open: boolean): void {
-  if (open) collapsedChangeFolders.delete(path); else collapsedChangeFolders.add(path);
-  for (const details of document.querySelectorAll<HTMLDetailsElement>('#changes-tree details[data-path], #content[data-kind="changes"] details[data-path]')) {
-    if (details.dataset.path === path && details.open !== open) details.open = open;
-  }
-}
-function updateChangesBadge(): void {
-  const unreviewed = currentChanges?.available ? currentChanges.changes.filter((change) => !review.has(change.path, change.revision)).length : 0;
-  let badge = changesTab.querySelector<HTMLElement>('.tab-badge');
-  if (!unreviewed) { badge?.remove(); changesTab.removeAttribute('aria-label'); return; }
-  if (!badge) { badge = document.createElement('span'); badge.className = 'tab-badge'; badge.setAttribute('aria-hidden', 'true'); changesTab.append(badge); }
-  badge.textContent = String(unreviewed);
-  changesTab.setAttribute('aria-label', `Changes, ${unreviewed} unreviewed`);
-}
-function updateChangeViews(): void {
-  updateChangesBadge();
-  if (!currentChanges) return;
-  const rootId = currentChanges.rootId ?? '';
-  if (changeRootId !== rootId) {
-    changeRootId = rootId;
-    collapsedChangeFolders.clear();
-    lastRevealedDiff = '';
-  }
-  const path = selected();
-  if (selectedMode() !== 'diff') lastRevealedDiff = '';
-  if (selectedMode() === 'diff' && path !== lastRevealedDiff) {
-    let folder = path.slice(0, path.lastIndexOf('/'));
-    while (folder) {
-      collapsedChangeFolders.delete(folder);
-      folder = folder.slice(0, folder.lastIndexOf('/'));
-    }
-    lastRevealedDiff = path;
-    reviewVersion++;
-  }
-  const key = `${JSON.stringify(currentChanges)}:${reviewVersion}`;
-  const isReviewed = (change: Change): boolean => review.has(change.path, change.revision);
-  if (displayedChanges !== key) {
-    renderChanges(changesTree, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter, treeChanges, setTreeChanges, collapsedChangeFolders, toggleChangeFolder, true);
-    displayedChanges = key;
-  }
-  changesTree.querySelector<HTMLAnchorElement>('a[aria-current="page"]')?.removeAttribute('aria-current');
-  const active = [...changesTree.querySelectorAll<HTMLAnchorElement>('a[href]')].find((link) => selectedMode() === 'diff' && link.getAttribute('href') === diffURL(path, selectedBase()));
-  active?.setAttribute('aria-current', 'page');
-  if (selectedMode() === 'diff' && displayedMode === 'diff' && displayedPath === path) {
-    const change = currentChanges.changes.find((item) => item.path === path);
-    const button = title.querySelector<HTMLButtonElement>('.review-toggle');
-    const statuses = title.querySelector<HTMLElement>('.git-status')?.dataset.statuses;
-    if (change && (button?.getAttribute('aria-pressed') !== String(isReviewed(change)) || statuses !== JSON.stringify(change.gitStatuses ?? []))) showTitle(path, 'diff');
-  }
-  if (selectedMode() === 'changes' && displayedHTML !== key) {
-    content.dataset.kind = 'changes';
-    renderChanges(content, currentChanges, isReviewed, toggleReview, onlyUnreviewed, setReviewFilter, treeChanges, setTreeChanges, collapsedChangeFolders, toggleChangeFolder);
-    displayedHTML = key;
-    outline.hidden = true; showTitle('');
-  }
-}
-function updateHistoryViews(): void {
-  if (!historyPage) return;
-  const key = JSON.stringify([historyPage, new URL(location.href).searchParams.get('commit')]);
-  if (key === displayedHistoryList) return;
-  const scroll = historyTree.scrollTop;
-  renderHistoryList(historyTree, historyPage, new URL(location.href).searchParams.get('commit') ?? '', () => { void loadOlderHistory(); });
-  historyTree.scrollTop = scroll;
-  displayedHistoryList = key;
-}
-async function loadOlderHistory(): Promise<void> {
-  const current = historyPage;
-  if (!current?.head || current.nextOffset === null) return;
-  const button = historyTree.querySelector<HTMLButtonElement>('.history-more');
-  if (button) button.disabled = true;
-  try {
-    const older = await getGit<HistoryPage>(`/api/git/history?head=${encodeURIComponent(current.head)}&offset=${current.nextOffset}`);
-    if (historyPage !== current || selectedMode() !== 'history') return;
-    historyPage = { ...current, commits: [...current.commits, ...older.commits], nextOffset: older.nextOffset };
-    updateHistoryViews();
-  } catch {
-    if (button) { button.disabled = false; button.textContent = 'Try loading again'; }
-  }
-}
 function showEmpty(): void {
   const detailText = 'Select a file from the list, or press / to search.';
   if (content.querySelector('.empty-state p')?.textContent === detailText) return;
@@ -719,7 +420,7 @@ function manualRefresh(): void {
 }
 
 async function refreshLoop({ revision: current, foreground }: { revision: number; foreground: boolean }): Promise<void> {
-  const path = selected(); const source = sourceMode; const mode = selectedMode(); const commitID = new URL(location.href).searchParams.get('commit') ?? ''; const base = selectedBase(); const knownHistoryHead = historyPage?.head; const preserveTabFocus = keepTabFocus; keepTabFocus = false;
+  const path = selected(); const source = sourceMode; const mode = selectedMode(); const commitID = new URL(location.href).searchParams.get('commit') ?? ''; const base = selectedBase(); const knownHistoryHead = changesView.historyPage?.head; const preserveTabFocus = keepTabFocus; keepTabFocus = false;
   if (mode === 'changes' || mode === 'diff') rememberedBase = base;
   void refreshRight();
   showSidebar(sidebarPanel);
@@ -730,8 +431,8 @@ async function refreshLoop({ revision: current, foreground }: { revision: number
   const gitPromise = mode === 'changes' || mode === 'diff' ? getGit<ChangesReply>(`/api/git/changes${base ? `?base=${encodeURIComponent(base)}` : ''}`)
     : ['file', 'file-history', 'blame'].includes(mode) ? getGit<ChangesReply>(`/api/git/changes${rememberedBase ? `?base=${encodeURIComponent(rememberedBase)}` : ''}`).catch(() => undefined) : Promise.resolve(undefined);
   const historyPromise = mode === 'history' ? getGit<HistoryPage>('/api/git/history') : Promise.resolve(undefined);
-  const commitPromise = mode === 'history' && commitID ? cachedCommit?.id === commitID && knownHistoryHead ? Promise.resolve(cachedCommit) : getGit<CommitDetail>(`/api/git/commit?id=${encodeURIComponent(commitID)}`) : Promise.resolve(undefined);
-  const historicalDiffPromise = mode === 'history' && commitID && path ? cachedHistoricalDiff?.id === commitID && cachedHistoricalDiff.path === path && knownHistoryHead ? Promise.resolve(cachedHistoricalDiff.value) : getGit<DiffReply>(`/api/git/commit-diff?id=${encodeURIComponent(commitID)}&path=${encodeURIComponent(path)}`) : Promise.resolve(undefined);
+  const commitPromise = mode === 'history' && commitID ? changesView.getCommit(commitID, knownHistoryHead) : Promise.resolve(undefined);
+  const historicalDiffPromise = mode === 'history' && commitID && path ? changesView.getHistoricalDiff(commitID, path, knownHistoryHead) : Promise.resolve(undefined);
   const filePromise = mode === 'diff' ? getGit<DiffReply>(`/api/git/diff?path=${encodeURIComponent(path)}${base ? `&base=${encodeURIComponent(base)}` : ''}`).then((value) => ({ value }), (error: unknown) => ({ error }))
     : mode === 'file' && path ? getFile(path, source, current).then((value) => ({ value }), (error: unknown) => ({ error })) : Promise.resolve(null);
   try {
@@ -747,47 +448,10 @@ async function refreshLoop({ revision: current, foreground }: { revision: number
     if (pathChanged) { main.scrollTop = history.state?.scroll ?? 0; displayedHTML = ''; view.pruneInactive(); }
     displayedPath = path; displayedMode = mode;
     if (path && mode !== 'history') lastFilePath = path;
-    if (changesReply) {
-      currentChanges = changesReply;
-      if (mode === 'changes' || mode === 'diff') comparisonError.hidden = true;
-      if (review.sync(changesReply)) reviewVersion++;
-      updateChangeViews();
-      syncDiffButton(path);
-    }
-    if (firstHistory) {
-      if (knownHistoryHead && firstHistory.head !== knownHistoryHead) {
-        historyPage = firstHistory; cachedCommit = undefined; cachedHistoricalDiff = undefined; displayedHistoryList = '';
-        refresh.retry(false, true); return;
-      }
-      const previous = historyPage;
-      historyPage = previous?.head && previous.head === firstHistory.head && firstHistory.available
-        ? { ...firstHistory, commits: [...firstHistory.commits, ...previous.commits.slice(firstHistory.commits.length)], nextOffset: previous.nextOffset }
-        : firstHistory;
-      updateHistoryViews();
-    }
+    if (changesReply) changesView.acceptChanges(changesReply);
+    if (firstHistory && changesView.mergeHistory(firstHistory, knownHistoryHead)) { refresh.retry(false, true); return; }
     if (mode === 'history') {
-      if (!commitID && historyPage?.commits.length) {
-        history.replaceState(history.state, '', historyURL(historyPage.commits[0].id));
-        refresh.retry(false, true); return;
-      }
-      if (!historyPage?.available || !historyPage.commits.length && !commitID) {
-        if (pathChanged || content.dataset.kind !== 'history-empty') {
-          content.dataset.kind = 'history-empty'; content.replaceChildren();
-          const hint = document.createElement('p'); hint.className = 'hint';
-          hint.textContent = historyPage?.available ? 'No commits to display.' : historyPage?.reason === 'git_unavailable' ? 'Git was not found. Git is required to show history.' : 'This directory is not a Git repository.';
-          content.append(hint); displayedHTML = hint.textContent; outline.hidden = true; showTitle('');
-        }
-      } else if (commitReply) {
-        cachedCommit = commitReply;
-        if (historyDiffReply) cachedHistoricalDiff = { id: commitID, path, value: historyDiffReply };
-        const key = historyDiffReply ? JSON.stringify([commitReply.id, path, historyDiffReply]) : JSON.stringify(commitReply);
-        if (pathChanged || displayedHTML !== key) {
-          content.dataset.kind = historyDiffReply ? 'diff' : 'history';
-          if (historyDiffReply) renderCommitDiff(content, commitReply, historyDiffReply);
-          else renderCommit(content, commitReply);
-          displayedHTML = key; outline.hidden = true; showTitle('');
-        }
-      }
+      if (changesView.renderHistory(commitID, path, commitReply, historyDiffReply, pathChanged)) { refresh.retry(false, true); return; }
       status(liveMessage, 'ok'); return;
     }
     if (mode === 'file-history' || mode === 'blame') {
@@ -857,12 +521,7 @@ async function refreshLoop({ revision: current, foreground }: { revision: number
     status(liveMessage, 'ok');
   } catch (error) {
     if (current !== refresh.revision) { refresh.retry(); return; }
-    if ((mode === 'changes' || mode === 'diff') && base !== (currentChanges?.base ?? '')) {
-      currentChanges = undefined; displayedChanges = '';
-      const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = 'Cannot load this comparison.';
-      comparisonError.textContent = 'Cannot load this comparison.'; comparisonError.hidden = false;
-      changesTree.replaceChildren(hint);
-    }
+    if ((mode === 'changes' || mode === 'diff') && base !== (changesView.currentChanges?.base ?? '')) changesView.failComparison();
     if (foreground || path !== displayedPath || mode !== displayedMode || !(error instanceof RequestError && error.code === 'network')) showError(error, path);
     status('Refresh failed. Please try again.', 'error');
   } finally { if (foreground) { endLoading(); } }
@@ -980,7 +639,7 @@ window.addEventListener('keydown', (event) => {
   }
   if (selectedMode() === 'diff' && !event.ctrlKey && !event.metaKey && !event.altKey) {
     if (matchesShortcut(event, 'nextChange') || matchesShortcut(event, 'previousChange')) {
-      const next = diffNeighbor(selected(), matchesShortcut(event, 'nextChange') ? 1 : -1, onlyUnreviewed);
+      const next = diffNeighbor(selected(), matchesShortcut(event, 'nextChange') ? 1 : -1, changesView.onlyUnreviewed);
       if (next) { event.preventDefault(); navigate(diffURL(next.path, selectedBase())); }
       return;
     }
