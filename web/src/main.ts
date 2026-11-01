@@ -1,10 +1,12 @@
+import { RequestError, type FileReply, type ApiError } from './api';
+import { createRightPane } from './rightPane';
 import { createPreview } from './preview';
 import { createRefreshScheduler } from './refresh';
 import { createFileSearch } from './fileSearch';
 import { createOutline } from './outline';
 import { createContentDecoration } from './contentDecorate';
 import { createVimKeys, scrollVim, vimBlocked } from './vimNavigation';
-import { FileGitView, fileView, fileViewURL, swapFilePanes, rightOnlyURL, type FileView } from './fileGit';
+import { FileGitView, fileView, fileViewURL, type FileView } from './fileGit';
 import { iconSVG, setIcon, type IconName } from './icons';
 import './style.css';
 import { createActivePane } from './activePane';
@@ -32,11 +34,6 @@ import symbolLight from '../../logo/markport-symbol-light.svg';
 import symbolDark from '../../logo/markport-symbol-dark.svg';
 import favicon from '../../logo/markport-favicon.svg';
 
-type FileReply = { path: string; type: 'image'; assetUrl: string }
-  | { path: string; type: 'html' | 'pdf'; previewUrl: string }
-  | { path: string; type: 'html' | 'markdown' | 'code'; html: string };
-type ApiError = { error?: string; message?: string };
-class RequestError extends Error { constructor(readonly code: string, message: string) { super(message); } }
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('app missing');
 app.innerHTML = `<a class="skip-link" href="#content">Skip to content</a><header><button id="drawer-toggle" type="button" aria-label="Open file list">${iconSVG('menu')}</button><button id="sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">${iconSVG('panelLeft')}</button><span class="brand" role="img" aria-label="markport"><img class="brand-symbol" src="${symbolLight}" alt=""></span><span id="root-name"></span><span id="connection" role="status" data-state="connecting"><span class="connection-label">Connecting…</span></span><div id="header-extras"><button id="theme-toggle" type="button"></button><button id="paste-toggle" type="button" aria-label="Paste Markdown" title="Paste Markdown">${iconSVG('clipboard')}</button></div><button id="header-more" type="button" aria-label="App settings" title="App settings" aria-expanded="false" aria-controls="header-extras">${iconSVG('settings')}</button><button id="reload" type="button" aria-label="Refresh" title="Refresh now"><span class="reload-icon" aria-hidden="true">${iconSVG('refresh')}</span></button></header><div class="layout"><aside id="sidebar"><div class="sidebar-tabs" role="tablist" aria-label="Sidebar views"><button id="files-tab" type="button" role="tab" aria-controls="files-panel">Files</button><button id="changes-tab" type="button" role="tab" aria-controls="changes-tree">Changes</button><button id="history-tab" type="button" role="tab" aria-controls="history-tree">History</button></div><div id="files-panel" role="tabpanel" aria-labelledby="files-tab"><form role="search" onsubmit="return false"><div class="files-search-heading"><label for="search">Search files</label><button id="collapse-all" type="button" aria-label="Collapse all folders" title="Collapse all folders" disabled>Collapse all</button></div><input id="search" type="search" placeholder="Path or file name, e.g. file.md:123"><span id="result-count"></span></form><nav id="tree" aria-label="File list"></nav></div><nav id="changes-tree" role="tabpanel" aria-labelledby="changes-tab" aria-label="Changed files" hidden></nav><nav id="history-tree" role="tabpanel" aria-labelledby="history-tab" aria-label="Commit history" hidden></nav></aside><div id="sidebar-resize" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div><main id="main"><div id="connection-banner" hidden></div><div id="file-title" tabindex="-1"></div><div id="progress" hidden></div><div class="content-layout"><article id="content" tabindex="-1" aria-busy="false"></article><nav id="outline" aria-label="Table of contents" hidden></nav></div></main><div id="split-resize" aria-label="Resize file panes" hidden></div><section id="right-pane" aria-label="Right file" hidden><div id="right-title"><div id="right-path" class="breadcrumbs"></div><div class="right-actions"><span id="right-kind" class="kind-badge"></span><div id="right-views" class="view-segment" role="group" aria-label="Preview or Source"><button id="right-rendered" type="button" aria-pressed="true">Preview</button><button id="right-source" type="button" aria-pressed="false">Source</button></div><button id="right-interactive" type="button" hidden>Enable JavaScript</button><button id="right-copy" type="button" class="title-icon" aria-label="Copy path" title="Copy path">${iconSVG('copy')}</button><button id="right-contents" type="button" class="title-icon" aria-label="Contents" title="Contents" hidden>${iconSVG('list')}</button><button id="right-swap" type="button" class="title-icon" aria-label="Swap panes" title="Swap panes">${iconSVG('swap')}</button><button id="right-only" type="button" class="title-icon" aria-label="Show this file only" title="Show this file only">${iconSVG('maximize')}</button><button id="right-close" type="button" class="title-icon" aria-label="Close split view" title="Close split view">${iconSVG('close')}</button></div></div><article id="right-content" aria-busy="false"></article><nav id="right-outline" aria-label="Right table of contents" hidden></nav></section></div><div id="diagram-overlay" hidden><button type="button" id="overlay-close">Close ×</button><div id="overlay-content"></div></div>`;
@@ -107,36 +104,8 @@ const activePane = createActivePane({ left: main, right: rightPane, leftTitle: t
 let fileSelectionVersion = 0;
 const splitResize = createSplitResize({ container: layout, left: main, right: rightPane, handle: document.querySelector<HTMLElement>('#split-resize')!, storageKey: 'markport-file-split-ratio', horizontal: () => window.innerWidth > 700 });
 const rightContent = document.querySelector<HTMLElement>('#right-content')!;
-const rightPath = document.querySelector<HTMLElement>('#right-path')!;
-const rightKind = document.querySelector<HTMLElement>('#right-kind')!;
-const rightViews = document.querySelector<HTMLElement>('#right-views')!;
-const rightRendered = document.querySelector<HTMLButtonElement>('#right-rendered')!;
-const rightInteractive = document.querySelector<HTMLButtonElement>('#right-interactive')!;
-const rightSource = document.querySelector<HTMLButtonElement>('#right-source')!;
-const rightOutline = document.querySelector<HTMLElement>('#right-outline')!;
-const rightContents = document.querySelector<HTMLButtonElement>('#right-contents')!;
-const rightDownload = document.createElement('button');
-rightDownload.type = 'button'; rightDownload.className = 'title-icon'; setIcon(rightDownload, 'download');
-rightDownload.setAttribute('aria-label', 'Download'); rightDownload.title = 'Download';
-document.querySelector('#right-copy')!.before(rightDownload);
-const rightOpenPDF = document.createElement('button');
-rightOpenPDF.type = 'button'; rightOpenPDF.className = 'title-icon'; setIcon(rightOpenPDF, 'external');
-rightOpenPDF.setAttribute('aria-label', 'Open PDF in new tab'); rightOpenPDF.title = 'Open PDF in new tab'; rightOpenPDF.hidden = true;
-rightDownload.before(rightOpenPDF);
-const rightPrint = document.createElement('button');
-rightPrint.type = 'button'; rightPrint.className = 'title-icon'; setIcon(rightPrint, 'printer');
-rightPrint.setAttribute('aria-label', 'Print / Save as PDF'); rightPrint.title = 'Print / Save as PDF'; rightPrint.hidden = true;
-rightDownload.before(rightPrint);
-const rightWidth = contentWidth.createButton(); rightWidth.hidden = true;
-rightPrint.before(rightWidth);
-let rightShownPath = ''; let rightShownKey = ''; let rightSourceMode = new URL(location.href).searchParams.get('right-source') === '1'; let rightRequest = 0;
-let pendingRightScroll: number | undefined;
-let rightTag = ''; let rightTagCheckedAt = 0;
 let lineRangeAnchor = 0;
 let pendingLineJump = false;
-let rightLineHash = '';
-let rightLinePath = '';
-let pendingRightLineJump = false;
 const progress = document.querySelector<HTMLElement>('#progress')!;
 const outline = document.querySelector<HTMLElement>('#outline')!;
 const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
@@ -182,16 +151,29 @@ const { loadSearchIndex, onSearchChange } = fileSearch;
 const refresh = createRefreshScheduler({ run: refreshLoop, interval: 3000, onVisible: fileSearch.refreshIfStale });
 const preview = createPreview({
   content, rightContent, selected: (pane) => pane === 'left' ? selected() : rightSelected(),
-  navigate, openRight, requestRefresh, refreshRight: () => { void refreshRight(); },
-  invalidate: () => { displayedHTML = ''; displayedTag = ''; rightShownKey = ''; rightTag = ''; },
+  navigate, openRight: (path) => openRight(path), requestRefresh, refreshRight: () => { void refreshRight(); },
+  invalidate: () => { displayedHTML = ''; displayedTag = ''; rightController.invalidate(); },
   onInstance: () => { void tabTitle.reload(true); void serverInfo.reloadIfOpen(); },
 });
 const { syncPreviewInstance, setInteractive, createPreviewFrame, createPDFFrame, filePreviewKey } = preview;
+const rightController = createRightPane({
+  main, layout, rightPane, rightContent, sidebar, contentWidth, activePane, splitResize,
+  selected, selectedMode, getSourceMode: () => sourceMode, setSourceMode: (value) => { sourceMode = value; },
+  setSidebarPanel: (mode) => { sidebarPanel = mode; }, getRememberedBase: () => rememberedBase,
+  getGit, saveScroll, requestRefresh, syncSelectedFile, preview,
+  decorateContent: (root, path) => decorateContent(root, path),
+  highlightCodeLines: (scroll, root, hash) => highlightCodeLines(scroll, root, hash),
+  updateRightOutline: () => updateRightOutline(), downloadFile, openPDF,
+  printFile: (path, opener) => printView.open(printFile(path), opener),
+});
+const { rightSelected, openRight, refreshRight } = rightController;
+const rightOutline = document.querySelector<HTMLElement>('#right-outline')!;
+const rightContents = document.querySelector<HTMLButtonElement>('#right-contents')!;
 const outlineController = createOutline({ content, outline, main, rightContent, rightOutline, rightContents });
 const { updateOutline, updateRightOutline } = outlineController;
 const decoration = createContentDecoration({
   content, rightContent, main, title, contentWidth, tableOverlay,
-  getPath: () => displayedPath, getRightHash: () => rightLineHash,
+  getPath: () => displayedPath, getRightHash: () => rightController.lineHash,
   onLineStart: (line) => { if (!lineRangeAnchor) lineRangeAnchor = line; },
 });
 const { decorateContent, highlightCodeLines } = decoration;
@@ -267,56 +249,12 @@ function downloadFile(path: string): void {
 function pdfFileURL(path: string): string { return `/api/pdf?path=${encodeURIComponent(path)}`; }
 function openPDF(path: string): void { window.open(pdfFileURL(path), '_blank', 'noopener,noreferrer'); }
 const leftFileGit = new FileGitView(content, 'left', getGit, (url) => navigate(url.href));
-const rightFileGit = new FileGitView(rightContent, 'right', getGit, navigateRight);
-function navigateRight(url: URL): void {
-  history.replaceState({ ...history.state, scroll: main.scrollTop, rightScroll: rightPane.scrollTop }, '', location.href);
-  history.pushState({ ...history.state, rightScroll: 0 }, '', url);
-  rightPane.scrollTop = 0; rightShownKey = ''; rightTag = '';
-  void refreshRight();
-}
 function selectFileView(mode: FileView): void {
   const url = fileViewURL(new URL(location.href), 'left', mode);
   if (mode === 'diff' && rememberedBase) url.searchParams.set('base', rememberedBase);
   if (sourceMode) url.searchParams.set('source', '1');
   navigate(url.href);
 }
-const rightFileViews = document.createElement('div'); rightFileViews.className = 'view-segment right-file-views';
-rightFileViews.setAttribute('role', 'group'); rightFileViews.setAttribute('aria-label', 'File or Diff or History or Blame');
-for (const [mode, label] of [['file', 'File'], ['diff', 'Diff'], ['file-history', 'History'], ['blame', 'Blame']] as const) {
-  const button = document.createElement('button'); button.type = 'button'; button.textContent = label; button.dataset.fileView = mode;
-  button.addEventListener('click', () => {
-    const url = fileViewURL(new URL(location.href), 'right', mode);
-    if (mode === 'diff' && rememberedBase) url.searchParams.set('right-base', rememberedBase);
-    navigateRight(url);
-  }); rightFileViews.append(button);
-}
-rightViews.before(rightFileViews);
-const rightMore = document.createElement('button'); rightMore.type = 'button'; rightMore.className = 'right-more title-more';
-setIcon(rightMore, 'more'); rightMore.setAttribute('aria-label', 'File actions'); rightMore.title = 'File actions'; rightMore.setAttribute('aria-haspopup', 'menu'); rightMore.setAttribute('aria-expanded', 'false');
-const rightMenu = document.createElement('div'); rightMenu.className = 'right-menu title-menu'; rightMenu.setAttribute('role', 'menu'); rightMenu.hidden = true;
-document.querySelector('#right-title .right-actions')!.append(rightMore, rightMenu);
-function closeRightMenu(): void { rightMenu.hidden = true; rightMore.setAttribute('aria-expanded', 'false'); rightMore.focus(); }
-function updateRightMenu(): void {
-  if (!rightMenu.hidden) return;
-  rightMenu.replaceChildren();
-  for (const control of document.querySelectorAll<HTMLButtonElement>('#right-title .right-actions>button:not(.right-more), #right-title .view-segment:not([hidden]) button')) {
-    if (control.hidden || control.classList.contains('content-width-toggle')) continue;
-    const item = document.createElement('button'); item.type = 'button'; item.textContent = control.getAttribute('aria-label') ?? control.textContent; item.disabled = control.disabled;
-    item.setAttribute('role', control.hasAttribute('aria-pressed') ? 'menuitemradio' : 'menuitem');
-    if (control.hasAttribute('aria-pressed')) item.setAttribute('aria-checked', control.getAttribute('aria-pressed')!);
-    item.addEventListener('click', () => { closeRightMenu(); control.click(); }); rightMenu.append(item);
-  }
-}
-rightMore.addEventListener('click', () => {
-  if (!rightMenu.hidden) { closeRightMenu(); return; }
-  updateRightMenu(); rightMenu.hidden = false; rightMore.setAttribute('aria-expanded', 'true'); rightMenu.querySelector<HTMLButtonElement>('button')?.focus();
-});
-rightMenu.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') { event.preventDefault(); closeRightMenu(); return; }
-  if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
-  event.preventDefault(); const items = [...rightMenu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]; const index = items.indexOf(document.activeElement as HTMLButtonElement);
-  items[(index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
-});
 function selectedMode(): FileView | 'changes' | 'paste' | 'history' {
   const view = new URL(location.href).searchParams.get('view');
   return view === 'history' ? 'history' : view === 'paste' ? 'paste' : view === 'changes' ? 'changes' : selected() ? fileView(new URL(location.href), 'left') : 'file';
@@ -341,56 +279,6 @@ function navigate(url: string, keepTreeFocus = false): void {
   pendingLineJump = /^#L\d+(?:-L\d+)?$/.test(target.hash);
   if (target.searchParams.get('view') === 'changes' || target.searchParams.get('view') === 'diff') rememberedBase = target.searchParams.get('base') ?? '';
   saveScroll(); pasteVersion++; lineRangeAnchor = 0; history.pushState({ scroll: 0, rightScroll: rightPane.scrollTop }, '', target); sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = target.searchParams.get('source') === '1'; if (!keepTreeFocus) sidebar.classList.remove('open'); requestRefresh();
-}
-function rightSelected(): string { return ['file', 'diff', 'file-history', 'blame'].includes(selectedMode()) ? new URL(location.href).searchParams.get('right') ?? '' : ''; }
-function openRight(path: string, line?: number, keepTreeFocus = false): void {
-  const source = Boolean(line) && /\.(md|markdown|html|htm)$/i.test(path);
-  if (path !== rightSelected() || line) {
-    if (rightSourceMode !== source) { rightTag = ''; rightShownKey = ''; }
-    rightSourceMode = source;
-  }
-  rightLineHash = line ? `#L${line}` : ''; rightLinePath = path; pendingRightLineJump = Boolean(line);
-  const url = new URL(location.href);
-  if (path !== rightSelected()) for (const key of [...url.searchParams.keys()]) if (key.startsWith('right-')) url.searchParams.delete(key);
-  url.searchParams.set('right', path); url.searchParams.delete('right-view');
-  for (const key of ['right-commit', 'right-revision-path', 'right-revision-view', 'right-base']) url.searchParams.delete(key);
-  if (rightSourceMode) url.searchParams.set('right-source', '1'); else url.searchParams.delete('right-source');
-  saveScroll(); history.pushState({ ...history.state, rightScroll: 0 }, '', url); if (!keepTreeFocus) sidebar.classList.remove('open');
-  activePane.setSplit(true); activePane.select('right'); void syncSelectedFile(); void refreshRight();
-}
-function closeRight(): void {
-  const url = new URL(location.href); url.searchParams.delete('right');
-  for (const key of [...url.searchParams.keys()]) if (key.startsWith('right-')) url.searchParams.delete(key);
-  rightFileGit.invalidate();
-  history.pushState(history.state, '', url); rightRequest++; rightPane.hidden = true; layout.classList.remove('split'); splitResize.setActive(false); activePane.setSplit(false); rightShownPath = ''; rightShownKey = '';
-  rightTag = '';
-}
-function swapPanes(): void {
-  if (!selected() || !rightSelected()) return;
-  const leftScroll = main.scrollTop; const rightScroll = rightPane.scrollTop;
-  const original = new URL(location.href);
-  if (sourceMode) original.searchParams.set('source', '1'); else original.searchParams.delete('source');
-  if (rightSourceMode) original.searchParams.set('right-source', '1'); else original.searchParams.delete('right-source');
-  const url = swapFilePanes(original);
-  history.replaceState({ ...history.state, scroll: leftScroll, rightScroll }, '', location.href);
-  history.pushState({ scroll: rightScroll, rightScroll: leftScroll }, '', url);
-  main.scrollTop = rightScroll;
-  sourceMode = url.searchParams.get('source') === '1'; rightSourceMode = url.searchParams.get('right-source') === '1';
-  rightShownPath = ''; rightShownKey = ''; rightTag = '';
-  sidebarPanel = selectedMode() === 'diff' ? 'changes' : 'file';
-  pendingRightScroll = leftScroll;
-  requestRefresh();
-}
-function showRightOnly(): void {
-  if (!rightSelected()) return;
-  const original = new URL(location.href);
-  if (rightSourceMode) original.searchParams.set('right-source', '1'); else original.searchParams.delete('right-source');
-  const url = rightOnlyURL(original);
-  history.replaceState({ ...history.state, scroll: main.scrollTop, rightScroll: rightPane.scrollTop }, '', location.href);
-  history.pushState({ scroll: rightPane.scrollTop }, '', url);
-  sourceMode = url.searchParams.get('source') === '1'; rightPane.hidden = true; layout.classList.remove('split'); splitResize.setActive(false); activePane.setSplit(false);
-  sidebarPanel = selectedMode() === 'diff' ? 'changes' : 'file';
-  requestRefresh();
 }
 const liveMessage = 'Live · auto-refresh on';
 function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
@@ -819,119 +707,17 @@ function showError(error: unknown, path: string): void {
   const button = document.createElement('button'); button.type = 'button'; button.textContent = code === 'not_found' && !comparison ? 'Back to root' : 'Try again'; button.addEventListener('click', () => code === 'not_found' && !comparison ? navigate('/') : manualRefresh());
   box.append(icon, h, p, button); content.append(box); outline.hidden = true; showTitle(path, '', code === 'not_found', ['binary', 'too_large', 'invalid_asset', 'invalid_pdf'].includes(code));
 }
-function showRightTitle(path: string, kind: FileReply['type'] | 'diff' | 'History' | 'Blame'): void {
-  rightWidth.hidden = kind !== 'markdown' || rightContent.dataset.kind !== 'markdown' || rightSourceMode;
-  rightPath.replaceChildren(); rightPath.title = path;
-  const parts = path.split('/');
-  if (parts.length > 1) {
-    const parent = document.createElement('span'); parent.className = 'breadcrumb-parent';
-    parent.textContent = `${parts.slice(0, -1).join('/')} / `; rightPath.append(parent);
-  }
-  const name = document.createElement('strong'); name.textContent = parts.at(-1) ?? path; rightPath.append(name);
-  rightKind.textContent = kind === 'History' || kind === 'Blame' ? kind : kind === 'diff' ? 'Git Diff' : kind === 'markdown' ? 'Markdown' : kind === 'html' ? 'HTML' : kind === 'image' ? 'Image' : (parts.at(-1)?.split('.').at(-1)?.toUpperCase() || 'Code');
-  const mode = fileView(new URL(location.href), 'right');
-  rightViews.hidden = mode !== 'file' || (kind !== 'markdown' && kind !== 'html');
-  for (const button of rightFileViews.querySelectorAll<HTMLButtonElement>('button')) button.setAttribute('aria-pressed', String(button.dataset.fileView === mode));
-  rightRendered.textContent = 'Preview';
-  rightRendered.setAttribute('aria-pressed', String(!rightSourceMode));
-  rightSource.setAttribute('aria-pressed', String(rightSourceMode));
-}
 function beginLoading(): void { content.setAttribute('aria-busy', 'true'); reload.disabled = true; clearTimeout(loadingTimer); loadingTimer = setTimeout(() => { progress.hidden = false; }, 200); }
 function endLoading(): void { clearTimeout(loadingTimer); progress.hidden = true; reload.disabled = false; content.setAttribute('aria-busy', 'false'); }
 function requestRefresh(foreground = true): void { refresh.request(foreground); }
 function manualRefresh(): void {
   void tabTitle.reload();
   void serverInfo.reloadIfOpen();
-  displayedTag = ''; rightTag = ''; pageTags.clear(); preview.reload(); requestRefresh();
+  displayedTag = ''; rightController.invalidateTag(); pageTags.clear(); preview.reload(); requestRefresh();
   if (selectedMode() === 'paste') refreshPastedPreview?.();
   if (search.value.trim()) void loadSearchIndex(true);
 }
 
-async function refreshRight(): Promise<void> {
-  const path = rightSelected(); const request = ++rightRequest;
-  const mode = fileView(new URL(location.href), 'right');
-  rightSourceMode = new URL(location.href).searchParams.get('right-source') === '1';
-  if (path !== rightLinePath) { rightLineHash = ''; pendingRightLineJump = false; }
-  const applyLine = (): void => {
-    highlightCodeLines(pendingRightLineJump, rightContent, rightLineHash);
-    pendingRightLineJump = false;
-  };
-  rightPane.hidden = !path; layout.classList.toggle('split', Boolean(path)); splitResize.setActive(Boolean(path)); activePane.setSplit(Boolean(path));
-  if (!path) { rightFileGit.invalidate(); rightShownPath = ''; rightShownKey = ''; rightDownload.hidden = true; rightOpenPDF.hidden = true; rightPrint.hidden = true; return; }
-  if (path !== rightShownPath) { rightPane.scrollTop = 0; rightShownKey = ''; rightTag = ''; rightDownload.hidden = true; rightOpenPDF.hidden = true; rightPrint.hidden = true; }
-  if (mode === 'file-history' || mode === 'blame') {
-    showRightTitle(path, mode === 'blame' ? 'Blame' : 'History'); rightKind.hidden = false;
-    rightDownload.hidden = true; rightPrint.hidden = true; rightOpenPDF.hidden = true; rightInteractive.hidden = true; rightOutline.hidden = true; rightContents.hidden = true;
-    rightShownPath = path; rightShownKey = ''; rightTag = '';
-    await rightFileGit.refresh(path);
-    if (request === rightRequest && pendingRightScroll !== undefined) { rightPane.scrollTop = pendingRightScroll; pendingRightScroll = undefined; }
-    return;
-  }
-  rightFileGit.invalidate();
-  rightContent.setAttribute('aria-busy', 'true');
-  try {
-    if (mode === 'diff') {
-      const url = new URL(location.href); const base = url.searchParams.get('right-base') ?? '';
-      const diff = await getGit<DiffReply>(`/api/git/diff?path=${encodeURIComponent(path)}${base ? `&base=${encodeURIComponent(base)}` : ''}`);
-      if (request !== rightRequest || path !== rightSelected() || fileView(new URL(location.href), 'right') !== mode) return;
-      const key = JSON.stringify(diff);
-      if (rightShownKey !== key || rightContent.dataset.kind !== 'diff') { const scroll = rightPane.scrollTop; rightContent.dataset.kind = 'diff'; renderDiff(rightContent, diff); rightShownKey = key; rightPane.scrollTop = scroll; }
-      showRightTitle(path, 'diff'); rightShownPath = path;
-      rightDownload.hidden = true; rightPrint.hidden = true; rightOpenPDF.hidden = true; rightInteractive.hidden = true; rightOutline.hidden = true; rightContents.hidden = true;
-      if (pendingRightScroll !== undefined) { rightPane.scrollTop = pendingRightScroll; pendingRightScroll = undefined; }
-      return;
-    }
-    const headers: Record<string, string> = {};
-    if (rightShownPath === path && rightTag && Date.now() - rightTagCheckedAt < 60000) headers['If-None-Match'] = rightTag;
-    const response = await fetch(`/api/file?path=${encodeURIComponent(path)}${rightSourceMode ? '&source=1' : ''}`, { cache: 'no-store', headers });
-    if (request !== rightRequest || path !== rightSelected()) return;
-    rightTag = response.headers.get('ETag') ?? '';
-    rightTagCheckedAt = Date.now();
-    if (response.status === 304) { applyLine(); return; }
-    const file = await response.json() as FileReply & ApiError;
-    if (!response.ok) throw new RequestError(file.error ?? 'network', file.message ?? `HTTP ${response.status}`);
-    if (request !== rightRequest || path !== rightSelected()) return;
-    const key = `${rightSourceMode}\n${filePreviewKey(file, path)}`;
-    if (rightShownPath !== path || rightShownKey !== key) {
-      const scroll = rightShownPath === path ? rightPane.scrollTop : 0;
-      rightContent.dataset.kind = file.type === 'image' || file.type === 'pdf' ? file.type : rightSourceMode ? 'code' : file.type;
-      if (file.type === 'pdf') {
-        rightContent.replaceChildren(createPDFFrame(file.previewUrl, path));
-      } else if ('previewUrl' in file) {
-        rightContent.replaceChildren(createPreviewFrame(file.previewUrl, path, 'right'));
-      } else if (file.type === 'image') {
-        const img = document.createElement('img'); img.className = 'image-preview'; img.alt = path.split('/').at(-1) ?? path;
-        img.src = file.assetUrl; img.addEventListener('error', () => { if (img.isConnected) rightContent.textContent = 'Cannot display image.'; }); rightContent.replaceChildren(img);
-      } else { rightContent.innerHTML = file.html; decorateContent(rightContent, path); }
-      rightShownKey = key;
-      updateRightOutline();
-      void drawMermaid(rightContent, () => request === rightRequest && path === rightSelected());
-      void drawMath(rightContent, () => path === rightSelected() && rightContent.dataset.kind === 'markdown');
-      showRightTitle(path, file.type);
-      rightPane.scrollTop = scroll;
-    } else {
-      showRightTitle(path, file.type);
-    }
-    rightKind.hidden = false; rightDownload.hidden = false; rightOpenPDF.hidden = file.type !== 'pdf';
-    rightPrint.hidden = file.type !== 'markdown';
-    rightInteractive.hidden = file.type !== 'html';
-    rightInteractive.textContent = preview.hasInteractive(path) ? 'Disable JavaScript' : 'Enable JavaScript';
-    rightInteractive.setAttribute('aria-pressed', String(preview.hasInteractive(path)));
-    rightShownPath = path;
-    if (pendingRightScroll !== undefined) { rightPane.scrollTop = pendingRightScroll; pendingRightScroll = undefined; }
-    applyLine();
-  } catch (error) {
-    if (request !== rightRequest || path !== rightSelected()) return;
-    showRightTitle(path, 'code'); rightKind.hidden = true;
-    rightDownload.hidden = !(error instanceof RequestError && ['binary', 'too_large', 'invalid_asset', 'invalid_pdf'].includes(error.code));
-    rightOpenPDF.hidden = true;
-    rightPrint.hidden = true;
-    rightContent.replaceChildren(); const message = document.createElement('div'); message.className = 'file-error'; message.setAttribute('role', 'alert');
-    message.textContent = error instanceof RequestError && error.code === 'not_found' ? 'File not found.' : 'Cannot display file. Please try again.'; rightContent.append(message);
-    rightInteractive.hidden = true; rightViews.hidden = true; rightOutline.hidden = true; rightContents.hidden = true;
-    rightShownPath = path; rightShownKey = '';
-  } finally { if (request === rightRequest) rightContent.setAttribute('aria-busy', 'false'); }
-}
 async function refreshLoop({ revision: current, foreground }: { revision: number; foreground: boolean }): Promise<void> {
   const path = selected(); const source = sourceMode; const mode = selectedMode(); const commitID = new URL(location.href).searchParams.get('commit') ?? ''; const base = selectedBase(); const knownHistoryHead = historyPage?.head; const preserveTabFocus = keepTabFocus; keepTabFocus = false;
   if (mode === 'changes' || mode === 'diff') rememberedBase = base;
@@ -1133,7 +919,7 @@ function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
     const number = Number(lineLink.hash.slice(2));
     if (Number.isSafeInteger(number) && number > 0) {
       event.preventDefault();
-      if (pane === 'right') { rightLineHash = `#L${number}`; highlightCodeLines(true, rightContent, rightLineHash); return; }
+      if (pane === 'right') { rightController.selectLine(number); return; }
       const start = event.shiftKey && lineRangeAnchor ? Math.min(number, lineRangeAnchor) : number;
       const end = event.shiftKey && lineRangeAnchor ? Math.max(number, lineRangeAnchor) : number;
       if (!event.shiftKey) lineRangeAnchor = number;
@@ -1163,18 +949,7 @@ function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
 }
 content.addEventListener('click', (event) => onContentClick(event, 'left'));
 rightContent.addEventListener('click', (event) => onContentClick(event, 'right'));
-document.querySelector('#right-close')!.addEventListener('click', closeRight);
-rightSource.addEventListener('click', () => { const url = new URL(location.href); url.searchParams.set('right-source', '1'); rightSourceMode = true; navigateRight(url); });
-rightRendered.addEventListener('click', () => { rightLineHash = ''; pendingRightLineJump = false; const url = new URL(location.href); url.searchParams.delete('right-source'); rightSourceMode = false; navigateRight(url); });
-rightContents.addEventListener('click', () => rightOutline.classList.toggle('open'));
-document.querySelector('#right-copy')!.addEventListener('click', (event) => { const path = rightSelected(); if (path) copyWithFeedback(event.currentTarget as HTMLButtonElement, path, 'Copy path'); });
-rightDownload.addEventListener('click', () => { const path = rightSelected(); if (path) downloadFile(path); });
-rightPrint.addEventListener('click', () => { const path = rightSelected(); if (path) printView.open(printFile(path), rightPrint); });
-rightOpenPDF.addEventListener('click', () => { const path = rightSelected(); if (path) openPDF(path); });
-document.querySelector('#right-swap')!.addEventListener('click', swapPanes);
-document.querySelector('#right-only')!.addEventListener('click', showRightOnly);
-rightInteractive.addEventListener('click', () => { const path = rightSelected(); if (path) setInteractive(path, !preview.hasInteractive(path)); });
-window.addEventListener('popstate', () => { keyboardTreePath = ''; pendingRightScroll = history.state?.rightScroll ?? 0; rightPane.scrollTop = pendingRightScroll ?? 0; rightShownKey = ''; rightTag = ''; pasteVersion++; sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); void syncSelectedFile(); });
+window.addEventListener('popstate', () => { keyboardTreePath = ''; rightController.restoreScroll(); pasteVersion++; sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); void syncSelectedFile(); });
 window.addEventListener('hashchange', () => { highlightCodeLines(true); });
 const vimKeys = createVimKeys();
 document.addEventListener('focusin', vimKeys.reset);
