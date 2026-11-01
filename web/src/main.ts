@@ -1,3 +1,4 @@
+import { createOutline } from './outline';
 import { createContentDecoration } from './contentDecorate';
 import { createVimKeys, scrollVim, vimBlocked } from './vimNavigation';
 import { FileGitView, fileView, fileViewURL, swapFilePanes, rightOnlyURL, type FileView } from './fileGit';
@@ -6,7 +7,7 @@ import './style.css';
 import { createActivePane } from './activePane';
 import { createSplitResize } from './splitResize';
 import { drawMermaid } from './mermaid';
-import { drawMath, mathText } from './math';
+import { drawMath } from './math';
 import { TreeView, type Page } from './tree';
 import { effectiveTheme, initTheme } from './theme';
 import { renderChanges, renderDiff, diffURL, orderedChanges, reviewButton, gitStatusIndicator, type Change, type ChangesReply, type DiffReply } from './diff';
@@ -171,7 +172,7 @@ const interactivePaths = new Set<string>();
 let displayedTag = '';
 let displayedTagCheckedAt = 0;
 const pageTags = new Map<string, { value: string; checkedAt: number }>();
-let rootName = ''; let outlineObserver: IntersectionObserver | undefined;
+let rootName = '';
 let pasteVersion = 0;
 let refreshPastedPreview: (() => void) | undefined;
 let pasteEditor: ReturnType<typeof createPasteEditor> | undefined;
@@ -183,6 +184,8 @@ let searchIndexVersion = 0;
 let searchIndexState: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
 let searchIndexCheckedAt = 0;
 let searchIndexTag = '';
+const outlineController = createOutline({ content, outline, main, rightContent, rightOutline, rightContents });
+const { updateOutline, updateRightOutline } = outlineController;
 const decoration = createContentDecoration({
   content, rightContent, main, title, contentWidth, tableOverlay,
   getPath: () => displayedPath, getRightHash: () => rightLineHash,
@@ -868,7 +871,7 @@ function showPaste(): void {
     version: () => pasteVersion,
     onPrint: (markdown, button) => printView.open(markdown, button),
     createWidthButton: contentWidth.createButton,
-    onText: () => { outlineObserver?.disconnect(); outline.replaceChildren(); outline.hidden = true; },
+    onText: () => { outlineController.clear(); },
     onPreview: (preview, current) => {
       decorateContent(); updateOutline();
       void drawMermaid(preview, current); void drawMath(preview, current);
@@ -904,31 +907,6 @@ function showError(error: unknown, path: string): void {
   p.textContent = size ? `This file exceeds the ${size[1]} limit (${size[2]}).` : description;
   const button = document.createElement('button'); button.type = 'button'; button.textContent = code === 'not_found' && !comparison ? 'Back to root' : 'Try again'; button.addEventListener('click', () => code === 'not_found' && !comparison ? navigate('/') : manualRefresh());
   box.append(icon, h, p, button); content.append(box); outline.hidden = true; showTitle(path, '', code === 'not_found', ['binary', 'too_large', 'invalid_asset', 'invalid_pdf'].includes(code));
-}
-function updateOutline(): void {
-  outlineObserver?.disconnect(); outline.replaceChildren();
-  const headings = [...content.querySelectorAll<HTMLElement>('h1[id],h2[id],h3[id],h4[id],h5[id],h6[id]')];
-  outline.hidden = headings.length < 3;
-  if (outline.hidden) return;
-  for (const heading of headings) {
-    const link = document.createElement('a'); link.href = `#${encodeURIComponent(heading.id)}`; link.textContent = mathText(heading); link.className = `outline-h${heading.tagName.slice(1)}`;
-    link.addEventListener('click', (event) => { event.preventDefault(); history.replaceState(history.state, '', `#${encodeURIComponent(heading.id)}`); heading.scrollIntoView(); outline.classList.remove('open'); }); outline.append(link);
-  }
-  if (typeof IntersectionObserver !== 'undefined') {
-    outlineObserver = new IntersectionObserver((entries) => { for (const entry of entries) if (entry.isIntersecting) for (const link of outline.querySelectorAll('a')) link.classList.toggle('active', decodeURIComponent(link.hash.slice(1)) === entry.target.id); }, { root: main, rootMargin: '-15% 0px -70% 0px' });
-    headings.forEach((heading) => outlineObserver?.observe(heading));
-  }
-}
-function updateRightOutline(): void {
-  rightOutline.replaceChildren(); rightOutline.classList.remove('open');
-  const headings = [...rightContent.querySelectorAll<HTMLElement>('h1[id],h2[id],h3[id],h4[id],h5[id],h6[id]')];
-  rightOutline.hidden = headings.length < 3; rightContents.hidden = rightOutline.hidden;
-  for (const heading of headings) {
-    const link = document.createElement('a'); link.href = `#${encodeURIComponent(heading.id)}`;
-    link.textContent = mathText(heading); link.className = `outline-h${heading.tagName.slice(1)}`;
-    link.addEventListener('click', (event) => { event.preventDefault(); heading.scrollIntoView(); rightOutline.classList.remove('open'); });
-    rightOutline.append(link);
-  }
 }
 function showRightTitle(path: string, kind: FileReply['type'] | 'diff' | 'History' | 'Blame'): void {
   rightWidth.hidden = kind !== 'markdown' || rightContent.dataset.kind !== 'markdown' || rightSourceMode;
@@ -1406,7 +1384,7 @@ updateBrand();
 status(liveMessage, 'ok');
 requestRefresh();
 const pollTimer = setInterval(() => { if (!document.hidden) requestRefresh(false); }, 3000);
-window.addEventListener('pagehide', () => { decoration.dispose(); contentWidth.dispose(); activePane.dispose(); splitResize.dispose(); printView.close(); pasteEditor?.dispose(); clearInterval(pollTimer); onSearchChange(''); tabTitle.dispose(); serverInfo.dispose(); });
+window.addEventListener('pagehide', () => { outlineController.dispose(); decoration.dispose(); contentWidth.dispose(); activePane.dispose(); splitResize.dispose(); printView.close(); pasteEditor?.dispose(); clearInterval(pollTimer); onSearchChange(''); tabTitle.dispose(); serverInfo.dispose(); });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     requestRefresh(false);
