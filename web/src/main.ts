@@ -1,3 +1,4 @@
+import { createPreview } from './preview';
 import { createRefreshScheduler } from './refresh';
 import { createFileSearch } from './fileSearch';
 import { createOutline } from './outline';
@@ -167,9 +168,6 @@ let changeRootId = '';
 let rememberedBase = new URL(location.href).searchParams.get('base') ?? '';
 let shownBase: string | undefined;
 let lastRevealedDiff = '';
-let previewReload = 0;
-let previewInstance = '';
-const interactivePaths = new Set<string>();
 let displayedTag = '';
 let displayedTagCheckedAt = 0;
 const pageTags = new Map<string, { value: string; checkedAt: number }>();
@@ -182,6 +180,13 @@ let updatedTimer: ReturnType<typeof setTimeout> | undefined;
 const fileSearch = createFileSearch({ getQuery: () => search.value, view });
 const { loadSearchIndex, onSearchChange } = fileSearch;
 const refresh = createRefreshScheduler({ run: refreshLoop, interval: 3000, onVisible: fileSearch.refreshIfStale });
+const preview = createPreview({
+  content, rightContent, selected: (pane) => pane === 'left' ? selected() : rightSelected(),
+  navigate, openRight, requestRefresh, refreshRight: () => { void refreshRight(); },
+  invalidate: () => { displayedHTML = ''; displayedTag = ''; rightShownKey = ''; rightTag = ''; },
+  onInstance: () => { void tabTitle.reload(true); void serverInfo.reloadIfOpen(); },
+});
+const { syncPreviewInstance, setInteractive, createPreviewFrame, createPDFFrame, filePreviewKey } = preview;
 const outlineController = createOutline({ content, outline, main, rightContent, rightOutline, rightContents });
 const { updateOutline, updateRightOutline } = outlineController;
 const decoration = createContentDecoration({
@@ -261,47 +266,6 @@ function downloadFile(path: string): void {
 }
 function pdfFileURL(path: string): string { return `/api/pdf?path=${encodeURIComponent(path)}`; }
 function openPDF(path: string): void { window.open(pdfFileURL(path), '_blank', 'noopener,noreferrer'); }
-function previewStorageKey(): string { return `markport-interactive-preview:${previewInstance}`; }
-function syncPreviewInstance(instance: string): void {
-  if (!instance || instance === previewInstance) return;
-  previewInstance = instance; interactivePaths.clear();
-  void tabTitle.reload(true);
-  void serverInfo.reloadIfOpen();
-  try {
-    const saved = JSON.parse(sessionStorage.getItem(previewStorageKey()) ?? '[]') as unknown;
-    if (Array.isArray(saved)) for (const path of saved) if (typeof path === 'string') interactivePaths.add(path);
-  } catch { /* Storage may be unavailable. */ }
-  displayedHTML = ''; displayedTag = ''; rightShownKey = ''; rightTag = '';
-  if (rightSelected()) void refreshRight();
-}
-function setInteractive(path: string, enabled: boolean): void {
-  if (enabled) interactivePaths.add(path); else interactivePaths.delete(path);
-  try { if (previewInstance) sessionStorage.setItem(previewStorageKey(), JSON.stringify([...interactivePaths])); } catch { /* Storage may be unavailable. */ }
-  displayedHTML = ''; displayedTag = ''; rightShownKey = ''; rightTag = '';
-  requestRefresh();
-}
-function isInteractive(path: string): boolean { return Boolean(previewInstance) && interactivePaths.has(path); }
-function previewURL(url: string, path: string): string {
-  const preview = isInteractive(path) ? url.replace('/api/preview/', `/api/interactive/${previewInstance}/`) : url;
-  return `${preview}&reload=${previewReload}`;
-}
-function createPreviewFrame(url: string, path: string, pane: 'left' | 'right'): HTMLIFrameElement {
-  const frame = document.createElement('iframe'); frame.className = 'html-preview'; frame.title = `Preview of ${path}`;
-  frame.setAttribute('sandbox', isInteractive(path) ? 'allow-scripts allow-modals' : 'allow-same-origin');
-  frame.referrerPolicy = 'no-referrer'; attachPreviewNavigation(frame, path, pane);
-  frame.src = previewURL(url, path);
-  return frame;
-}
-function createPDFFrame(url: string, path: string): HTMLIFrameElement {
-  const frame = document.createElement('iframe'); frame.className = 'pdf-preview'; frame.title = `PDF preview of ${path}`;
-  frame.referrerPolicy = 'no-referrer'; frame.src = `${url}&reload=${previewReload}`;
-  return frame;
-}
-function filePreviewKey(file: FileReply, path: string): string {
-  if ('assetUrl' in file) return file.assetUrl;
-  if ('previewUrl' in file) return file.type === 'pdf' ? `${file.previewUrl}&reload=${previewReload}` : previewURL(file.previewUrl, path);
-  return file.html;
-}
 const leftFileGit = new FileGitView(content, 'left', getGit, (url) => navigate(url.href));
 const rightFileGit = new FileGitView(rightContent, 'right', getGit, navigateRight);
 function navigateRight(url: URL): void {
@@ -639,7 +603,7 @@ function showTitle(path: string, kind = '', missing = false, canDownload = true)
   }
   if (kind === 'html') {
     const interactive = document.createElement('button'); interactive.type = 'button'; interactive.className = 'interactive-toggle';
-    const enabled = interactivePaths.has(path);
+    const enabled = preview.hasInteractive(path);
     interactive.textContent = enabled ? 'Disable JavaScript' : 'Enable JavaScript';
     interactive.setAttribute('aria-pressed', String(enabled));
     interactive.title = 'Allow scripts in this HTML preview until this tab is closed';
@@ -878,54 +842,11 @@ function requestRefresh(foreground = true): void { refresh.request(foreground); 
 function manualRefresh(): void {
   void tabTitle.reload();
   void serverInfo.reloadIfOpen();
-  displayedTag = ''; rightTag = ''; pageTags.clear(); previewReload++; requestRefresh();
+  displayedTag = ''; rightTag = ''; pageTags.clear(); preview.reload(); requestRefresh();
   if (selectedMode() === 'paste') refreshPastedPreview?.();
   if (search.value.trim()) void loadSearchIndex(true);
 }
 
-function attachPreviewNavigation(frame: HTMLIFrameElement, path: string, pane: 'left' | 'right' = 'left'): void {
-  if (isInteractive(path)) return;
-  frame.addEventListener('load', () => {
-    if (!frame.isConnected || (pane === 'left' ? selected() : rightSelected()) !== path) return;
-    let document: Document | null;
-    try { document = frame.contentDocument; } catch { return; }
-    document?.addEventListener('click', (event) => {
-      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const link = (event.target as Element).closest?.('a[href]') as HTMLAnchorElement | null;
-      if (!link) return;
-      const url = new URL(link.href);
-      const current = frame.contentWindow?.location.href;
-      if (url.hash && current && url.href.split('#')[0] === current.split('#')[0]) return;
-      if (url.origin === location.origin && url.pathname.startsWith('/api/preview/')) {
-        event.preventDefault();
-        try {
-          const next = decodeURIComponent(url.pathname.slice('/api/preview/'.length));
-          if (pane === 'right') openRight(next); else navigate(fileURL(next) + url.hash);
-        } catch { /* Invalid URL encoding. */ }
-      } else if (url.protocol === 'http:' || url.protocol === 'https:') {
-        event.preventDefault(); window.open(url.href, '_blank', 'noopener,noreferrer');
-      }
-    });
-  });
-}
-window.addEventListener('message', (event: MessageEvent) => {
-  if (event.origin !== 'null' || !event.data || typeof event.data.markportPreviewLink !== 'string') return;
-  const leftFrame = content.querySelector<HTMLIFrameElement>('.html-preview');
-  const rightFrame = rightContent.querySelector<HTMLIFrameElement>('.html-preview');
-  const pane = event.source === leftFrame?.contentWindow ? 'left' : event.source === rightFrame?.contentWindow ? 'right' : null;
-  if (!pane || !isInteractive(pane === 'left' ? selected() : rightSelected())) return;
-  let url: URL;
-  try { url = new URL(event.data.markportPreviewLink); } catch { return; }
-  const interactivePrefix = `/api/interactive/${previewInstance}/`;
-  if (url.origin === location.origin && url.pathname.startsWith(interactivePrefix)) {
-    let next: string;
-    try { next = decodeURIComponent(url.pathname.slice(interactivePrefix.length)); } catch { return; }
-    if (!next || next.split('/').some((part) => !part || part === '.' || part === '..')) return;
-    if (pane === 'right') openRight(next); else navigate(fileURL(next) + url.hash);
-  } else if (url.protocol === 'http:' || url.protocol === 'https:') {
-    window.open(url.href, '_blank', 'noopener,noreferrer');
-  }
-});
 async function refreshRight(): Promise<void> {
   const path = rightSelected(); const request = ++rightRequest;
   const mode = fileView(new URL(location.href), 'right');
@@ -994,8 +915,8 @@ async function refreshRight(): Promise<void> {
     rightKind.hidden = false; rightDownload.hidden = false; rightOpenPDF.hidden = file.type !== 'pdf';
     rightPrint.hidden = file.type !== 'markdown';
     rightInteractive.hidden = file.type !== 'html';
-    rightInteractive.textContent = interactivePaths.has(path) ? 'Disable JavaScript' : 'Enable JavaScript';
-    rightInteractive.setAttribute('aria-pressed', String(interactivePaths.has(path)));
+    rightInteractive.textContent = preview.hasInteractive(path) ? 'Disable JavaScript' : 'Enable JavaScript';
+    rightInteractive.setAttribute('aria-pressed', String(preview.hasInteractive(path)));
     rightShownPath = path;
     if (pendingRightScroll !== undefined) { rightPane.scrollTop = pendingRightScroll; pendingRightScroll = undefined; }
     applyLine();
@@ -1252,7 +1173,7 @@ rightPrint.addEventListener('click', () => { const path = rightSelected(); if (p
 rightOpenPDF.addEventListener('click', () => { const path = rightSelected(); if (path) openPDF(path); });
 document.querySelector('#right-swap')!.addEventListener('click', swapPanes);
 document.querySelector('#right-only')!.addEventListener('click', showRightOnly);
-rightInteractive.addEventListener('click', () => { const path = rightSelected(); if (path) setInteractive(path, !interactivePaths.has(path)); });
+rightInteractive.addEventListener('click', () => { const path = rightSelected(); if (path) setInteractive(path, !preview.hasInteractive(path)); });
 window.addEventListener('popstate', () => { keyboardTreePath = ''; pendingRightScroll = history.state?.rightScroll ?? 0; rightPane.scrollTop = pendingRightScroll ?? 0; rightShownKey = ''; rightTag = ''; pasteVersion++; sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); void syncSelectedFile(); });
 window.addEventListener('hashchange', () => { highlightCodeLines(true); });
 const vimKeys = createVimKeys();
@@ -1321,4 +1242,4 @@ initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => {
 updateBrand();
 status(liveMessage, 'ok');
 requestRefresh();
-window.addEventListener('pagehide', () => { outlineController.dispose(); decoration.dispose(); contentWidth.dispose(); activePane.dispose(); splitResize.dispose(); printView.close(); pasteEditor?.dispose(); refresh.dispose(); fileSearch.dispose(); tabTitle.dispose(); serverInfo.dispose(); });
+window.addEventListener('pagehide', () => { preview.dispose(); outlineController.dispose(); decoration.dispose(); contentWidth.dispose(); activePane.dispose(); splitResize.dispose(); printView.close(); pasteEditor?.dispose(); refresh.dispose(); fileSearch.dispose(); tabTitle.dispose(); serverInfo.dispose(); });
