@@ -236,8 +236,8 @@ export function createRightPane(deps: RightPaneOptions) {
         } else { rightContent.innerHTML = file.html; decorateContent(rightContent, path); }
         rightShownKey = key;
         updateRightOutline();
-        void drawMermaid(rightContent, () => request === rightRequest && path === rightSelected());
-        void drawMath(rightContent, () => path === rightSelected() && rightContent.dataset.kind === 'markdown');
+        void drawMermaid(rightContent, () => rightShownKey === key && path === rightSelected());
+        void drawMath(rightContent, () => rightShownKey === key && path === rightSelected() && rightContent.dataset.kind === 'markdown');
         showRightTitle(path, file.type);
         rightPane.scrollTop = scroll;
       } else {

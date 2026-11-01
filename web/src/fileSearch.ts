@@ -4,6 +4,7 @@ type ApiError = { error?: string; message?: string };
 type FileSearchOptions = { getQuery: () => string; view: Pick<TreeView, 'setSearchIndex'> };
 
 export function createFileSearch(deps: FileSearchOptions) {
+  let refreshInterval = 10000;
   let searchIndexTimer: ReturnType<typeof setTimeout> | undefined;
   let searchIndexRequest: AbortController | undefined;
   let searchIndexVersion = 0;
@@ -16,7 +17,7 @@ export function createFileSearch(deps: FileSearchOptions) {
     searchIndexTimer = setTimeout(() => {
       if (document.hidden) { scheduleSearchIndexRefresh(); return; }
       void loadSearchIndex();
-    }, 10000);
+    }, refreshInterval);
   }
   async function loadSearchIndex(force = false): Promise<void> {
     clearTimeout(searchIndexTimer);
@@ -64,5 +65,10 @@ export function createFileSearch(deps: FileSearchOptions) {
   function refreshIfStale(): void {
     if (deps.getQuery().trim() && Date.now() - searchIndexCheckedAt >= 10000 && !searchIndexRequest) void loadSearchIndex();
   }
-  return { loadSearchIndex, onSearchChange, refreshIfStale, dispose: () => onSearchChange('') };
+  function setMode(mode: 'watch' | 'poll'): void {
+    const interval = mode === 'watch' ? 30000 : 10000;
+    if (interval === refreshInterval) return;
+    refreshInterval = interval; scheduleSearchIndexRefresh();
+  }
+  return { loadSearchIndex, onSearchChange, refreshIfStale, setMode, dispose: () => onSearchChange('') };
 }

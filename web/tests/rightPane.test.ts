@@ -2,10 +2,12 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createRightPane } from '../src/rightPane';
 import { createPreview } from '../src/preview';
+import { drawMermaid } from '../src/mermaid';
 
 vi.mock('../src/mermaid', () => ({ drawMermaid: vi.fn(async () => {}) }));
 
 beforeEach(() => {
+  vi.mocked(drawMermaid).mockClear();
   history.replaceState(null, '', '/?path=left.md&right=right.md');
   document.body.innerHTML = '<div class="layout"><main></main><aside id="sidebar"></aside><section id="right-pane"><div id="right-title"><div id="right-path"></div><div class="right-actions"><span id="right-kind"></span><div id="right-views"><button id="right-rendered"></button><button id="right-source"></button></div><button id="right-interactive"></button><button id="right-copy"></button><button id="right-contents"></button><button id="right-swap"></button><button id="right-only"></button><button id="right-close"></button></div></div><article id="right-content"></article><nav id="right-outline"></nav></section></div>';
 });
@@ -41,11 +43,13 @@ it('keeps the right document and scroll on conditional refresh', async () => {
   vi.stubGlobal('fetch', fetch);
   const { controller, preview, rightContent, rightPane, decorateContent } = setup();
   await controller.refreshRight(); const heading = rightContent.querySelector('h1');
+  const currentDiagram = vi.mocked(drawMermaid).mock.calls.at(-1)![1]!;
   rightPane.scrollTop = 120;
   await controller.refreshRight();
   expect(fetch.mock.calls[1][1].headers['If-None-Match']).toBe('v1');
   expect(rightContent.querySelector('h1')).toBe(heading); expect(rightPane.scrollTop).toBe(120);
   expect(decorateContent).toHaveBeenCalledOnce();
+  expect(currentDiagram()).toBe(true);
   expect(document.querySelector('#right-rendered')?.getAttribute('aria-pressed')).toBe('true');
   preview.dispose();
 });

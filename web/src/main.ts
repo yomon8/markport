@@ -123,7 +123,11 @@ let loadingTimer: ReturnType<typeof setTimeout> | undefined;
 let updatedTimer: ReturnType<typeof setTimeout> | undefined;
 const fileSearch = createFileSearch({ getQuery: () => search.value, view });
 const { loadSearchIndex, onSearchChange } = fileSearch;
-const refresh = createRefreshScheduler({ run: refreshLoop, interval: 3000, onVisible: fileSearch.refreshIfStale });
+const refresh = createRefreshScheduler({
+  run: refreshLoop, interval: 3000, onVisible: fileSearch.refreshIfStale,
+  onIndexChange: () => { if (search.value.trim()) void loadSearchIndex(true); },
+  onModeChange: fileSearch.setMode,
+});
 const preview = createPreview({
   content, rightContent, selected: (pane) => pane === 'left' ? selected() : rightSelected(),
   navigate, openRight: (path) => openRight(path), requestRefresh, refreshRight: () => { void refreshRight(); },

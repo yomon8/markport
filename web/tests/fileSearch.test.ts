@@ -53,3 +53,14 @@ it('postpones automatic refresh while hidden and resumes stale searches', async 
   search.refreshIfStale(); await vi.advanceTimersByTimeAsync(0);
   expect(fetch).toHaveBeenCalledTimes(2); search.dispose(); vi.restoreAllMocks();
 });
+
+it('uses a thirty-second backup in watch mode without resetting repeated fallback notifications', async () => {
+  const fetch = vi.fn().mockResolvedValue(reply(200, { paths: [] })); vi.stubGlobal('fetch', fetch);
+  const search = createFileSearch({ getQuery: () => 'a', view: { setSearchIndex: vi.fn() } });
+  await search.loadSearchIndex(); search.setMode('watch');
+  await vi.advanceTimersByTimeAsync(29999); expect(fetch).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1); expect(fetch).toHaveBeenCalledTimes(2);
+  search.setMode('poll'); await vi.advanceTimersByTimeAsync(5000); search.setMode('poll');
+  await vi.advanceTimersByTimeAsync(5000); expect(fetch).toHaveBeenCalledTimes(3);
+  search.dispose();
+});
