@@ -244,6 +244,8 @@ func apiError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		status, code = 404, "not_found"
+	case errors.Is(err, files.ErrQuery):
+		status, code = 400, "invalid_query"
 	case errors.Is(err, files.ErrPath):
 		status, code = 400, "invalid_path"
 	case errors.Is(err, files.ErrBinary):
@@ -516,27 +518,6 @@ func (s *Server) cachedSearchPaths(ctx context.Context, force bool) ([]string, [
 		s.searchMu.Unlock()
 		return paths, ignored, tag, err
 	}
-}
-
-func (s *Server) contentSearch(w http.ResponseWriter, r *http.Request) {
-	queries := r.URL.Query()["q"]
-	folders := r.URL.Query()["folder"]
-	if len(queries) != 1 || len(folders) > 1 {
-		apiError(w, files.ErrPath)
-		return
-	}
-	folder := ""
-	if len(folders) == 1 {
-		folder = folders[0]
-	}
-	result, err := s.Files.SearchContent(r.Context(), folder, queries[0])
-	if err != nil {
-		if !errors.Is(err, context.Canceled) {
-			apiError(w, err)
-		}
-		return
-	}
-	jsonReply(w, http.StatusOK, result)
 }
 
 func (s *Server) tree(w http.ResponseWriter, r *http.Request) {

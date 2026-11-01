@@ -28,10 +28,11 @@ type ContentMatch struct {
 }
 
 type ContentSearch struct {
-	Matches      []ContentMatch `json:"matches"`
-	FilesScanned int            `json:"filesScanned"`
-	BytesRead    int64          `json:"bytesRead"`
-	Limit        string         `json:"limit,omitempty"`
+	Matches        []ContentMatch `json:"matches"`
+	FilesScanned   int            `json:"filesScanned"`
+	BytesRead      int64          `json:"bytesRead"`
+	Limit          string         `json:"limit,omitempty"`
+	IgnoredSkipped int            `json:"ignoredSkipped"`
 }
 
 type contextReader struct {
@@ -78,6 +79,8 @@ type SearchOptions struct {
 	WholeWord     bool
 	Regex         bool
 	Include       []string
+	Candidates    []string
+	Deferred      []string
 	Exclude       []string
 }
 
@@ -108,6 +111,9 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 	if err != nil {
 		return result, err
 	}
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
 	if dir != "" {
 		if _, err := Parts(dir); err != nil {
 			return result, err
@@ -123,6 +129,122 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 		needle = query
 	}
 	needleBytes := []byte(needle)
+	scan := func(rel string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, err := Parts(rel); err != nil {
+			return nil
+		}
+		if dir != "" && !strings.HasPrefix(rel, dir+"/") {
+			return nil
+		}
+		info, err := s.root.Lstat(rel)
+		if err != nil || info.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0 {
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		if !searchPathIncluded(rel, include, exclude) {
+			return nil
+		}
+		switch strings.ToLower(path.Ext(rel)) {
+		case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg":
+			return nil // These files open as images, without a source-line view.
+		}
+		if result.FilesScanned >= MaxSearchFiles {
+			result.Limit = "files"
+			return nil
+		}
+		result.FilesScanned++
+		if info.Size() > MaxTextSize {
+			return nil
+		}
+		if info.Size() > MaxSearchBytes-result.BytesRead {
+			result.Limit = "bytes"
+			return nil
+		}
+		file, err := s.Open(rel)
+		if err != nil {
+			return nil
+		}
+		current, err := file.Stat()
+		if err != nil || !current.Mode().IsRegular() || current.Size() > MaxTextSize {
+			_ = file.Close()
+			return nil
+		}
+		remaining := int64(MaxSearchBytes) - result.BytesRead
+		if current.Size() > remaining {
+			_ = file.Close()
+			result.Limit = "bytes"
+			return nil
+		}
+		data, err := readBounded(contextReader{ctx, file}, current.Size(), min(remaining, int64(MaxTextSize)))
+		_ = file.Close()
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		if errors.Is(err, ErrTooLarge) {
+			result.Limit = "bytes"
+			return nil
+		}
+		if err != nil {
+			return nil
+		}
+		result.BytesRead += int64(len(data))
+		if !utf8.Valid(data) || bytes.IndexFunc(data, func(r rune) bool { return r < 0x20 && r != '\n' && r != '\r' && r != '\t' && r != '\f' }) >= 0 {
+			return nil
+		}
+		// Fold the file only as a filter: Unicode folding may change byte
+		// offsets, so line numbers and snippets always use the original data.
+		if !opts.Regex {
+			filtered := data
+			if !opts.CaseSensitive {
+				filtered = bytes.ToLower(data)
+			}
+			if strings.ContainsRune(needle, '\n') || !bytes.Contains(filtered, needleBytes) {
+				return nil
+			}
+		}
+		previousStart, previousEnd := 0, 0
+		for start, number := 0, 1; start <= len(data); number++ {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			end := len(data)
+			if newline := bytes.IndexByte(data[start:], '\n'); newline >= 0 {
+				end = start + newline
+			}
+			line := string(data[start:end])
+			if index, matchEnd, ok := matchLine.find(line); ok {
+				text := searchSnippet(line, index, matchEnd)
+				// Preserve the original snippet policy for width-changing folds.
+				if !opts.Regex && !opts.CaseSensitive && len(strings.ToLower(line)) != len(line) {
+					text = contextLine(line)
+				}
+				match := ContentMatch{Path: rel, Line: number, Text: text}
+				if number > 1 {
+					match.Before = contextLine(string(data[previousStart:previousEnd]))
+				}
+				if end < len(data) {
+					nextStart, nextEnd := end+1, len(data)
+					if newline := bytes.IndexByte(data[nextStart:], '\n'); newline >= 0 {
+						nextEnd = nextStart + newline
+					}
+					match.After = contextLine(string(data[nextStart:nextEnd]))
+				}
+				result.Matches = append(result.Matches, match)
+				if len(result.Matches) >= MaxSearchMatches {
+					result.Limit = "matches"
+					return nil
+				}
+			}
+			previousStart, previousEnd = start, end
+			start = end + 1
+		}
+		return nil
+	}
 	entriesSeen := 0
 	var visit func(string) error
 	visit = func(folder string) error {
@@ -174,111 +296,43 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 				}
 				continue
 			}
-			if !info.Mode().IsRegular() {
-				continue
-			}
-			if !searchPathIncluded(rel, include, exclude) {
-				continue
-			}
-			switch strings.ToLower(path.Ext(rel)) {
-			case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg":
-				continue // These files open as images, without a source-line view.
-			}
-			if result.FilesScanned >= MaxSearchFiles {
-				result.Limit = "files"
-				return nil
-			}
-			result.FilesScanned++
-			if info.Size() > MaxTextSize {
-				continue
-			}
-			if info.Size() > MaxSearchBytes-result.BytesRead {
-				result.Limit = "bytes"
-				return nil
-			}
-			file, err := s.Open(rel)
-			if err != nil {
-				continue
-			}
-			current, err := file.Stat()
-			if err != nil || !current.Mode().IsRegular() || current.Size() > MaxTextSize {
-				_ = file.Close()
-				continue
-			}
-			remaining := int64(MaxSearchBytes) - result.BytesRead
-			if current.Size() > remaining {
-				_ = file.Close()
-				result.Limit = "bytes"
-				return nil
-			}
-			data, err := readBounded(contextReader{ctx, file}, current.Size(), min(remaining, int64(MaxTextSize)))
-			_ = file.Close()
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if err := scan(rel); err != nil {
 				return err
 			}
-			if errors.Is(err, ErrTooLarge) {
-				result.Limit = "bytes"
+			if result.Limit != "" {
 				return nil
-			}
-			if err != nil {
-				continue
-			}
-			result.BytesRead += int64(len(data))
-			if !utf8.Valid(data) || bytes.IndexFunc(data, func(r rune) bool { return r < 0x20 && r != '\n' && r != '\r' && r != '\t' && r != '\f' }) >= 0 {
-				continue
-			}
-			// Fold the file only as a filter: Unicode folding may change byte
-			// offsets, so line numbers and snippets always use the original data.
-			if !opts.Regex {
-				filtered := data
-				if !opts.CaseSensitive {
-					filtered = bytes.ToLower(data)
-				}
-				if strings.ContainsRune(needle, '\n') || !bytes.Contains(filtered, needleBytes) {
-					continue
-				}
-			}
-			previousStart, previousEnd := 0, 0
-			for start, number := 0, 1; start <= len(data); number++ {
-				if err := ctx.Err(); err != nil {
-					return err
-				}
-				end := len(data)
-				if newline := bytes.IndexByte(data[start:], '\n'); newline >= 0 {
-					end = start + newline
-				}
-				line := string(data[start:end])
-				if index, matchEnd, ok := matchLine.find(line); ok {
-					text := searchSnippet(line, index, matchEnd)
-					// Preserve the original snippet policy for width-changing folds.
-					if !opts.Regex && !opts.CaseSensitive && len(strings.ToLower(line)) != len(line) {
-						text = contextLine(line)
-					}
-					match := ContentMatch{Path: rel, Line: number, Text: text}
-					if number > 1 {
-						match.Before = contextLine(string(data[previousStart:previousEnd]))
-					}
-					if end < len(data) {
-						nextStart, nextEnd := end+1, len(data)
-						if newline := bytes.IndexByte(data[nextStart:], '\n'); newline >= 0 {
-							nextEnd = nextStart + newline
-						}
-						match.After = contextLine(string(data[nextStart:nextEnd]))
-					}
-					result.Matches = append(result.Matches, match)
-					if len(result.Matches) >= MaxSearchMatches {
-						result.Limit = "matches"
-						return nil
-					}
-				}
-				previousStart, previousEnd = start, end
-				start = end + 1
 			}
 		}
 		if truncated {
 			result.Limit = "entries"
 		}
 		return nil
+	}
+	if opts.Candidates != nil || opts.Deferred != nil {
+		seen := make(map[string]bool)
+		for _, group := range [][]string{opts.Candidates, opts.Deferred} {
+			for _, rel := range group {
+				if err := ctx.Err(); err != nil {
+					return result, err
+				}
+				if seen[rel] || dir != "" && !strings.HasPrefix(rel, dir+"/") {
+					continue
+				}
+				seen[rel] = true
+				if entriesSeen >= MaxSearchEntries {
+					result.Limit = "entries"
+					return result, nil
+				}
+				entriesSeen++
+				if err := scan(rel); err != nil {
+					return result, err
+				}
+				if result.Limit != "" {
+					return result, nil
+				}
+			}
+		}
+		return result, nil
 	}
 	return result, visit(dir)
 }
