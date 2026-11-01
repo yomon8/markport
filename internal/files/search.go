@@ -220,7 +220,7 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 			if index, matchEnd, ok := matchLine.find(line); ok {
 				text := searchSnippet(line, index, matchEnd)
 				// Preserve the original snippet policy for width-changing folds.
-				if !opts.Regex && !opts.CaseSensitive && len(strings.ToLower(line)) != len(line) {
+				if !opts.Regex && !opts.CaseSensitive && !opts.WholeWord && len(strings.ToLower(line)) != len(line) {
 					text = contextLine(line)
 				}
 				match := ContentMatch{Path: rel, Line: number, Text: text}

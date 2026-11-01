@@ -44,6 +44,8 @@ func TestSearchPatterns(t *testing.T) {
 		{"docs/*.md", "docs/sub/readme.md", false},
 		{"docs/**", "docs/readme.md", true},
 		{"docs/**", "docs/sub/readme.md", true},
+		{"docs/**", "docs", false},
+		{"**/**", "readme.md", true},
 		{"docs/**/*.md", "docs/readme.md", true},
 		{"docs/**/*.md", "docs/sub/deep/readme.md", true},
 		{"**/*.md", "readme.md", true},
@@ -58,6 +60,10 @@ func TestSearchPatterns(t *testing.T) {
 	got, err := ParseSearchPatterns(" *.md, docs/** , , *.go ")
 	if err != nil || !reflect.DeepEqual(got, []string{"*.md", "docs/**", "*.go"}) {
 		t.Fatalf("normalize = %v, %v", got, err)
+	}
+	got, err = ParseSearchPatterns(strings.Repeat(", ", 21) + "*.md")
+	if err != nil || !reflect.DeepEqual(got, []string{"*.md"}) {
+		t.Fatalf("empty patterns counted toward limit: %v, %v", got, err)
 	}
 	for _, raw := range []string{"[", "docs/[x", "/absolute", "../outside", "a//b", strings.Repeat("*.md,", 20) + "*.go"} {
 		if _, err := ParseSearchPatterns(raw); !errors.Is(err, ErrQuery) {

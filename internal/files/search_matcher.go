@@ -22,40 +22,54 @@ type literalMatcher struct {
 }
 
 func (m literalMatcher) find(line string) (int, int, bool) {
-	if m.caseSensitive {
-		start := strings.Index(line, m.needle)
-		return start, start + len(m.needle), start >= 0
+	return m.findWord(line, false)
+}
+
+func (m literalMatcher) findWord(line string, wholeWord bool) (int, int, bool) {
+	text := line
+	if !m.caseSensitive {
+		text = strings.ToLower(line)
 	}
-	lowered := strings.ToLower(line)
-	start := strings.Index(lowered, m.needle)
-	if start < 0 {
-		return 0, 0, false
-	}
-	end := start + len(m.needle)
-	if utf8.RuneCountInString(line) == len(line) {
-		return start, end, true
-	}
-	// Lowercasing can change UTF-8 widths (for example, İ becomes i).
-	// Map folded offsets back before building snippets from the source.
-	folded := 0
-	originalStart, originalEnd := len(line), len(line)
-	for offset, r := range line {
-		if folded == start {
-			originalStart = offset
+	// Lower once per line, including when many candidate matches fail word
+	// boundaries. Two monotonic cursors map overlapping matches back to UTF-8.
+	needsMapping := !m.caseSensitive && utf8.RuneCountInString(line) != len(line)
+	mapOffset := func(target int, original, folded *int) int {
+		if !needsMapping {
+			return target
 		}
-		if folded == end {
-			originalEnd = offset
+		for *folded < target && *original < len(line) {
+			r, size := utf8.DecodeRuneInString(line[*original:])
+			*original += size
+			*folded += utf8.RuneLen(unicode.ToLower(r))
+		}
+		return *original
+	}
+	originalStart, foldedStart, originalEnd, foldedEnd := 0, 0, 0, 0
+	for offset := 0; offset <= len(text); {
+		index := strings.Index(text[offset:], m.needle)
+		if index < 0 {
 			break
 		}
-		folded += utf8.RuneLen(unicode.ToLower(r))
+		index += offset
+		start := mapOffset(index, &originalStart, &foldedStart)
+		end := mapOffset(index+len(m.needle), &originalEnd, &foldedEnd)
+		if !wholeWord || wordBoundaries(line, start, end) {
+			return start, end, true
+		}
+		if index == len(text) {
+			break
+		}
+		_, size := utf8.DecodeRuneInString(text[index:])
+		offset = index + size
 	}
-	return originalStart, originalEnd, true
+	return 0, 0, false
 }
 
 type queryMatcher struct {
-	literal literalMatcher
-	pattern *regexp.Regexp
-	word    bool
+	literal     literalMatcher
+	pattern     *regexp.Regexp
+	wordPattern *regexp.Regexp
+	word        bool
 }
 
 func newMatcher(opts SearchOptions) (matcher, error) {
@@ -69,6 +83,14 @@ func newMatcher(opts SearchOptions) (matcher, error) {
 		m.pattern, err = regexp.Compile(pattern)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrQuery, err)
+		}
+		if m.word {
+			// Select valid boundaries without discarding overlapping matches
+			// inside an earlier rejected match. Keep anchors on the full line.
+			m.wordPattern, err = regexp.Compile(`(?:^|[^\p{L}\p{Nd}_])(` + pattern + `)(?:$|[^\p{L}\p{Nd}_])`)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %v", ErrQuery, err)
+			}
 		}
 	} else {
 		needle := opts.Query
@@ -105,30 +127,11 @@ func (m queryMatcher) find(line string) (int, int, bool) {
 				return found[0], found[1], true
 			}
 		} else {
-			// Search the original line so anchors retain their RE2 meaning.
-			for _, found := range m.pattern.FindAllStringIndex(line, -1) {
-				if wordBoundaries(line, found[0], found[1]) {
-					return found[0], found[1], true
-				}
+			if found := m.wordPattern.FindStringSubmatchIndex(line); found != nil && wordBoundaries(line, found[2], found[3]) {
+				return found[2], found[3], true
 			}
 		}
 		return 0, 0, false
 	}
-	for offset := 0; offset <= len(line); {
-		start, end, ok := m.literal.find(line[offset:])
-		if !ok {
-			return 0, 0, false
-		}
-		start += offset
-		end += offset
-		if !m.word || wordBoundaries(line, start, end) {
-			return start, end, true
-		}
-		if start == len(line) {
-			break
-		}
-		_, size := utf8.DecodeRuneInString(line[start:])
-		offset = start + size
-	}
-	return 0, 0, false
+	return m.literal.findWord(line, m.word)
 }

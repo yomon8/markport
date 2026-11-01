@@ -48,6 +48,9 @@ func TestSearchMatchers(t *testing.T) {
 		{"explicit flag", "BUG-123", "BUG-123", SearchOptions{Query: `(?i)bug-\d+`, Regex: true, CaseSensitive: true}, true},
 		{"regex words", "scatter cat", "cat", SearchOptions{Query: `cat`, Regex: true, WholeWord: true}, true},
 		{"anchored words", "cats cat", "", SearchOptions{Query: `^cat`, Regex: true, WholeWord: true}, false},
+		{"overlapping words", "za cat a", "cat", SearchOptions{Query: `a.*a|cat`, Regex: true, WholeWord: true}, true},
+		{"Japanese regex words", "日本語 日本", "日本", SearchOptions{Query: `日本`, Regex: true, WholeWord: true}, true},
+		{"empty regex word", "abc", "", SearchOptions{Query: `$`, Regex: true, WholeWord: true}, false},
 		{"empty regex match", "abc", "", SearchOptions{Query: `$`, Regex: true}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -66,5 +69,23 @@ func TestSearchMatchers(t *testing.T) {
 	}
 	if _, err := newMatcher(SearchOptions{Query: "[", Regex: true}); !errors.Is(err, ErrQuery) {
 		t.Fatalf("invalid regexp: %v", err)
+	}
+}
+
+func TestWholeWordDenseCandidates(t *testing.T) {
+	for _, prefix := range []string{strings.Repeat("a", 20000), strings.Repeat("İ", 20000)} {
+		query := "a"
+		if strings.HasPrefix(prefix, "İ") {
+			query = "i"
+		}
+		m, err := newMatcher(SearchOptions{Query: query, WholeWord: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		line := prefix + " " + query
+		start, end, ok := m.find(line)
+		if !ok || start != len(prefix)+1 || end != len(line) {
+			t.Fatalf("dense word matches: %d, %d, %v", start, end, ok)
+		}
 	}
 }

@@ -15,9 +15,6 @@ func ParseSearchPatterns(raw string) ([]string, error) {
 }
 
 func normalizePatterns(patterns []string) ([]string, error) {
-	if len(patterns) > 20 {
-		return nil, fmt.Errorf("%w: at most 20 path patterns are allowed", ErrQuery)
-	}
 	var normalized []string
 	for _, pattern := range patterns {
 		pattern = strings.TrimSpace(pattern)
@@ -33,6 +30,9 @@ func normalizePatterns(patterns []string) ([]string, error) {
 			}
 		}
 		normalized = append(normalized, pattern)
+		if len(normalized) > 20 {
+			return nil, fmt.Errorf("%w: at most 20 path patterns are allowed", ErrQuery)
+		}
 	}
 	return normalized, nil
 }
@@ -57,7 +57,12 @@ func matchSearchPattern(pattern, name string) bool {
 		if p == len(parts) {
 			result = n == len(names)
 		} else if parts[p] == "**" {
-			result = match(p+1, n) || n < len(names) && match(p, n+1)
+			if p == len(parts)-1 {
+				// A trailing globstar still needs a file beneath its prefix.
+				result = n < len(names)
+			} else {
+				result = match(p+1, n) || n < len(names) && match(p, n+1)
+			}
 		} else if n < len(names) {
 			ok, _ := path.Match(parts[p], names[n])
 			result = ok && match(p+1, n+1)

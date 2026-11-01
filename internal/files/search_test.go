@@ -36,6 +36,13 @@ func TestSearchOptions(t *testing.T) {
 	if _, err := store.Search(context.Background(), SearchOptions{Query: "[", Regex: true}); !errors.Is(err, ErrQuery) {
 		t.Fatalf("invalid regexp: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(root, "sample.txt"), []byte(strings.Repeat("İ", 200)+" needle"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result, err = store.Search(context.Background(), SearchOptions{Query: "needle", WholeWord: true})
+	if err != nil || len(result.Matches) != 1 || !strings.HasSuffix(result.Matches[0].Text, " needle") {
+		t.Fatalf("Unicode whole-word snippet: %+v, %v", result, err)
+	}
 }
 
 func TestSearchContentScopeSafetyAndContext(t *testing.T) {
