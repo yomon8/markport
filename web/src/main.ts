@@ -1,3 +1,4 @@
+import { createFileSearch } from './fileSearch';
 import { createOutline } from './outline';
 import { createContentDecoration } from './contentDecorate';
 import { createVimKeys, scrollVim, vimBlocked } from './vimNavigation';
@@ -144,7 +145,7 @@ sidebarToggle.title = `Collapse sidebar (${shortcutText('sidebar')})`;
 const view = new TreeView(tree, search, count, collapseAll, selectedFile,
   (path) => { const current = revision; void loadPage(path, 0, '', false, current).then(() => loadOpenDirectories(current)).catch(() => status('Refresh failed. Please try again.', 'error')); },
   (path, offset) => { const current = revision; void loadPage(path, offset, '', false, current).catch(() => status('Refresh failed. Please try again.', 'error')); },
-  onSearchChange);
+  (query) => onSearchChange(query));
 let revision = 0; let pending = false; let pendingForeground = false; let activeForeground = false; let running = false;
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = new URL(location.href).searchParams.get('source') === '1';
 let displayedMode: FileView | 'changes' | 'paste' | 'history' = 'file'; let lastFilePath = '';
@@ -178,12 +179,8 @@ let refreshPastedPreview: (() => void) | undefined;
 let pasteEditor: ReturnType<typeof createPasteEditor> | undefined;
 let loadingTimer: ReturnType<typeof setTimeout> | undefined;
 let updatedTimer: ReturnType<typeof setTimeout> | undefined;
-let searchIndexTimer: ReturnType<typeof setTimeout> | undefined;
-let searchIndexRequest: AbortController | undefined;
-let searchIndexVersion = 0;
-let searchIndexState: 'idle' | 'loading' | 'ready' | 'error' = 'idle';
-let searchIndexCheckedAt = 0;
-let searchIndexTag = '';
+const fileSearch = createFileSearch({ getQuery: () => search.value, view });
+const { loadSearchIndex, onSearchChange } = fileSearch;
 const outlineController = createOutline({ content, outline, main, rightContent, rightOutline, rightContents });
 const { updateOutline, updateRightOutline } = outlineController;
 const decoration = createContentDecoration({
@@ -439,57 +436,6 @@ function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
     banner.append(document.createTextNode(state === 'error' ? 'Refresh failed. Check the connection and files.' : 'Checking connection.'));
     if (state === 'error') { const button = document.createElement('button'); button.textContent = 'Refresh now'; button.addEventListener('click', manualRefresh); banner.append(button); }
   }
-}
-function scheduleSearchIndexRefresh(): void {
-  clearTimeout(searchIndexTimer);
-  if (!search.value.trim()) return;
-  searchIndexTimer = setTimeout(() => {
-    if (document.hidden) { scheduleSearchIndexRefresh(); return; }
-    void loadSearchIndex();
-  }, 10000);
-}
-async function loadSearchIndex(force = false): Promise<void> {
-  clearTimeout(searchIndexTimer);
-  searchIndexRequest?.abort();
-  const request = new AbortController();
-  searchIndexRequest = request;
-  const current = ++searchIndexVersion;
-  const hadResults = searchIndexState === 'ready';
-  if (!hadResults) { searchIndexState = 'loading'; view.setSearchIndex([], 'loading'); }
-  try {
-    const headers: Record<string, string> = {};
-    if (searchIndexTag) headers['If-None-Match'] = searchIndexTag;
-    if (force) headers['Cache-Control'] = 'no-cache';
-    const response = await fetch('/api/search-index', { cache: 'no-store', signal: request.signal, headers });
-    if (current !== searchIndexVersion || !search.value.trim()) return;
-    searchIndexCheckedAt = Date.now();
-    if (response.status === 304) return;
-    const body = await response.json() as { paths?: string[]; ignored?: string[] } & ApiError;
-    if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
-    if (!Array.isArray(body.paths)) throw new RequestError('invalid_response', 'Invalid file list');
-    if (current !== searchIndexVersion || !search.value.trim()) return;
-    searchIndexTag = response.headers.get('ETag') ?? '';
-    searchIndexState = 'ready';
-    view.setSearchIndex(body.paths, 'ready', Array.isArray(body.ignored) ? body.ignored : []);
-  } catch {
-    if (current !== searchIndexVersion || !search.value.trim()) return;
-    if (!hadResults) { searchIndexState = 'error'; view.setSearchIndex([], 'error'); }
-  } finally {
-    if (current === searchIndexVersion) {
-      searchIndexRequest = undefined;
-      scheduleSearchIndexRefresh();
-    }
-  }
-}
-function onSearchChange(query: string): void {
-  if (!query) {
-    searchIndexVersion++;
-    searchIndexRequest?.abort(); searchIndexRequest = undefined;
-    clearTimeout(searchIndexTimer);
-    searchIndexState = 'idle';
-    searchIndexTag = '';
-    view.setSearchIndex([], 'idle');
-  } else if (searchIndexState === 'idle' || searchIndexState === 'error') void loadSearchIndex(true);
 }
 async function getPage(path: string, offset: number, focus: string, conditional: boolean, expectedRevision?: number): Promise<Page | null> {
   const tag = pageTags.get(path);
@@ -1384,10 +1330,10 @@ updateBrand();
 status(liveMessage, 'ok');
 requestRefresh();
 const pollTimer = setInterval(() => { if (!document.hidden) requestRefresh(false); }, 3000);
-window.addEventListener('pagehide', () => { outlineController.dispose(); decoration.dispose(); contentWidth.dispose(); activePane.dispose(); splitResize.dispose(); printView.close(); pasteEditor?.dispose(); clearInterval(pollTimer); onSearchChange(''); tabTitle.dispose(); serverInfo.dispose(); });
+window.addEventListener('pagehide', () => { outlineController.dispose(); decoration.dispose(); contentWidth.dispose(); activePane.dispose(); splitResize.dispose(); printView.close(); pasteEditor?.dispose(); clearInterval(pollTimer); fileSearch.dispose(); tabTitle.dispose(); serverInfo.dispose(); });
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) {
     requestRefresh(false);
-    if (search.value.trim() && Date.now() - searchIndexCheckedAt >= 10000 && !searchIndexRequest) void loadSearchIndex();
+    fileSearch.refreshIfStale();
   }
 });
