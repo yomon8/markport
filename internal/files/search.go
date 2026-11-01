@@ -77,6 +77,8 @@ type SearchOptions struct {
 	CaseSensitive bool
 	WholeWord     bool
 	Regex         bool
+	Include       []string
+	Exclude       []string
 }
 
 // SearchContent preserves the original API for callers without search options.
@@ -95,6 +97,14 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 	}
 	opts.Query = query
 	matchLine, err := newMatcher(opts)
+	if err != nil {
+		return result, err
+	}
+	include, err := normalizePatterns(opts.Include)
+	if err != nil {
+		return result, err
+	}
+	exclude, err := normalizePatterns(opts.Exclude)
 	if err != nil {
 		return result, err
 	}
@@ -165,6 +175,9 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 				continue
 			}
 			if !info.Mode().IsRegular() {
+				continue
+			}
+			if !searchPathIncluded(rel, include, exclude) {
 				continue
 			}
 			switch strings.ToLower(path.Ext(rel)) {
