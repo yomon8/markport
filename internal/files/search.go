@@ -71,9 +71,20 @@ func contextLine(line string) string {
 	return line
 }
 
-// SearchContent scans the requested directory on each call. Every open stays
-// inside Store's root, including when entries change during a scan.
+type SearchOptions struct {
+	Folder string
+	Query  string
+}
+
+// SearchContent preserves the original API for callers without search options.
 func (s *Store) SearchContent(ctx context.Context, dir, query string) (ContentSearch, error) {
+	return s.Search(ctx, SearchOptions{Folder: dir, Query: query})
+}
+
+// Search scans the requested directory. Every open stays inside Store's root,
+// including when entries change during a scan.
+func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, error) {
+	dir, query := opts.Folder, opts.Query
 	result := ContentSearch{Matches: []ContentMatch{}}
 	query = strings.TrimSpace(query)
 	if query == "" || utf8.RuneCountInString(query) > 200 {
@@ -91,6 +102,7 @@ func (s *Store) SearchContent(ctx context.Context, dir, query string) (ContentSe
 	_ = root.Close()
 	needle := strings.ToLower(query)
 	needleBytes := []byte(needle)
+	var matchLine matcher = literalMatcher{needle: needle}
 	entriesSeen := 0
 	var visit func(string) error
 	visit = func(folder string) error {
@@ -198,7 +210,7 @@ func (s *Store) SearchContent(ctx context.Context, dir, query string) (ContentSe
 			if strings.ContainsRune(needle, '\n') || !bytes.Contains(lowered, needleBytes) {
 				continue
 			}
-			previousStart, previousEnd, foldedStart := 0, 0, 0
+			previousStart, previousEnd := 0, 0
 			for start, number := 0, 1; start <= len(data); number++ {
 				if err := ctx.Err(); err != nil {
 					return err
@@ -207,19 +219,12 @@ func (s *Store) SearchContent(ctx context.Context, dir, query string) (ContentSe
 				if newline := bytes.IndexByte(data[start:], '\n'); newline >= 0 {
 					end = start + newline
 				}
-				// Follow folded newlines independently, strictly as a filter.
-				// Original byte ranges above define source lines and their numbers.
-				foldedEnd := len(lowered)
-				if newline := bytes.IndexByte(lowered[foldedStart:], '\n'); newline >= 0 {
-					foldedEnd = foldedStart + newline
-				}
-				if bytes.Contains(lowered[foldedStart:foldedEnd], needleBytes) {
-					line := string(data[start:end])
-					lowerLine := strings.ToLower(line)
-					index := strings.Index(lowerLine, needle)
-					text := contextLine(line)
-					if len(lowerLine) == len(line) {
-						text = searchSnippet(line, index, min(index+len(query), len(line)))
+				line := string(data[start:end])
+				if index, matchEnd, ok := matchLine.find(line); ok {
+					text := searchSnippet(line, index, matchEnd)
+					// Preserve the original snippet policy for width-changing folds.
+					if len(strings.ToLower(line)) != len(line) {
+						text = contextLine(line)
 					}
 					match := ContentMatch{Path: rel, Line: number, Text: text}
 					if number > 1 {
@@ -238,7 +243,6 @@ func (s *Store) SearchContent(ctx context.Context, dir, query string) (ContentSe
 						return nil
 					}
 				}
-				foldedStart = foldedEnd + 1
 				previousStart, previousEnd = start, end
 				start = end + 1
 			}
