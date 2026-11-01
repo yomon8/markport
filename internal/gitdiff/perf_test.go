@@ -15,7 +15,9 @@ func BenchmarkListAt(b *testing.B) {
 	dir := b.TempDir()
 	git := func(args ...string) {
 		b.Helper()
-		if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+		command := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+		if out, err := command.CombinedOutput(); err != nil {
 			b.Fatalf("git: %v: %s", err, out)
 		}
 	}

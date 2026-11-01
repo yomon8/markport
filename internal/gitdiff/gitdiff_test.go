@@ -15,6 +15,7 @@ func TestListLineCounts(t *testing.T) {
 	git := func(args ...string) {
 		t.Helper()
 		command := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, output)
 		}
