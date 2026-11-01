@@ -125,3 +125,18 @@ describe('file tree keyboard navigation', () => {
     reloaded.revealDirectory('docs'); expect(document.activeElement).toBe(rows()[0]);
   });
 });
+
+it('supports Vim tree navigation without opening files or intercepting search typing', () => {
+  rows()[0].focus(); key('l'); expect(onOpen).toHaveBeenCalledWith('docs');
+  view.setPage('docs', page([node('docs/a.md')]));
+  key('l'); expect(document.activeElement).toBe(rows()[1]);
+  key('h'); expect(document.activeElement).toBe(rows()[0]);
+  key('h'); expect(tree.querySelector('details')?.open).toBe(false);
+  key('j'); expect(document.activeElement).toBe(rows()[1]);
+  key('G', { shiftKey: true }); expect(document.activeElement).toBe(rows().at(-1));
+  key('g'); key('g'); expect(document.activeElement).toBe(rows()[0]);
+  key('k'); expect(document.activeElement).toBe(rows()[0]);
+  search.focus();
+  for (const letter of 'hjklg') key(letter);
+  expect(document.activeElement).toBe(search);
+});

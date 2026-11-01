@@ -1,3 +1,4 @@
+import { createVimKeys, scrollVim, vimBlocked } from './vimNavigation';
 import { FileGitView, fileView, fileViewURL, swapFilePanes, rightOnlyURL, type FileView } from './fileGit';
 import { iconSVG, setIcon, type IconName } from './icons';
 import './style.css';
@@ -1513,7 +1514,14 @@ document.querySelector('#right-only')!.addEventListener('click', showRightOnly);
 rightInteractive.addEventListener('click', () => { const path = rightSelected(); if (path) setInteractive(path, !interactivePaths.has(path)); });
 window.addEventListener('popstate', () => { keyboardTreePath = ''; pendingRightScroll = history.state?.rightScroll ?? 0; rightPane.scrollTop = pendingRightScroll ?? 0; rightShownKey = ''; rightTag = ''; pasteVersion++; sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); void syncSelectedFile(); });
 window.addEventListener('hashchange', () => { highlightCodeLines(true); });
+const vimKeys = createVimKeys();
+document.addEventListener('focusin', vimKeys.reset);
+window.addEventListener('blur', vimKeys.reset);
+window.addEventListener('popstate', vimKeys.reset);
 window.addEventListener('keydown', (event) => {
+  const target = event.target;
+  if (selectedMode() === 'paste' || vimBlocked() || (target instanceof Element && target.closest('#sidebar, #sidebar-resize, #split-resize'))) vimKeys.reset();
+  else if (scrollVim(activePane.current() === 'right' ? rightPane : main, vimKeys.read(event))) { event.preventDefault(); return; }
   if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
   if (editingShortcutTarget(event.target)) return;
   if (matchesShortcut(event, 'pasteMode') || matchesShortcut(event, 'themeMenu')) {

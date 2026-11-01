@@ -2733,3 +2733,26 @@ for (const width of [1280, 390]) {
     await input.focus(); await expect(input).toHaveValue('# Saved mtmt');
   });
 }
+
+test('Vim reading navigation scrolls only the active pane and respects input and dialogs', async ({ page }) => {
+  await writeFile(join(directory, 'vim-long.md'), '# Vim navigation\n\n' + 'A paragraph of text.\n\n'.repeat(250));
+  await page.goto(`http://127.0.0.1:${port}/?path=vim-long.md&right=vim-long.md`);
+  await expect(page.locator('#content h1')).toHaveText('Vim navigation');
+  await expect(page.locator('#right-content h1')).toHaveText('Vim navigation');
+  const left = page.locator('#main'); const right = page.locator('#right-pane');
+  await page.locator('#file-title').focus();
+  await page.keyboard.press('j'); expect(await left.evaluate((el) => el.scrollTop)).toBe(40);
+  await page.keyboard.press('Control+d'); expect(await left.evaluate((el) => el.scrollTop)).toBeGreaterThan(40);
+  await page.keyboard.press('Control+u'); expect(await left.evaluate((el) => el.scrollTop)).toBe(40);
+  await page.keyboard.press('Shift+G'); expect(await left.evaluate((el) => el.scrollTop)).toBeGreaterThan(1000);
+  await page.keyboard.press('g'); await page.keyboard.press('g'); expect(await left.evaluate((el) => el.scrollTop)).toBe(0);
+  await right.click({ position: { x: 50, y: 200 } });
+  await page.keyboard.press('j'); expect(await right.evaluate((el) => el.scrollTop)).toBe(40);
+  expect(await left.evaluate((el) => el.scrollTop)).toBe(0);
+  await page.keyboard.press('/'); await expect(page.locator('#search')).toBeFocused();
+  await page.keyboard.type('hjklg'); await expect(page.locator('#search')).toHaveValue('hjklg');
+  expect(await right.evaluate((el) => el.scrollTop)).toBe(40);
+  await page.locator('#file-title').focus(); await page.keyboard.press('?');
+  await expect(page.locator('#shortcuts-dialog')).toBeVisible();
+  await page.keyboard.press('j'); expect(await left.evaluate((el) => el.scrollTop)).toBe(0);
+});

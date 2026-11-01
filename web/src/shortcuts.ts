@@ -1,8 +1,13 @@
-type Binding = { key: string; mod?: boolean; shift?: boolean };
-export type ShortcutId = 'pasteMode' | 'themeMenu' | 'contentWidth' | 'pasteView' | 'pasteEscape' | 'pasteIndent' | 'pasteUnindent' | 'serverInfo' | 'serverNext' | 'serverPrevious' | 'serverOpen' | 'search' | 'sidebar' | 'help' | 'close' | 'nextChange' | 'previousChange' | 'reviewNext' | 'treeTab' | 'treeExpand' | 'treeCollapse' | 'treeNext' | 'treePrevious' | 'treeFirst' | 'treeLast' | 'treeOpen' | 'treeClear' | 'tabSwitch' | 'tabFirst' | 'tabLast';
+type Binding = { key: string; mod?: boolean; shift?: boolean; ctrl?: boolean };
+export type ShortcutId = 'pasteMode' | 'themeMenu' | 'contentWidth' | 'pasteView' | 'pasteEscape' | 'pasteIndent' | 'pasteUnindent' | 'serverInfo' | 'serverNext' | 'serverPrevious' | 'serverOpen' | 'search' | 'sidebar' | 'help' | 'close' | 'nextChange' | 'previousChange' | 'reviewNext' | 'treeTab' | 'treeExpand' | 'treeCollapse' | 'treeNext' | 'treePrevious' | 'treeFirst' | 'treeLast' | 'treeOpen' | 'treeClear' | 'tabSwitch' | 'tabFirst' | 'tabLast' | 'vimScroll' | 'vimHalfDown' | 'vimHalfUp' | 'vimEdges' | 'vimTree';
 type Shortcut = { id: ShortcutId; description: string; group: string; bindings: Binding[] };
 
 export const shortcuts: Shortcut[] = [
+  { id: 'vimScroll', description: 'Scroll active reading pane down / up (40px)', group: 'Vim navigation', bindings: [{ key: 'j' }, { key: 'k' }] },
+  { id: 'vimHalfDown', description: 'Scroll active reading pane down half a page', group: 'Vim navigation', bindings: [{ key: 'd', ctrl: true }] },
+  { id: 'vimHalfUp', description: 'Scroll active reading pane up half a page', group: 'Vim navigation', bindings: [{ key: 'u', ctrl: true }] },
+  { id: 'vimEdges', description: 'First / last position in reading pane or focused file tree', group: 'Vim navigation', bindings: [{ key: 'gg' }, { key: 'G', shift: true }] },
+  { id: 'vimTree', description: 'Focused file tree: collapse / next / previous / expand; Enter opens', group: 'Vim navigation', bindings: [{ key: 'h' }, { key: 'j' }, { key: 'k' }, { key: 'l' }] },
   { id: 'pasteMode', description: 'Open Paste Markdown', group: 'General', bindings: [{ key: 'm' }] },
   { id: 'themeMenu', description: 'Choose a theme', group: 'General', bindings: [{ key: 't' }] },
   { id: 'pasteView', description: 'Switch Text and Rendered views', group: 'Paste Markdown', bindings: [{ key: 'Enter', mod: true }] },
@@ -42,7 +47,7 @@ export function shortcutText(id: ShortcutId): string {
   const names: Record<string, string> = { ArrowDown: '↓', ArrowUp: '↑', ArrowLeft: '←', ArrowRight: '→', Escape: 'Esc' };
   return shortcut.bindings.map((binding) => {
     const key = names[binding.key] ?? (binding.mod && binding.key.length === 1 ? binding.key.toUpperCase() : binding.key);
-    return `${binding.mod ? (onMac() ? '⌘' : 'Ctrl+') : ''}${binding.shift ? 'Shift+' : ''}${key}`;
+    return `${binding.ctrl ? 'Ctrl+' : binding.mod ? (onMac() ? '⌘' : 'Ctrl+') : ''}${binding.shift && binding.key !== 'G' ? 'Shift+' : ''}${key}`;
   }).join(' or ');
 }
 
@@ -50,6 +55,7 @@ export function matchesShortcut(event: KeyboardEvent, id: ShortcutId): boolean {
   if (event.isComposing || event.keyCode === 229 || event.altKey) return false;
   const shortcut = shortcuts.find((entry) => entry.id === id)!;
   return shortcut.bindings.some((binding) => {
+    if (binding.ctrl) return event.ctrlKey && !event.metaKey && !event.shiftKey && event.key === binding.key;
     if (binding.mod ? !(event.ctrlKey || event.metaKey) : event.ctrlKey || event.metaKey) return false;
     if (binding.key !== '?' && event.shiftKey !== Boolean(binding.shift)) return false;
     return event.key.toLowerCase() === binding.key.toLowerCase();

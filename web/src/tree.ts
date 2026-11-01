@@ -1,3 +1,4 @@
+import { createVimKeys, vimBlocked } from './vimNavigation';
 import { matchesShortcut } from './shortcuts';
 import { setIcon } from './icons';
 export type Node = { name: string; path: string; type: 'directory' | 'file' };
@@ -184,31 +185,42 @@ export class TreeView {
         event.preventDefault(); event.stopPropagation(); this.focusRow(rows[0]); this.activate(rows[0]);
       }
     });
+    const vimKeys = createVimKeys();
+    tree.addEventListener('focusin', vimKeys.reset);
+    tree.addEventListener('focusout', vimKeys.reset);
+    window.addEventListener('blur', vimKeys.reset);
     tree.addEventListener('keydown', (event) => {
-      if (matchesShortcut(event, 'treeClear') && search.value) {
+      if (vimBlocked()) { vimKeys.reset(); return; }
+      const action = vimKeys.read(event);
+      if (action === 'pending') { event.preventDefault(); event.stopPropagation(); return; }
+      const vimMatches = (id: Parameters<typeof matchesShortcut>[1]): boolean => {
+        const aliases = { treeNext: 'down', treePrevious: 'up', treeExpand: 'right', treeCollapse: 'left', treeFirst: 'first', treeLast: 'last' };
+        return matchesShortcut(event, id) || aliases[id as keyof typeof aliases] === action && action !== undefined;
+      };
+      if (vimMatches('treeClear') && search.value) {
         event.preventDefault(); event.stopPropagation(); this.clearSearch(); return;
       }
       const rows = this.rows(); const row = this.rowFor(event.target);
       if (!row) return;
       const index = rows.indexOf(row);
       let next: HTMLElement | undefined;
-      if (matchesShortcut(event, 'treeNext')) next = rows[Math.min(rows.length - 1, index + 1)];
-      else if (matchesShortcut(event, 'treePrevious')) next = rows[Math.max(0, index - 1)];
-      else if (matchesShortcut(event, 'treeFirst')) next = rows[0];
-      else if (matchesShortcut(event, 'treeLast')) next = rows.at(-1);
-      else if (matchesShortcut(event, 'treeExpand')) {
+      if (vimMatches('treeNext')) next = rows[Math.min(rows.length - 1, index + 1)];
+      else if (vimMatches('treePrevious')) next = rows[Math.max(0, index - 1)];
+      else if (vimMatches('treeFirst')) next = rows[0];
+      else if (vimMatches('treeLast')) next = rows.at(-1);
+      else if (vimMatches('treeExpand')) {
         if (row.matches('summary')) {
           const details = row.parentElement as HTMLDetailsElement;
           if (!details.open) this.toggleFolder(row);
           else next = rows[index + 1] && details.contains(rows[index + 1]) ? rows[index + 1] : undefined;
         }
-      } else if (matchesShortcut(event, 'treeCollapse')) {
+      } else if (vimMatches('treeCollapse')) {
         if (row.matches('summary') && (row.parentElement as HTMLDetailsElement).open) this.toggleFolder(row);
         else {
           const parent = row.matches('summary') ? row.parentElement?.parentElement : row.parentElement;
           next = parent?.closest('details')?.querySelector<HTMLElement>(':scope > summary') ?? undefined;
         }
-      } else if (matchesShortcut(event, 'treeOpen')) {
+      } else if (vimMatches('treeOpen')) {
         const target = event.target instanceof HTMLElement && event.target.matches('.open-right') ? event.target : row;
         this.activate(target);
       } else return;

@@ -324,6 +324,8 @@ Markport does not edit files, add comments, read from standard input, or provide
 
 ## Development
 
+Vim navigation is always enabled: `j`/`k` scroll the active reading pane by 40px, `Ctrl+D`/`Ctrl+U` by half a page, and `gg`/`G` jump to the start/end. In the focused file tree, `h`/`j`/`k`/`l` navigate folders and rows, `gg`/`G` select the first/last row, and Enter opens. Type `gg` within 800ms. These keys are inactive in inputs, menus, dialogs, and Paste Markdown. Half-page keys use Ctrl on macOS too. `/` still searches files.
+
 ### Architecture
 
 The Go executable serves the embedded browser UI and a read-only API on the configured IPv4 address. It renders files on demand and lists one folder at a time.
