@@ -11,6 +11,33 @@ import (
 	"testing"
 )
 
+func TestSearchOptions(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "sample.txt"), []byte("BUG-123\nbug-2 extra\nbug_3\nnext\nline\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	result, err := store.Search(context.Background(), SearchOptions{Query: `bug-\d+`, Regex: true, CaseSensitive: true})
+	if err != nil || len(result.Matches) != 1 || result.Matches[0].Line != 2 {
+		t.Fatalf("case-sensitive regex search: %+v, %v", result, err)
+	}
+	result, err = store.Search(context.Background(), SearchOptions{Query: "bug", WholeWord: true})
+	if err != nil || len(result.Matches) != 2 {
+		t.Fatalf("whole-word search: %+v, %v", result, err)
+	}
+	result, err = store.Search(context.Background(), SearchOptions{Query: `(?s)next\s+line`, Regex: true})
+	if err != nil || len(result.Matches) != 0 {
+		t.Fatalf("matched across lines: %+v, %v", result, err)
+	}
+	if _, err := store.Search(context.Background(), SearchOptions{Query: "[", Regex: true}); !errors.Is(err, ErrQuery) {
+		t.Fatalf("invalid regexp: %v", err)
+	}
+}
+
 func TestSearchContentScopeSafetyAndContext(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{"docs", "other", "docs/node_modules"} {

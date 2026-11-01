@@ -72,8 +72,11 @@ func contextLine(line string) string {
 }
 
 type SearchOptions struct {
-	Folder string
-	Query  string
+	Folder        string
+	Query         string
+	CaseSensitive bool
+	WholeWord     bool
+	Regex         bool
 }
 
 // SearchContent preserves the original API for callers without search options.
@@ -90,6 +93,11 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 	if query == "" || utf8.RuneCountInString(query) > 200 {
 		return result, ErrPath
 	}
+	opts.Query = query
+	matchLine, err := newMatcher(opts)
+	if err != nil {
+		return result, err
+	}
 	if dir != "" {
 		if _, err := Parts(dir); err != nil {
 			return result, err
@@ -101,8 +109,10 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 	}
 	_ = root.Close()
 	needle := strings.ToLower(query)
+	if opts.CaseSensitive {
+		needle = query
+	}
 	needleBytes := []byte(needle)
-	var matchLine matcher = literalMatcher{needle: needle}
 	entriesSeen := 0
 	var visit func(string) error
 	visit = func(folder string) error {
@@ -206,9 +216,14 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 			}
 			// Fold the file only as a filter: Unicode folding may change byte
 			// offsets, so line numbers and snippets always use the original data.
-			lowered := bytes.ToLower(data)
-			if strings.ContainsRune(needle, '\n') || !bytes.Contains(lowered, needleBytes) {
-				continue
+			if !opts.Regex {
+				filtered := data
+				if !opts.CaseSensitive {
+					filtered = bytes.ToLower(data)
+				}
+				if strings.ContainsRune(needle, '\n') || !bytes.Contains(filtered, needleBytes) {
+					continue
+				}
 			}
 			previousStart, previousEnd := 0, 0
 			for start, number := 0, 1; start <= len(data); number++ {
@@ -223,7 +238,7 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 				if index, matchEnd, ok := matchLine.find(line); ok {
 					text := searchSnippet(line, index, matchEnd)
 					// Preserve the original snippet policy for width-changing folds.
-					if len(strings.ToLower(line)) != len(line) {
+					if !opts.Regex && !opts.CaseSensitive && len(strings.ToLower(line)) != len(line) {
 						text = contextLine(line)
 					}
 					match := ContentMatch{Path: rel, Line: number, Text: text}

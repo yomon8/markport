@@ -1,6 +1,7 @@
 package files
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -25,5 +26,45 @@ func TestLiteralMatcherSourceOffsets(t *testing.T) {
 	}
 	if _, _, ok := (literalMatcher{needle: "absent"}).find("example"); ok {
 		t.Fatal("matched absent query")
+	}
+}
+
+func TestSearchMatchers(t *testing.T) {
+	for _, tc := range []struct {
+		name, line, want string
+		opts             SearchOptions
+		found            bool
+	}{
+		{"case default", "Cat", "Cat", SearchOptions{Query: "cat"}, true},
+		{"case exact", "Cat cat", "cat", SearchOptions{Query: "cat", CaseSensitive: true}, true},
+		{"case mismatch", "Cat", "", SearchOptions{Query: "cat", CaseSensitive: true}, false},
+		{"ascii words", "scatter cat", "cat", SearchOptions{Query: "cat", WholeWord: true}, true},
+		{"underscore", "_cat cat_ cat", "cat", SearchOptions{Query: "cat", WholeWord: true}, true},
+		{"digits", "cat2 2cat", "", SearchOptions{Query: "cat", WholeWord: true}, false},
+		{"Japanese boundary", "日本語 日本", "日本", SearchOptions{Query: "日本", WholeWord: true}, true},
+		{"Unicode prefix", "İcat cat", "cat", SearchOptions{Query: "cat", WholeWord: true}, true},
+		{"groups", "BUG-123", "BUG-123", SearchOptions{Query: `(bug|fix)-\d+`, Regex: true}, true},
+		{"regex case", "BUG-123", "", SearchOptions{Query: `bug-\d+`, Regex: true, CaseSensitive: true}, false},
+		{"explicit flag", "BUG-123", "BUG-123", SearchOptions{Query: `(?i)bug-\d+`, Regex: true, CaseSensitive: true}, true},
+		{"regex words", "scatter cat", "cat", SearchOptions{Query: `cat`, Regex: true, WholeWord: true}, true},
+		{"anchored words", "cats cat", "", SearchOptions{Query: `^cat`, Regex: true, WholeWord: true}, false},
+		{"empty regex match", "abc", "", SearchOptions{Query: `$`, Regex: true}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, err := newMatcher(tc.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			start, end, ok := m.find(tc.line)
+			if ok != tc.found || ok && tc.line[start:end] != tc.want {
+				t.Fatalf("find = %d, %d, %v; want %q, %v", start, end, ok, tc.want, tc.found)
+			}
+			if tc.name == "underscore" && start != 10 {
+				t.Fatalf("matched inside identifier: %d", start)
+			}
+		})
+	}
+	if _, err := newMatcher(SearchOptions{Query: "[", Regex: true}); !errors.Is(err, ErrQuery) {
+		t.Fatalf("invalid regexp: %v", err)
 	}
 }
