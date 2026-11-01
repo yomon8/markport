@@ -236,6 +236,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	base, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	watchErrors := app.StartWatch(base)
+	defer app.StopWatch()
 	app.Title = o.Title
 	app.WorkingDirectory = workingDirectory
 	app.Version = Version
@@ -257,13 +260,23 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	} else {
 		fmt.Fprintf(stdout, "http://%s:%d/\n", o.Host, o.Port)
 	}
-	select {
-	case <-sig:
-	case err := <-serveDone:
-		if !errors.Is(err, http.ErrServerClosed) {
-			fmt.Fprintln(stderr, err)
-			cancel()
-			return 1
+	for running := true; running; {
+		select {
+		case <-sig:
+			running = false
+		case err := <-serveDone:
+			if !errors.Is(err, http.ErrServerClosed) {
+				fmt.Fprintln(stderr, err)
+				cancel()
+				return 1
+			}
+			running = false
+		case err, ok := <-watchErrors:
+			if !ok {
+				watchErrors = nil
+			} else if err != nil {
+				fmt.Fprintf(stderr, "Warning: file watching unavailable; using polling: %v\n", err)
+			}
 		}
 	}
 	cancel()

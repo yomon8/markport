@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/markport/markport/internal/discovery"
@@ -66,6 +67,18 @@ type Server struct {
 	searchFlight        chan struct{}
 	searchErr           error
 	searchDirectoryTags map[string]string
+	searchGeneration    uint64
+	watchMu             sync.RWMutex
+	watchOnce           sync.Once
+	watcher             *files.Watcher
+	watchCancel         context.CancelFunc
+	watchDone           chan struct{}
+	watchErrors         chan error
+	eventClients        atomic.Int32
+	eventSubscribers    map[uint64]chan files.ChangeBatch
+	nextEventSubscriber uint64
+	gitWatchMu          sync.Mutex
+	gitWatchReady       bool
 }
 
 func New(store *files.Store, host string, port int) (*Server, error) {
@@ -120,6 +133,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.searchIndex(w, r)
 	case "/api/content-search":
 		s.contentSearch(w, r)
+	case "/api/events":
+		s.events(w, r)
 	case "/api/file":
 		s.file(w, r)
 	case "/api/asset":
@@ -318,6 +333,9 @@ func (s *Server) gitChanges(w http.ResponseWriter, r *http.Request) {
 		gitError(w, err)
 		return
 	}
+	if listing.Available {
+		s.ensureGitWatch(r.Context())
+	}
 	gitReply(w, r, listing)
 }
 
@@ -349,6 +367,9 @@ func (s *Server) gitHistory(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		gitError(w, err)
 		return
+	}
+	if page.Available {
+		s.ensureGitWatch(r.Context())
 	}
 	gitReply(w, r, page)
 }
@@ -492,6 +513,7 @@ func (s *Server) cachedSearchPaths(ctx context.Context, force bool) ([]string, [
 		}
 		flight := make(chan struct{})
 		s.searchFlight = flight
+		generation := s.searchGeneration
 		s.searchMu.Unlock()
 		walkCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		paths, err := s.Files.FilePaths(walkCtx)
@@ -511,7 +533,11 @@ func (s *Server) cachedSearchPaths(ctx context.Context, force bool) ([]string, [
 			s.searchTag = tag
 			s.searchPaths = paths
 			s.searchIgnored = ignored
-			s.searchExpires = time.Now().Add(5 * time.Second)
+			if generation == s.searchGeneration {
+				s.searchExpires = time.Now().Add(5 * time.Second)
+			} else {
+				s.searchExpires = time.Time{}
+			}
 		}
 		s.searchErr = err
 		s.searchFlight = nil
@@ -564,6 +590,7 @@ func (s *Server) tree(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.searchDirectoryTags[dir] != version {
 		s.searchExpires = time.Time{}
+		s.searchGeneration++
 		s.searchDirectoryTags[dir] = version
 	}
 	s.searchMu.Unlock()

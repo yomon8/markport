@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"bufio"
 	"bytes"
 	"net"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -20,12 +22,19 @@ func TestShutdown(t *testing.T) {
 	if os.Getenv("MARKPORT_CLI_HELPER") == "1" {
 		os.Exit(Run(os.Args[len(os.Args)-3:], os.Stdout, os.Stderr))
 	}
-	testShutdown(t, syscall.SIGTERM)
+	testShutdown(t, syscall.SIGTERM, false)
 }
 
-func TestShutdownInterrupt(t *testing.T) { testShutdown(t, syscall.SIGINT) }
+func TestShutdownInterrupt(t *testing.T) { testShutdown(t, syscall.SIGINT, false) }
 
-func testShutdown(t *testing.T, signal os.Signal) {
+func TestShutdownWithSSE(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("live SSE connections require native watching")
+	}
+	testShutdown(t, syscall.SIGTERM, true)
+}
+
+func testShutdown(t *testing.T, signal os.Signal, withSSE bool) {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -68,6 +77,42 @@ func testShutdown(t *testing.T, signal os.Signal) {
 		entries, err := os.ReadDir(filepath.Join(cacheDirectory, "markport", "instances"))
 		if err != nil || len(entries) != 1 {
 			t.Fatalf("instance registration: %v, %d entries", err, len(entries))
+		}
+	}
+	if withSSE {
+		// No response-body timeout: the client must remain connected throughout
+		// shutdown, rather than releasing the server when a client timer expires.
+		transport := &http.Transport{ResponseHeaderTimeout: time.Second}
+		defer transport.CloseIdleConnections()
+		streamClient := &http.Client{Transport: transport}
+		watching := false
+		deadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(deadline) {
+			stream, err := streamClient.Get("http://127.0.0.1:" + strconv.Itoa(port) + "/api/events")
+			if err != nil {
+				t.Fatal(err)
+			}
+			reader := bufio.NewReader(stream.Body)
+			_, err = reader.ReadString('\n')
+			if err != nil {
+				_ = stream.Body.Close()
+				t.Fatal(err)
+			}
+			data, err := reader.ReadString('\n')
+			if err != nil {
+				_ = stream.Body.Close()
+				t.Fatal(err)
+			}
+			if strings.Contains(data, `"mode":"watch"`) {
+				defer stream.Body.Close()
+				watching = true
+				break
+			}
+			_ = stream.Body.Close()
+			time.Sleep(10 * time.Millisecond)
+		}
+		if !watching {
+			t.Fatal("SSE did not enter watch mode")
 		}
 	}
 	if err := command.Process.Signal(signal); err != nil {

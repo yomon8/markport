@@ -44,7 +44,8 @@ func TestAssetCacheHeaders(t *testing.T) {
 		{"/assets/" + name, "public, max-age=31536000, immutable", 200},
 		{"/", "no-cache", 200},
 		{"/assets/missing.js", "", 404},
-		{"/api/events", "", 404},
+		{"/api/events", "no-store", 200},
+		{"/api/missing", "", 404},
 	} {
 		r := request(app, "localhost:3000", test.path)
 		if r.Code != test.status || r.Header().Get("Cache-Control") != test.cache {

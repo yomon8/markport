@@ -41,22 +41,29 @@ type WatchOptions struct {
 	Debounce  time.Duration
 }
 
+type extraWatchRequest struct {
+	ctx         context.Context
+	directories []string
+	result      chan error
+}
+
 // Watcher owns a complete set of directory watches, or falls back to polling.
 // The event loop owns directories; mu protects subscribers and shutdown.
 type Watcher struct {
-	store       *Store
-	native      *fsnotify.Watcher
-	opts        WatchOptions
-	directories map[string]bool
-	extra       map[string]bool
-	mode        atomic.Value
-	cancel      context.CancelFunc
-	done        chan struct{}
-	closeErr    error
-	mu          sync.Mutex
-	closed      bool
-	nextID      uint64
-	subscribers map[uint64]chan ChangeBatch
+	store         *Store
+	native        *fsnotify.Watcher
+	opts          WatchOptions
+	directories   map[string]bool
+	extra         map[string]bool
+	mode          atomic.Value
+	cancel        context.CancelFunc
+	done          chan struct{}
+	closeErr      error
+	mu            sync.Mutex
+	closed        bool
+	nextID        uint64
+	subscribers   map[uint64]chan ChangeBatch
+	extraRequests chan extraWatchRequest
 }
 
 func (s *Store) Watch(ctx context.Context, opts WatchOptions) (*Watcher, error) {
@@ -67,7 +74,7 @@ func (s *Store) Watch(ctx context.Context, opts WatchOptions) (*Watcher, error) 
 		opts.Debounce = 200 * time.Millisecond
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	w := &Watcher{store: s, opts: opts, directories: make(map[string]bool), extra: make(map[string]bool), cancel: cancel, done: make(chan struct{}), subscribers: make(map[uint64]chan ChangeBatch)}
+	w := &Watcher{store: s, opts: opts, directories: make(map[string]bool), extra: make(map[string]bool), cancel: cancel, done: make(chan struct{}), subscribers: make(map[uint64]chan ChangeBatch), extraRequests: make(chan extraWatchRequest)}
 	w.mode.Store("poll")
 	if !watchSupported {
 		w.finish()
@@ -101,6 +108,41 @@ func (s *Store) Watch(ctx context.Context, opts WatchOptions) (*Watcher, error) 
 }
 
 func (w *Watcher) Mode() string { return w.mode.Load().(string) }
+
+// AddExtraDirs registers metadata for repositories created after startup.
+// Registration stays serialized with filesystem events and shares their limit.
+func (w *Watcher) AddExtraDirs(ctx context.Context, directories []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(directories) == 0 {
+		return nil
+	}
+	if w.Mode() != "watch" {
+		return os.ErrClosed
+	}
+	request := extraWatchRequest{ctx: ctx, directories: append([]string{}, directories...), result: make(chan error, 1)}
+	select {
+	case w.extraRequests <- request:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-w.done:
+		return os.ErrClosed
+	}
+	select {
+	case err := <-request.result:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-w.done:
+		select {
+		case err := <-request.result:
+			return err
+		default:
+			return os.ErrClosed
+		}
+	}
+}
 
 func (w *Watcher) Close() error {
 	w.cancel()
@@ -293,12 +335,39 @@ func (w *Watcher) loop(ctx context.Context) {
 		batch.Overflow = true
 		flush()
 	}
+	armTimer := func() {
+		if timer == nil {
+			timer = time.NewTimer(w.opts.Debounce)
+		} else {
+			timer.Stop()
+			timer.Reset(w.opts.Debounce)
+		}
+		tick = timer.C
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-tick:
 			flush()
+		case request := <-w.extraRequests:
+			if err := request.ctx.Err(); err != nil {
+				request.result <- err
+				continue
+			}
+			var err error
+			for _, directory := range request.directories {
+				if err = w.addExtra(directory); err != nil {
+					break
+				}
+			}
+			request.result <- err
+			if err != nil {
+				fallback()
+				return
+			}
+			batch.Git = true
+			armTimer()
 		case _, ok := <-w.native.Errors:
 			if !ok && ctx.Err() != nil {
 				return
@@ -351,13 +420,7 @@ func (w *Watcher) loop(ctx context.Context) {
 				}
 				batch.Created = batch.Created || event.Op&(fsnotify.Create|fsnotify.Remove|fsnotify.Rename) != 0
 			}
-			if timer == nil {
-				timer = time.NewTimer(w.opts.Debounce)
-			} else {
-				timer.Stop()
-				timer.Reset(w.opts.Debounce)
-			}
-			tick = timer.C
+			armTimer()
 		}
 	}
 }

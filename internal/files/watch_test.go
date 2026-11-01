@@ -218,6 +218,48 @@ func TestWatchGitMetadataIsPrivateAndNonrecursive(t *testing.T) {
 	quietWatch(t, changes)
 }
 
+func TestWatchLateExtraDirectories(t *testing.T) {
+	store := watchStore(t)
+	watcher := startTestWatch(t, store, WatchOptions{})
+	changes, unsubscribe := watcher.Subscribe()
+	defer unsubscribe()
+	gitDir := filepath.Join(store.Path, ".git")
+	if err := os.Mkdir(gitDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := watcher.AddExtraDirs(t.Context(), []string{gitDir}); err != nil {
+		t.Fatal(err)
+	}
+	if batch := nextBatch(t, changes); !batch.Git || len(batch.Paths) != 0 {
+		t.Fatalf("late registration: %+v", batch)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "index"), []byte("index"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if batch := nextBatch(t, changes); !batch.Git || len(batch.Paths) != 0 {
+		t.Fatalf("late metadata: %+v", batch)
+	}
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := watcher.AddExtraDirs(canceled, []string{gitDir}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled registration: %v", err)
+	}
+	_ = watcher.Close()
+	if err := watcher.AddExtraDirs(t.Context(), []string{gitDir}); !errors.Is(err, os.ErrClosed) {
+		t.Fatalf("closed registration: %v", err)
+	}
+	store = watchStore(t)
+	watcher = startTestWatch(t, store, WatchOptions{MaxDirs: 1})
+	changes, unsubscribe = watcher.Subscribe()
+	defer unsubscribe()
+	if err := watcher.AddExtraDirs(t.Context(), []string{t.TempDir()}); err == nil {
+		t.Fatal("late registration exceeded directory cap")
+	}
+	if batch := nextBatch(t, changes); !batch.Overflow || watcher.Mode() != "poll" {
+		t.Fatalf("partial late registration: %+v", batch)
+	}
+}
+
 func TestWatchOverflowAndPathCap(t *testing.T) {
 	store := watchStore(t)
 	watcher := startTestWatch(t, store, WatchOptions{Debounce: 500 * time.Millisecond})
