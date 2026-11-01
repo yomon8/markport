@@ -322,7 +322,8 @@ markport ./notes --lan --port 3000
 - Symbolic links, Windows junctions, and special files such as FIFOs are not read.
 - Text files are limited to 10 MiB and images to 32 MiB. Binary or unreadable files show an error for that file only.
 - Folders load when opened, 200 entries at a time. File search covers all browsable files and shows the top 100 matches.
-- Open folders and the selected file are checked about every three seconds, and the file name list refreshes every ten seconds while searching. Closed folders refresh when opened. Click **Refresh** in the header to fetch the latest state immediately.
+- Linux and Windows use filesystem notifications and server-sent events to refresh open folders, the selected file, and Git views shortly after changes. A 30-second poll provides a backup check. While searching file names, creation, removal, and rename notifications also refresh the file index, with a 30-second backup refresh.
+- macOS always uses polling. If native watching is unavailable, registration fails, the 8,192-directory watch limit is exceeded, the native event queue overflows, or the event stream disconnects, views fall back to three-second polling. File name lists refresh every ten seconds while searching in polling mode. Closed folders refresh when opened. Click **Refresh** in the header to fetch the latest state immediately.
 
 Markport does not edit files, add comments, read from standard input, or provide authenticated network hosting.
 
