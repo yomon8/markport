@@ -47,11 +47,24 @@ type extraWatchRequest struct {
 	result      chan error
 }
 
+type watchBackend interface {
+	Add(string) error
+	Remove(string) error
+	WatchList() []string
+	Close() error
+}
+
+type nativeWatcher struct {
+	watchBackend
+	Events chan fsnotify.Event
+	Errors chan error
+}
+
 // Watcher owns a complete set of directory watches, or falls back to polling.
 // The event loop owns directories; mu protects subscribers and shutdown.
 type Watcher struct {
 	store         *Store
-	native        *fsnotify.Watcher
+	native        *nativeWatcher
 	opts          WatchOptions
 	directories   map[string]bool
 	extra         map[string]bool
@@ -80,7 +93,7 @@ func (s *Store) Watch(ctx context.Context, opts WatchOptions) (*Watcher, error) 
 		w.finish()
 		return w, nil
 	}
-	native, err := fsnotify.NewWatcher()
+	native, err := newNativeWatcher(s.Path)
 	if err == nil {
 		w.native = native
 		err = w.addTree(ctx, "")
@@ -400,6 +413,11 @@ func (w *Watcher) loop(ctx context.Context) {
 				}
 				info, err := w.store.root.Lstat(relative)
 				if err == nil && (info.Mode()&fs.ModeSymlink != 0 || !info.IsDir() && !info.Mode().IsRegular()) {
+					continue
+				}
+				// NTFS also reports parent-directory writes for child changes.
+				// Those contain no additional content or structural information.
+				if err == nil && info.IsDir() && event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) == fsnotify.Write {
 					continue
 				}
 				if event.Op&fsnotify.Create != 0 && err == nil && info.IsDir() {
