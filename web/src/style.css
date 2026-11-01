@@ -1,6 +1,8 @@
 @import './themes.css';
 @import './chroma.css';
 
+.content-query-row{display:flex;align-items:center;gap:4px}.content-query-row input{min-width:0;flex:1}.content-search-toggles{display:flex;gap:2px}.content-search-toggles button{font:12px var(--mono)}.content-search-form .content-search-ignored{display:flex;align-items:center;gap:6px;font-size:12px}.content-search-ignored input{width:auto;margin:0}
+
 #print-view{width:min(1000px,calc(100vw - 24px));height:calc(100dvh - 32px);max-width:none;max-height:none;padding:0;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text)}
 #print-view[open]{display:flex;flex-direction:column}
 #print-view::backdrop{background:#0008}
