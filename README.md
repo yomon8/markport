@@ -119,6 +119,10 @@ Click a folder in the file's breadcrumb path to reveal it in the sidebar, use **
 
 Open **Search contents**, enter **Text to find**, and optionally set **Folder** to a path relative to the browsing directory (leave it empty to search everything). Results show matching lines with context; click one to open that line. Use **Cancel** to stop a search. If a search limit is reached, the message names the limit and notes that results are partial.
 
+Use **Aa** to match case, **ab** to match whole words (including Unicode letters and digits), and **`.*`** for single-line regular expressions using Go's RE2 syntax. Invalid expressions show an error beside the search results. **Files to include** and **Files to exclude** accept up to 20 comma-separated patterns each, such as `*.md, docs/**`; patterns without `/` match file names, and `**` matches zero or more directories. Exclusions take priority. These options are saved in this browser.
+
+Content search skips Git-ignored files by default and reports how many were skipped. Enable **Include ignored files** to search them after other files. If Git is unavailable, all browsable files are searched. Searches stop after 30 seconds and return partial results when the time or another search limit is reached.
+
 ### Split view
 
 Use the arrow beside a file in the sidebar or a search result to open it on the right. Each pane scrolls and refreshes independently. Click a pane or focus a control inside it to select it as the file destination; its title shows **Active**. Files and file/content search results open in the selected pane. **Open on right** always opens on the right. Use **Swap panes** to exchange the files, **Show this file only** to keep only the right file, or **Close split view** to return to the left file. Drag the divider to resize the panes, or focus it and use the left/right arrow keys. Double-click it to restore equal widths. The ratio is saved in this browser. On narrow screens the panes stack vertically.
