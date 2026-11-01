@@ -70,6 +70,18 @@ export function createDirectoryBrowser(deps: DirectoryOptions) {
       }
     }
   }
+  async function openDirectory(path: string, offset = 0): Promise<void> {
+    // A pushed refresh can supersede a lazy load while the folder stays open.
+    // Retry that user action after its loading marker has been cleared.
+    while (!path || view.isActive(path)) {
+      const revision = deps.getRevision();
+      await loadPage(path, offset, '', false, revision);
+      if (revision === deps.getRevision()) {
+        await loadOpenDirectories(revision);
+        return;
+      }
+    }
+  }
   async function refreshDirectory(path: string, expectedRevision: number): Promise<void> {
     const before = view.revision(path);
     const offsets = view.offsets(path);
@@ -102,5 +114,5 @@ export function createDirectoryBrowser(deps: DirectoryOptions) {
     for (const key of pageTags.keys()) if (!view.has(key)) pageTags.delete(key);
     void loadOpenDirectories(expectedRevision).catch(() => deps.onError());
   }
-  return { loadPage, ensureSelectedPath, loadOpenDirectories, refreshDirectories, clearTags: () => pageTags.clear() };
+  return { loadPage, openDirectory, ensureSelectedPath, loadOpenDirectories, refreshDirectories, clearTags: () => pageTags.clear() };
 }

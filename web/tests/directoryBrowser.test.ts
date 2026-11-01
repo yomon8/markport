@@ -42,3 +42,57 @@ it('does not install pages or cache tags from superseded refreshes', async () =>
   expect(fetch.mock.calls[1][1].headers['If-None-Match']).toBeUndefined();
   expect(view.has('')).toBe(true);
 });
+
+it('retries opening a folder when a pushed refresh supersedes its lazy request', async () => {
+  let revision = 1;
+  let finish!: (response: Response) => void;
+  const fetch = vi.fn().mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve; }));
+  vi.stubGlobal('fetch', fetch);
+  const { controller, view } = setup(() => revision);
+  view.setPage('', { root: 'project', entries: [{ path: 'docs', name: 'docs', type: 'directory' }], offset: 0, nextOffset: null, revision: 'root' });
+  document.querySelector<HTMLElement>('nav summary')!.click();
+  const folderReply = { ...reply(), json: async () => ({ root: 'project', entries: [{ path: 'docs/a.md', name: 'a.md', type: 'file' }], offset: 0, nextOffset: null, revision: 'folder' }) } as Response;
+  fetch.mockResolvedValue(folderReply);
+  const opening = controller.openDirectory('docs');
+  revision++;
+  // The new refresh cannot load this folder while the old request is pending.
+  await controller.loadOpenDirectories(revision);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  finish(folderReply);
+  await opening;
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(document.querySelector('a[data-node-path="docs/a.md"]')).not.toBeNull();
+  view.forget('docs');
+});
+
+it('does not reopen a folder collapsed while its superseded request is pending', async () => {
+  let revision = 1;
+  let finish!: (response: Response) => void;
+  const fetch = vi.fn().mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve; }));
+  vi.stubGlobal('fetch', fetch);
+  const { controller, view } = setup(() => revision);
+  view.setPage('', { root: 'project', entries: [{ path: 'docs', name: 'docs', type: 'directory' }], offset: 0, nextOffset: null, revision: 'root' });
+  document.querySelector<HTMLElement>('nav summary')!.click();
+  const opening = controller.openDirectory('docs');
+  revision++;
+  document.querySelector<HTMLElement>('nav summary')!.click();
+  finish(reply());
+  await opening;
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(view.has('docs')).toBe(false);
+  expect(document.querySelector('details')!.open).toBe(false);
+});
+
+it('retries root pagination after a pushed refresh', async () => {
+  let revision = 1;
+  let finish!: (response: Response) => void;
+  const fetch = vi.fn().mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve; })).mockResolvedValue(reply());
+  vi.stubGlobal('fetch', fetch);
+  const { controller } = setup(() => revision);
+  const opening = controller.openDirectory('', 200);
+  revision++;
+  finish(reply());
+  await opening;
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/api/tree?offset=200', '/api/tree?offset=200']);
+});

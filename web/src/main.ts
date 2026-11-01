@@ -104,8 +104,8 @@ drawerToggle.title = `Open file list (${shortcutText('sidebar')})`;
 const sidebarToggle = document.querySelector<HTMLButtonElement>('#sidebar-toggle')!;
 sidebarToggle.title = `Collapse sidebar (${shortcutText('sidebar')})`;
 const view = new TreeView(tree, search, count, collapseAll, selectedFile,
-  (path) => { const current = refresh.revision; void loadPage(path, 0, '', false, current).then(() => loadOpenDirectories(current)).catch(() => status('Refresh failed. Please try again.', 'error')); },
-  (path, offset) => { const current = refresh.revision; void loadPage(path, offset, '', false, current).catch(() => status('Refresh failed. Please try again.', 'error')); },
+  (path) => { void directoryBrowser.openDirectory(path).catch(() => status('Refresh failed. Please try again.', 'error')); },
+  (path, offset) => { void directoryBrowser.openDirectory(path, offset).catch(() => status('Refresh failed. Please try again.', 'error')); },
   (query) => onSearchChange(query));
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = new URL(location.href).searchParams.get('source') === '1';
 let displayedMode: FileView | 'changes' | 'paste' | 'history' = 'file'; let lastFilePath = '';
@@ -161,7 +161,7 @@ const directoryBrowser = createDirectoryBrowser({
   onRoot: (name) => { rootName = name || rootName; document.querySelector('#root-name')!.textContent = rootName; },
   onError: () => status('Refresh failed. Please try again.', 'error'),
 });
-const { loadPage, ensureSelectedPath, loadOpenDirectories, refreshDirectories } = directoryBrowser;
+const { ensureSelectedPath, loadOpenDirectories, refreshDirectories } = directoryBrowser;
 const changesView = createChangesView({
   content, title, outline, main, changesTree, historyTree, changesTab, sidebar, sidebarToggle,
   view, tabTitle, contentWidth, preview, printView, selected, selectedMode, selectedBase,
