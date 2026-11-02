@@ -2,16 +2,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { matchesShortcut, shortcutText } from '../src/shortcuts';
 
-describe('content width shortcut', () => {
-  it('matches w and rejects modifiers and IME input', () => {
-    expect(matchesShortcut(new KeyboardEvent('keydown', { key: 'w' }), 'contentWidth')).toBe(true);
-    for (const options of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { isComposing: true }, { keyCode: 229 }]) {
-      expect(matchesShortcut(new KeyboardEvent('keydown', { key: 'w', ...options }), 'contentWidth')).toBe(false);
-    }
-    expect(shortcutText('contentWidth')).toBe('w');
-  });
-});
-
 describe('server info shortcut', () => {
   it('opens with Ctrl+I or Command+I, but not unmodified or modified text keys', () => {
     for (const options of [{ ctrlKey: true }, { metaKey: true }]) {
@@ -45,12 +35,15 @@ describe('paste editor shortcuts', () => {
   });
 });
 
-describe.each([['pasteMode', 'm'], ['themeMenu', 't']] as const)('%s shortcut', (id, key) => {
-  it('matches the plain key and rejects modifiers and composition', () => {
-    expect(matchesShortcut(new KeyboardEvent('keydown', { key }), id)).toBe(true);
-    expect(shortcutText(id)).toBe(key);
-    for (const options of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }, { isComposing: true }, { keyCode: 229 }]) {
-      expect(matchesShortcut(new KeyboardEvent('keydown', { key, ...options }), id)).toBe(false);
+describe.each([['pasteMode', 'M'], ['themeMenu', 'T'], ['contentWidth', 'W']] as const)('%s shortcut', (id, key) => {
+  it('requires Shift and rejects extra modifiers and composition', () => {
+    for (const eventKey of [key, key.toLowerCase()]) {
+      expect(matchesShortcut(new KeyboardEvent('keydown', { key: eventKey, shiftKey: true }), id)).toBe(true);
+      expect(matchesShortcut(new KeyboardEvent('keydown', { key: eventKey }), id)).toBe(false);
+    }
+    expect(shortcutText(id)).toBe(`Shift+${key}`);
+    for (const options of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { isComposing: true }, { keyCode: 229 }]) {
+      expect(matchesShortcut(new KeyboardEvent('keydown', { key, shiftKey: true, ...options }), id)).toBe(false);
     }
   });
 });

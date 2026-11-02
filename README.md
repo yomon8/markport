@@ -262,9 +262,9 @@ Press `?` or the help button in the header to see shortcuts in Markport. On macO
 | `/` or `Ctrl+K` | Focus file search |
 | `Ctrl+B` | Toggle the file list |
 | `Ctrl+I` | Open Server info |
-| `m` | Open Paste Markdown |
-| `t` | Open the theme menu; use arrows or Home / End to move, Enter / Space to select, Esc to close |
-| `w` | Cycle Content width: Full → Standard → Wide → Full |
+| `Shift+M` | Open Paste Markdown |
+| `Shift+T` | Open the theme menu; use arrows or Home / End to move, Enter / Space to select, Esc to close |
+| `Shift+W` | Cycle Content width: Full → Standard → Wide → Full |
 | `?` | Show keyboard shortcuts |
 | `Esc` | Close a dialog or menu; clear file search |
 | `n` / `p` | Next / previous changed file in Diff view |

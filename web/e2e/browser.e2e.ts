@@ -179,7 +179,7 @@ test('Markdown widths preserve prose and expand only long top-level blocks', asy
   expect(errors).toEqual([]);
 });
 
-test('content width defaults to Full and w preserves focus, saves choices, and respects interaction contexts', async ({ page }) => {
+test('content width defaults to Full and Shift+W preserves focus, saves choices, and respects interaction contexts', async ({ page }) => {
   await page.setViewportSize({ width: 1800, height: 1000 });
   await page.goto(`http://127.0.0.1:${port}/?path=README.md`);
   const html = page.locator('html');
@@ -189,31 +189,33 @@ test('content width defaults to Full and w preserves focus, saves choices, and r
   await expect.poll(() => prose.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThan(1024);
   await control.focus();
   await page.keyboard.press('w');
+  await expect(html).toHaveAttribute('data-content-width', 'full');
+  await page.keyboard.press('Shift+W');
   await expect(html).toHaveAttribute('data-content-width', 'standard');
   await expect(control).toBeFocused();
   await expect.poll(() => prose.evaluate((node) => node.getBoundingClientRect().width)).toBe(736);
-  await page.keyboard.press('w');
+  await page.keyboard.press('Shift+W');
   await expect(html).toHaveAttribute('data-content-width', 'wide');
   await page.reload();
   await expect(control).toHaveAttribute('aria-label', 'Content width: Wide');
-  await control.focus(); await page.keyboard.press('w');
+  await control.focus(); await page.keyboard.press('Shift+W');
   await expect(html).toHaveAttribute('data-content-width', 'full');
 
-  for (const options of [{ repeat: true }, { isComposing: true }, { keyCode: 229 }, { ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { altKey: true }]) {
-    await control.dispatchEvent('keydown', { key: 'w', bubbles: true, cancelable: true, ...options });
+  for (const options of [{ repeat: true }, { isComposing: true }, { keyCode: 229 }, { ctrlKey: true }, { metaKey: true }, { shiftKey: false }, { altKey: true }]) {
+    await control.dispatchEvent('keydown', { key: 'W', shiftKey: true, bubbles: true, cancelable: true, ...options });
     await expect(html).toHaveAttribute('data-content-width', 'full');
   }
   await control.evaluate((node) => {
     node.addEventListener('keydown', (event) => event.preventDefault(), { once: true });
-    node.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', bubbles: true, cancelable: true }));
+    node.dispatchEvent(new KeyboardEvent('keydown', { key: 'W', shiftKey: true, bubbles: true, cancelable: true }));
   });
   await expect(html).toHaveAttribute('data-content-width', 'full');
   // A menu must keep its keyboard interaction without changing the width.
-  await control.click(); await page.keyboard.press('w');
+  await control.click(); await page.keyboard.press('Shift+W');
   await expect(page.locator('#content-width-menu')).toBeVisible();
   await expect(html).toHaveAttribute('data-content-width', 'full');
   await page.keyboard.press('Escape');
-  await page.keyboard.press('?'); await page.keyboard.press('w');
+  await page.keyboard.press('?'); await page.keyboard.press('Shift+W');
   await expect(page.locator('#shortcuts-dialog')).toBeVisible();
   await expect(html).toHaveAttribute('data-content-width', 'full');
   await page.keyboard.press('Escape');
@@ -221,16 +223,16 @@ test('content width defaults to Full and w preserves focus, saves choices, and r
   await expect(html).toHaveAttribute('data-content-width', 'full');
   await page.locator('#search').fill('');
   await prose.evaluate((node) => { node.setAttribute('contenteditable', 'true'); });
-  await prose.focus(); await page.keyboard.type('w');
+  await prose.focus(); await page.keyboard.press('Shift+W');
   await expect(html).toHaveAttribute('data-content-width', 'full');
   await prose.evaluate((node) => node.removeAttribute('contenteditable'));
   await page.setViewportSize({ width: 700, height: 844 });
-  await page.locator('#file-title').click(); await page.keyboard.press('w');
+  await page.locator('#file-title').click(); await page.keyboard.press('Shift+W');
   await expect(html).toHaveAttribute('data-content-width', 'full');
   await page.setViewportSize({ width: 1800, height: 1000 });
   await page.getByRole('button', { name: 'Source', exact: true }).first().click();
   await expect(page.locator('.content-width-toggle:visible')).toHaveCount(0);
-  await page.keyboard.press('w');
+  await page.keyboard.press('Shift+W');
   await expect(html).toHaveAttribute('data-content-width', 'full');
 });
 
@@ -244,7 +246,7 @@ test('width controls synchronize split panes and stay within resized panes', asy
   await expect(page.getByRole('button', { name: 'Content width: Full', exact: true })).toHaveCount(2);
   await page.locator('#right-title .content-width-toggle').focus();
   for (const name of ['Standard', 'Wide', 'Full']) {
-    await page.keyboard.press('w');
+    await page.keyboard.press('Shift+W');
     await expect(page.getByRole('button', { name: `Content width: ${name}`, exact: true })).toHaveCount(2);
     await expect(page.locator('#right-title .content-width-toggle')).toBeFocused();
   }
@@ -276,7 +278,7 @@ test('Paste previews share the width choice without changing the text editor wid
   const editorWidth = await page.locator('.paste-editor').evaluate((element) => element.getBoundingClientRect().width);
   await page.getByRole('button', { name: 'Rendered', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Content width: Full', exact: true })).toBeVisible();
-  await page.keyboard.press('w');
+  await page.keyboard.press('Shift+W');
   const prose = page.locator('.paste-preview > p').first();
   await expect.poll(() => prose.evaluate((element) => element.getBoundingClientRect().width)).toBe(736);
   await expect(page.locator('.paste-preview > .table-frame').first()).toHaveClass(/wide-content/);
@@ -285,15 +287,15 @@ test('Paste previews share the width choice without changing the text editor wid
   await expect.poll(() => prose.evaluate((element) => element.getBoundingClientRect().width)).toBe(1024);
   await page.getByRole('button', { name: 'Split', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Content width: Wide', exact: true })).toBeVisible();
-  await page.getByRole('textbox', { name: 'Markdown Text', exact: true }).press('w');
+  await page.getByRole('textbox', { name: 'Markdown Text', exact: true }).press('Shift+W');
   await expect(page.locator('html')).toHaveAttribute('data-content-width', 'wide');
   await page.getByRole('button', { name: 'Content width: Wide', exact: true }).focus();
-  await page.keyboard.press('w');
+  await page.keyboard.press('Shift+W');
   await expect(page.getByRole('button', { name: 'Content width: Full', exact: true })).toBeVisible();
-  await page.keyboard.press('w'); await page.keyboard.press('w');
+  await page.keyboard.press('Shift+W'); await page.keyboard.press('Shift+W');
   await page.getByRole('button', { name: 'Text', exact: true }).click();
   await page.getByRole('button', { name: 'Text', exact: true }).focus();
-  await page.keyboard.press('w');
+  await page.keyboard.press('Shift+W');
   await expect(page.locator('html')).toHaveAttribute('data-content-width', 'wide');
   expect(await page.locator('.paste-editor').evaluate((element) => element.getBoundingClientRect().width)).toBe(editorWidth);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -2693,44 +2695,49 @@ for (const width of [1280, 390]) {
     await writeFile(join(directory, 'shortcut-mode.md'), '# Shortcut mode\n');
     await page.goto(`http://127.0.0.1:${port}/?path=shortcut-mode.md&right=shortcut-mode.md`);
     await expect(page.locator('#content h1')).toHaveText('Shortcut mode');
-    await page.keyboard.press('m');
+    await page.keyboard.press('m'); await page.keyboard.press('t');
+    await expect(page.getByLabel('Markdown Text')).toHaveCount(0);
+    await expect(page.locator('#theme-menu')).toBeHidden();
+    await page.keyboard.press('Shift+M');
     const input = page.getByLabel('Markdown Text');
     await expect(input).toBeFocused();
     await input.fill('# Saved mt');
     await page.keyboard.type('mt');
-    await expect(input).toHaveValue('# Saved mtmt');
+    await page.keyboard.press('Shift+M'); await page.keyboard.press('Shift+T');
+    await expect(input).toHaveValue('# Saved mtmtMT');
     await expect(page.locator('#theme-menu')).toBeHidden();
     await page.keyboard.press('Escape');
-    await page.keyboard.press('m');
-    await expect(input).toHaveValue('# Saved mtmt');
+    await page.keyboard.press('Shift+M');
+    await expect(input).toHaveValue('# Saved mtmtMT');
     await page.evaluate(() => {
-      for (const key of ['m', 't']) for (const options of [{ repeat: true }, { isComposing: true }, { keyCode: 229 }]) {
-        window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...options }));
+      for (const key of ['M', 'T']) for (const options of [{ repeat: true }, { isComposing: true }, { keyCode: 229 }]) {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key, shiftKey: true, bubbles: true, ...options }));
       }
     });
     await expect(page.locator('#theme-menu')).toBeHidden();
-    await page.keyboard.press('t');
+    await page.keyboard.press('Shift+T');
     await expect(page.locator('#theme-menu')).toBeVisible();
-    await page.keyboard.press('t');
+    await page.keyboard.press('Shift+T');
     await expect(page.locator('#theme-menu')).toBeVisible();
     await expect(page.locator('#theme-menu [aria-checked=true]')).toBeFocused();
     await page.keyboard.press('End');
     await page.keyboard.press('Enter');
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'github-dark-dimmed');
     await expect(page.locator('#theme-toggle')).toBeFocused();
-    await expect(page.locator('#theme-toggle')).toHaveAttribute('title', 'Theme: GitHub Dark Dimmed (t)');
-    await page.keyboard.press('t');
+    await expect(page.locator('#theme-toggle')).toHaveAttribute('title', 'Theme: GitHub Dark Dimmed (Shift+T)');
+    await page.keyboard.press('Shift+T');
     await page.keyboard.press('Escape');
     await expect(page.locator('#theme-menu')).toBeHidden();
     await expect(page.locator('#theme-toggle')).toBeFocused();
     if (width <= 700) await page.keyboard.press('Escape');
     await page.keyboard.press('?');
     await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toContainText('Open Paste Markdown');
-    await page.keyboard.press('m'); await page.keyboard.press('t');
+    for (const label of ['Shift+M', 'Shift+T', 'Shift+W']) await expect(page.locator('#shortcuts-dialog').getByText(label, { exact: true })).toHaveCount(1);
+    await page.keyboard.press('Shift+M'); await page.keyboard.press('Shift+T');
     await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeVisible();
     await expect(page.locator('#theme-menu')).toBeHidden();
     await page.keyboard.press('Escape');
-    await input.focus(); await expect(input).toHaveValue('# Saved mtmt');
+    await input.focus(); await expect(input).toHaveValue('# Saved mtmtMT');
   });
 }
 
