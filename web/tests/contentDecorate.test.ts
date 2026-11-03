@@ -49,3 +49,37 @@ it('shares table wrapping between panes and supplies table source to copy contro
   expect(open).toHaveBeenCalledWith(rightContent.querySelector('table'), expand, false);
   decoration.dispose();
 });
+
+it('batches table sizing, measures only visible headers on scroll and cancels stale work', () => {
+  const queued = new Map<number, FrameRequestCallback>(); let serial = 0;
+  const flush = () => { const batch = [...queued.values()]; queued.clear(); batch.forEach((callback) => callback(0)); };
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { queued.set(++serial, callback); return serial; });
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => queued.delete(id));
+  const intersections: { callback: IntersectionObserverCallback; disconnect: ReturnType<typeof vi.fn> }[] = [];
+  vi.stubGlobal('IntersectionObserver', class {
+    disconnect = vi.fn(); observe = vi.fn(); unobserve = vi.fn();
+    constructor(callback: IntersectionObserverCallback) { intersections.push({ callback, disconnect: this.disconnect }); }
+  });
+  document.body.innerHTML = '<main><header></header><article>' + '<table><thead><tr><th>Column</th></tr></thead><tbody><tr><td>Data</td></tr></tbody></table>'.repeat(10) + '</article></main>';
+  const content = document.querySelector('article')!; const main = document.querySelector('main')!;
+  const decoration = createContentDecoration({ content, rightContent: document.createElement('article'), main, title: document.querySelector('header')!, contentWidth: { decorate: vi.fn(), refresh: vi.fn() }, tableOverlay: { open: vi.fn() }, getPath: () => 'large.md', getRightHash: () => '', onLineStart: vi.fn() });
+  try {
+    decoration.decorateContent();
+    const elements = [...content.querySelectorAll('table')];
+    const bounds = elements.map((table) => vi.spyOn(table, 'getBoundingClientRect'));
+    for (const table of elements) Object.defineProperty(table, 'offsetWidth', { get: () => {
+      expect(elements.every((other) => other.style.width === 'max-content')).toBe(true); return 900;
+    } });
+    flush(); flush();
+    expect(bounds.every((spy) => spy.mock.calls.length === 0)).toBe(true);
+    intersections[0].callback([{ target: elements[3], isIntersecting: true }] as unknown as IntersectionObserverEntry[], {} as IntersectionObserver);
+    main.dispatchEvent(new Event('scroll')); main.dispatchEvent(new Event('scroll')); flush();
+    expect(bounds[3]).toHaveBeenCalledTimes(1);
+    expect(bounds.filter((_, index) => index !== 3).every((spy) => spy.mock.calls.length === 0)).toBe(true);
+    main.dispatchEvent(new Event('scroll'));
+    decoration.decorateContent();
+    expect(intersections[0].disconnect).toHaveBeenCalledOnce();
+    decoration.dispose(); expect(queued.size).toBe(0);
+    expect(intersections[1].disconnect).toHaveBeenCalledOnce();
+  } finally { decoration.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals(); }
+});

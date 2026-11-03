@@ -1,5 +1,6 @@
 import { copyWithFeedback, createCopyButton } from './copyControls';
 import { createToolButton } from './toolButtons';
+import { measureNaturalWidths } from './layoutMeasurements';
 import type { createContentWidth } from './contentWidth';
 import type { createTableOverlay } from './tableOverlay';
 
@@ -21,7 +22,56 @@ export function createContentDecoration(deps: DecorationOptions) {
   try { wrapCodeLines = localStorage.getItem('markport-wrap-code') === 'true'; } catch { /* Storage may be unavailable. */ }
   let wrapTableCells = false;
   try { wrapTableCells = localStorage.getItem('markport-wrap-tables') === 'true'; } catch { /* Storage may be unavailable. */ }
-  const tableObservers = new Map<HTMLElement, ResizeObserver>();
+  type Tables = {
+    frames: Set<HTMLElement>; visible: Set<HTMLTableElement>; scroller: HTMLElement; heading: HTMLElement | null;
+    resize?: ResizeObserver; intersection?: IntersectionObserver; mutation: MutationObserver;
+    scroll: () => void;
+  };
+  const tables = new Map<HTMLElement, Tables>();
+  const pending = new Set<HTMLElement>();
+  const overflow = new Set<HTMLElement>();
+  const pendingCode = new Map<HTMLElement, HTMLElement>();
+  let layoutFrame = 0;
+  let headerFrame = 0;
+  let disposed = false;
+  function scheduleLayout(): void {
+    if (disposed || layoutFrame) return;
+    layoutFrame = requestAnimationFrame(flushLayout);
+  }
+  function refreshTables(): void {
+    for (const state of tables.values()) for (const frame of state.frames) pending.add(frame);
+    scheduleLayout();
+  }
+  function releaseTables(target: HTMLElement): void {
+    const state = tables.get(target);
+    if (!state) return;
+    state.resize?.disconnect(); state.intersection?.disconnect(); state.mutation.disconnect();
+    state.scroller.removeEventListener('scroll', state.scroll);
+    for (const frame of state.frames) { pending.delete(frame); overflow.delete(frame); }
+    tables.delete(target);
+  }
+  function flushLayout(): void {
+    layoutFrame = 0;
+    for (const [target, state] of tables) {
+      if (!target.isConnected || ![...state.frames].some((frame) => target.contains(frame))) releaseTables(target);
+    }
+    const frames = [...pending].filter((frame) => frame.isConnected); pending.clear();
+    // No per-table writes between intrinsic width reads.
+    const measured = measureNaturalWidths(frames).map(({ element, width }) => ({ element, wide: width > element.clientWidth + 1 }));
+    for (const { element, wide } of measured) { element.classList.toggle('wide', wide); overflow.add(element); }
+    const states = [...overflow].filter((frame) => frame.isConnected).map(readTableOverflow); overflow.clear();
+    const codes = [...pendingCode].filter(([frame]) => frame.isConnected).map(([frame, scroller]) => ({
+      frame, overflows: scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 1,
+    }));
+    pendingCode.clear();
+    states.forEach(applyTableOverflow);
+    for (const { frame, overflows } of codes) frame.classList.toggle('overflows', overflows);
+    scheduleHeaders();
+  }
+  function scheduleHeaders(): void {
+    if (disposed || headerFrame) return;
+    headerFrame = requestAnimationFrame(updateTableHeaders);
+  }
   function decorateContent(target = content, path = deps.getPath()): void {
     function setWrap(frame: HTMLElement, enabled: boolean): void {
       frame.classList.toggle('wrapped', enabled);
@@ -76,6 +126,11 @@ export function createContentDecoration(deps: DecorationOptions) {
         highlightCodeLines(false);
         highlightCodeLines(false, rightContent, deps.getRightHash());
         contentWidth.refresh();
+        for (const codeFrame of document.querySelectorAll<HTMLElement>('.code-frame')) {
+          const scroller = codeFrame.querySelector<HTMLElement>(':scope > .chroma, pre');
+          if (scroller) pendingCode.set(codeFrame, scroller);
+        }
+        scheduleLayout();
       });
       wrap.classList.add('code-wrap-toggle');
       const controls = document.createElement('div'); controls.className = 'code-toolbar-actions'; controls.append(wrap, button);
@@ -85,11 +140,9 @@ export function createContentDecoration(deps: DecorationOptions) {
         controls.prepend(copyLink);
       }
       toolbar.append(label, controls); element.before(frame); frame.append(toolbar, element); setWrap(frame, wrapCodeLines);
-      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => {
-        const scroller = element.classList.contains('chroma') ? element : element.querySelector<HTMLElement>('pre') ?? element;
-        const updateOverflow = (): void => { frame.classList.toggle('overflows', scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 1); };
-        scroller.addEventListener('scroll', updateOverflow); updateOverflow();
-      });
+      const scroller = element.classList.contains('chroma') ? element : element.querySelector<HTMLElement>('pre') ?? element;
+      const updateOverflow = (): void => { pendingCode.set(frame, scroller); scheduleLayout(); };
+      scroller.addEventListener('scroll', updateOverflow, { passive: true }); updateOverflow();
     }
     for (const block of target.querySelectorAll<HTMLElement>('.chroma')) {
       if (block.closest('[data-mermaid],.code-frame,.chroma .chroma')) continue;
@@ -111,22 +164,55 @@ export function createContentDecoration(deps: DecorationOptions) {
       img.loading = 'lazy'; img.decoding = 'async';
       img.addEventListener('error', () => { const note = document.createElement('span'); note.className = 'image-error'; note.textContent = img.alt || 'Cannot load image'; img.replaceWith(note); });
     }
-    tableObservers.get(target)?.disconnect();
-    const pending = new Set<HTMLElement>();
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver((entries) => {
-      // Defer so toggling the actions bar does not resize frames inside the observer callback.
-      if (!pending.size) requestAnimationFrame(() => { pending.forEach(updateTableLayout); pending.clear(); });
-      for (const entry of entries) pending.add(entry.target as HTMLElement);
-    }) : undefined;
-    if (observer) tableObservers.set(target, observer);
+    releaseTables(target);
+    const frames = new Set<HTMLElement>();
     for (const table of target.querySelectorAll('table')) {
       if (table.closest('.chroma')) continue;
-      const frame = table.closest<HTMLElement>('.table-frame') ?? wrapTable(table);
-      observer?.observe(frame);
+      frames.add(table.closest<HTMLElement>('.table-frame') ?? wrapTable(table));
     }
-    updateTableHeaders();
-    contentWidth.decorate(target.dataset.kind === 'paste' ? target.querySelector<HTMLElement>('.paste-preview')! : target);
+    const preview = target.dataset.kind === 'paste' ? target.querySelector<HTMLElement>('.paste-preview') : null;
+    contentWidth.decorate(preview ?? target);
+    if (!frames.size) return;
+    const scroller = preview ?? (target === content ? main : target.parentElement ?? target);
+    const state: Tables = {
+      frames, visible: new Set(), scroller,
+      heading: preview ? null : target === content ? title : scroller.querySelector<HTMLElement>('#right-title'),
+      mutation: new MutationObserver(refreshTables), scroll: scheduleHeaders,
+    };
+    tables.set(target, state);
+    if (typeof ResizeObserver === 'function') {
+      const sizes = new WeakMap<Element, number>();
+      state.resize = new ResizeObserver((entries) => {
+        if (tables.get(target) !== state) return;
+        for (const entry of entries) {
+          if (sizes.get(entry.target) === entry.contentRect.width) continue;
+          sizes.set(entry.target, entry.contentRect.width); pending.add(entry.target as HTMLElement);
+        }
+        if (pending.size) scheduleLayout();
+        scheduleHeaders();
+      });
+    }
+    if (typeof IntersectionObserver === 'function') {
+      state.intersection = new IntersectionObserver((entries) => {
+        if (tables.get(target) !== state) return;
+        for (const entry of entries) {
+          const table = entry.target as HTMLTableElement;
+          if (entry.isIntersecting) state.visible.add(table);
+          else { state.visible.delete(table); table.tHead?.style.removeProperty('transform'); }
+        }
+        scheduleHeaders();
+      }, { root: scroller });
+    }
+    for (const frame of frames) {
+      state.resize?.observe(frame); pending.add(frame);
+      const table = frame.querySelector<HTMLTableElement>('table')!;
+      if (state.intersection) state.intersection.observe(table); else state.visible.add(table);
+    }
+    state.mutation.observe(target, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['data-rendered', 'data-math-rendered'] });
+    scroller.addEventListener('scroll', state.scroll, { passive: true });
+    scheduleLayout();
   }
+
   function wrapTable(table: HTMLTableElement): HTMLElement {
     const frame = document.createElement('div'); frame.className = 'table-frame'; frame.classList.toggle('table-nowrap', !wrapTableCells);
     const actions = document.createElement('div'); actions.className = 'table-actions';
@@ -137,10 +223,10 @@ export function createContentDecoration(deps: DecorationOptions) {
       for (const other of document.querySelectorAll<HTMLElement>('.table-frame')) {
         other.classList.toggle('table-nowrap', !wrapTableCells);
         other.querySelector('.table-wrap-toggle')?.setAttribute('aria-pressed', String(wrapTableCells));
-        updateTableLayout(other);
+        pending.add(other);
       }
-      updateTableHeaders();
       contentWidth.refresh();
+      scheduleLayout();
     });
     const expand = createToolButton('maximize', 'Expand'); expand.classList.add('table-expand');
     expand.addEventListener('click', () => tableOverlay.open(table, expand, !wrapTableCells));
@@ -151,23 +237,17 @@ export function createContentDecoration(deps: DecorationOptions) {
     }
     const scroll = document.createElement('div'); scroll.className = 'table-scroll';
     const wrap = document.createElement('div'); wrap.className = 'table-wrap';
-    wrap.addEventListener('scroll', () => updateTableOverflow(frame));
+    wrap.addEventListener('scroll', () => { overflow.add(frame); scheduleLayout(); }, { passive: true });
     table.before(frame); wrap.append(table); scroll.append(wrap); frame.append(actions, scroll);
     return frame;
   }
-  function updateTableLayout(frame: HTMLElement): void {
-    const table = frame.querySelector<HTMLTableElement>('.table-wrap table');
-    if (!table || !frame.isConnected) return;
-    table.style.width = 'max-content'; const natural = table.offsetWidth; table.style.removeProperty('width');
-    frame.classList.toggle('wide', natural > frame.clientWidth + 1);
-    updateTableOverflow(frame);
-  }
-  function updateTableOverflow(frame: HTMLElement): void {
-    const wrap = frame.querySelector<HTMLElement>('.table-wrap');
-    if (!wrap) return;
+  function readTableOverflow(frame: HTMLElement) {
+    const wrap = frame.querySelector<HTMLElement>('.table-wrap')!;
     const scrollable = wrap.scrollWidth > wrap.clientWidth + 1;
-    frame.classList.toggle('overflows-left', scrollable && wrap.scrollLeft > 1);
-    frame.classList.toggle('overflows-right', scrollable && wrap.scrollLeft + wrap.clientWidth < wrap.scrollWidth - 1);
+    return { frame, wrap, scrollable, left: scrollable && wrap.scrollLeft > 1, right: scrollable && wrap.scrollLeft + wrap.clientWidth < wrap.scrollWidth - 1 };
+  }
+  function applyTableOverflow({ frame, wrap, scrollable, left, right }: ReturnType<typeof readTableOverflow>): void {
+    frame.classList.toggle('overflows-left', left); frame.classList.toggle('overflows-right', right);
     if (scrollable) { wrap.tabIndex = 0; wrap.setAttribute('role', 'region'); wrap.setAttribute('aria-label', 'Scrollable table'); }
     else { wrap.removeAttribute('tabindex'); wrap.removeAttribute('role'); wrap.removeAttribute('aria-label'); }
   }
@@ -190,18 +270,28 @@ export function createContentDecoration(deps: DecorationOptions) {
     return Boolean(target);
   }
   function updateTableHeaders(): void {
-    const top = main.getBoundingClientRect().top + title.getBoundingClientRect().height;
-    for (const table of content.querySelectorAll<HTMLTableElement>('.table-wrap table')) {
-      const head = table.tHead;
-      if (!head) continue;
-      const distance = Math.max(0, Math.min(table.offsetHeight - head.offsetHeight, top - table.getBoundingClientRect().top));
-      head.style.transform = `translateY(${distance}px)`;
+    headerFrame = 0;
+    const updates: { head: HTMLTableSectionElement; distance: number }[] = [];
+    for (const [target, state] of tables) {
+      if (!target.isConnected) { releaseTables(target); continue; }
+      if (!state.visible.size) continue;
+      const top = state.scroller.getBoundingClientRect().top + (state.heading?.getBoundingClientRect().height ?? 0);
+      for (const table of state.visible) {
+        if (!target.contains(table)) { state.visible.delete(table); state.intersection?.unobserve(table); continue; }
+        const head = table.tHead;
+        if (!head) continue;
+        const distance = Math.max(0, Math.min(table.offsetHeight - head.offsetHeight, top - table.getBoundingClientRect().top));
+        updates.push({ head, distance });
+      }
     }
+    for (const { head, distance } of updates) head.style.transform = `translateY(${distance}px)`;
   }
-  main.addEventListener('scroll', updateTableHeaders);
+  document.fonts?.addEventListener('loadingdone', refreshTables);
   return { decorateContent, highlightCodeLines, dispose: () => {
-    main.removeEventListener('scroll', updateTableHeaders);
-    tableObservers.forEach((observer) => observer.disconnect());
-    tableObservers.clear();
+    disposed = true;
+    document.fonts?.removeEventListener('loadingdone', refreshTables);
+    cancelAnimationFrame(layoutFrame); cancelAnimationFrame(headerFrame);
+    for (const target of tables.keys()) releaseTables(target);
+    pending.clear(); overflow.clear(); pendingCode.clear();
   } };
 }

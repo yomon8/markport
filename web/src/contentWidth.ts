@@ -1,4 +1,5 @@
 import { createToolButton, setToolButton } from './toolButtons';
+import { measureNaturalWidths } from './layoutMeasurements';
 
 type Width = 'standard' | 'wide' | 'full';
 const storageKey = 'markport-content-width';
@@ -20,6 +21,7 @@ export function createContentWidth(): {
   let selected: Width = read(); let frame = 0; let origin: HTMLButtonElement | undefined;
   const buttons = new Set<HTMLButtonElement>();
   const roots = new Map<HTMLElement, MutationObserver>();
+  const dirtyRoots = new Set<HTMLElement>();
   const widths = new WeakMap<Element, number>();
   const menu = document.createElement('div'); menu.id = 'content-width-menu'; menu.className = 'content-width-menu';
   menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', 'Content width');
@@ -79,11 +81,13 @@ export function createContentWidth(): {
     items[choices.findIndex((choice) => choice.id === selected)].focus();
   }
   function schedule(): void {
+    for (const root of roots.keys()) dirtyRoots.add(root);
     if (frame) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
-      for (const [root, observer] of roots) {
-        if (!root.isConnected) { observer.disconnect(); resize?.unobserve(root); roots.delete(root); continue; }
+      const pending = [...dirtyRoots]; dirtyRoots.clear();
+      for (const root of pending) {
+        if (!root.isConnected) { roots.get(root)?.disconnect(); resize?.unobserve(root); roots.delete(root); continue; }
         layout(root);
       }
       position();
@@ -92,38 +96,23 @@ export function createContentWidth(): {
   function layout(root: HTMLElement): void {
     const markdown = root.dataset.kind === 'markdown' || root.classList.contains('paste-preview');
     root.classList.toggle('markdown-layout', markdown);
-    if (!markdown || !root.clientWidth) return;
+    if (!markdown) return;
+    const children = [...root.children].filter((child): child is HTMLElement => child instanceof HTMLElement);
+    for (const child of children) child.classList.remove('wide-content');
+    // Full width needs no geometry reads, including when diagrams finish rendering.
+    if (selected === 'full') { root.style.setProperty('--reading-width', '100%'); return; }
     const style = getComputedStyle(root);
     const measure = choices.find((choice) => choice.id === selected)!.em * parseFloat(style.fontSize);
     // Resolve em on the preview, so larger heading fonts use the same column as paragraphs.
-    root.style.setProperty('--reading-width', selected === 'full' ? '100%' : `${measure}px`);
+    root.style.setProperty('--reading-width', `${measure}px`);
+    if (!root.clientWidth) return;
     const available = root.clientWidth - parseFloat(style.paddingLeft || '0') - parseFloat(style.paddingRight || '0');
     const limit = Math.min(available, measure);
-    for (const child of root.children) {
-      if (!(child instanceof HTMLElement)) continue;
-      child.classList.remove('wide-content');
-      // Only top-level blocks may extend beyond prose. Keep lists, quotes and details intact.
-      if (!child.matches('.table-frame,.code-frame,.mermaid-source,[data-language]')) continue;
-      let natural = 0;
-      const table = child.querySelector<HTMLTableElement>('.table-wrap table');
-      if (table) {
-        const previous = table.style.width; table.style.width = 'max-content'; natural = table.offsetWidth;
-        if (previous) table.style.width = previous; else table.style.removeProperty('width');
-      } else if (child.matches('.mermaid-source')) {
-        const svg = child.querySelector<SVGSVGElement>('.diagram-image svg');
-        if (svg) natural = parseFloat(svg.style.maxWidth) || svg.viewBox?.baseVal.width || svg.getBoundingClientRect().width;
-      } else {
-        const codeFrame = child.matches('.code-frame') ? child : child.querySelector<HTMLElement>('.code-frame');
-        const scroller = codeFrame?.querySelector<HTMLElement>(':scope > .chroma, pre');
-        if (codeFrame && scroller) {
-          const wrapped = codeFrame.classList.contains('wrapped'); codeFrame.classList.remove('wrapped');
-          natural = scroller.scrollWidth + Math.max(0, codeFrame.clientWidth - scroller.clientWidth);
-          codeFrame.classList.toggle('wrapped', wrapped);
-        }
-      }
-      child.classList.toggle('wide-content', natural > limit + 1);
-    }
+    // Only top-level blocks may extend beyond prose. Keep lists, quotes and details intact.
+    const blocks = measureNaturalWidths(children.filter((child) => child.matches('.table-frame,.code-frame,.mermaid-source,[data-language]')));
+    for (const { element, width } of blocks) element.classList.toggle('wide-content', width > limit + 1);
   }
+
   menu.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' || event.key === 'Tab') {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); }
@@ -145,6 +134,7 @@ export function createContentWidth(): {
   window.addEventListener('storage', (event) => {
     if (event.key === storageKey || event.key === null) { selected = read(); apply(); }
   }, { signal });
+  document.fonts?.addEventListener('loadingdone', schedule, { signal });
   apply();
   return {
     cycle: () => select(choices[(choices.findIndex((choice) => choice.id === selected) + 1) % choices.length].id),
@@ -164,13 +154,13 @@ export function createContentWidth(): {
         observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-kind', 'data-rendered'] });
         roots.set(root, observer); resize?.observe(root);
       }
-      layout(root); schedule();
+      dirtyRoots.delete(root); layout(root);
     },
     refresh: schedule,
     dispose: () => {
       close(); lifetime.abort(); cancelAnimationFrame(frame); resize?.disconnect();
       for (const observer of roots.values()) observer.disconnect();
-      roots.clear(); buttons.clear(); menu.remove();
+      roots.clear(); dirtyRoots.clear(); buttons.clear(); menu.remove();
     },
   };
 }

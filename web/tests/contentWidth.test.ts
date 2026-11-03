@@ -121,3 +121,18 @@ describe('Markdown block widths', () => {
     root.dataset.kind = 'code'; await Promise.resolve(); flush(); expect(root.classList.contains('markdown-layout')).toBe(false);
   });
 });
+
+it('skips intrinsic measurements in Full and merges repeated refresh requests', () => {
+  controller = createContentWidth();
+  const root = document.createElement('article'); root.dataset.kind = 'markdown'; root.style.fontSize = '16px';
+  root.innerHTML = '<div class="table-frame wide-content"><div class="table-wrap"><table></table></div></div>';
+  document.body.append(root); Object.defineProperty(root, 'clientWidth', { value: 1600 });
+  const measure = vi.fn(() => 1200);
+  Object.defineProperty(root.querySelector('table')!, 'offsetWidth', { get: measure });
+  controller.decorate(root); controller.refresh(); controller.refresh(); flush();
+  expect(measure).not.toHaveBeenCalled(); expect(root.querySelector('.wide-content')).toBeNull();
+  controller.cycle(); controller.refresh(); controller.refresh(); flush();
+  expect(measure).toHaveBeenCalledTimes(1); expect(root.querySelector('.wide-content')).not.toBeNull();
+  controller.cycle(); controller.cycle(); flush();
+  expect(measure).toHaveBeenCalledTimes(1); expect(root.querySelector('.wide-content')).toBeNull();
+});

@@ -2763,3 +2763,55 @@ test('Vim reading navigation scrolls only the active pane and respects input and
   await expect(page.locator('#shortcuts-dialog')).toBeVisible();
   await page.keyboard.press('j'); expect(await left.evaluate((el) => el.scrollTop)).toBe(0);
 });
+
+for (const width of ['full', 'standard']) {
+  test(`large Markdown keeps complete content and responsive layout (${width})`, async ({ page }) => {
+    const markdown = Array.from({ length: 250 }, (_, index) => {
+      const table = index < 100 ? '\n| Name | Description |\n|---|---|\n' + Array.from({ length: 12 }, (_, row) => `| Item ${row} | ${'Long table content '.repeat(12)} |\n`).join('') : '';
+      const code = index < 75 ? '\n```text\n' + 'Code content '.repeat(100) + '\n```\n' : '';
+      return `## Section ${index}\n\n${'Paragraph with **emphasis** and searchable text. '.repeat(12)}\n${table}${code}`;
+    }).join('\n');
+    const filename = `large-${width}.md`; await writeFile(join(directory, filename), markdown);
+    await page.addInitScript((value) => localStorage.setItem('markport-content-width', value), width);
+    const metrics = await page.context().newCDPSession(page); await metrics.send('Performance.enable');
+    await page.goto(`http://127.0.0.1:${port}/?path=${filename}`);
+    const content = page.locator('#content');
+    await expect(content.locator('.table-frame')).toHaveCount(100);
+    await expect(content.locator('.code-frame')).toHaveCount(75);
+    await expect(page.locator('#outline a')).toHaveCount(250);
+    await expect(content.locator('.table-frame.overflows-right').first()).toBeVisible();
+    // Check the amount of layout work, not machine-dependent elapsed time.
+    const initial = (await metrics.send('Performance.getMetrics')).metrics.find((metric) => metric.name === 'LayoutCount')!.value;
+    expect(initial).toBeLessThan(150);
+    const firstTable = content.locator('.table-wrap table').first();
+    await firstTable.evaluate((table) => {
+      const pane = document.querySelector('#main')!;
+      pane.scrollTop += table.getBoundingClientRect().top - pane.getBoundingClientRect().top - 30;
+    });
+    await expect.poll(() => firstTable.locator('thead').evaluate((head) => Math.abs(head.getBoundingClientRect().top - document.querySelector('#file-title')!.getBoundingClientRect().bottom))).toBeLessThan(2);
+    await page.locator('#outline a').last().click(); await expect(content.locator('h2').last()).toBeInViewport();
+    await page.locator('#file-title .content-width-toggle').click();
+    await page.getByRole('menuitemradio', { name: width === 'full' ? 'Standard' : 'Full', exact: true }).click();
+    await expect(page.locator('html')).toHaveAttribute('data-content-width', width === 'full' ? 'standard' : 'full');
+    await page.goto(`http://127.0.0.1:${port}/?path=${filename}&right=${filename}`);
+    await expect(page.locator('#right-content .table-frame')).toHaveCount(100);
+    const rightTable = page.locator('#right-content .table-wrap table').first();
+    await rightTable.evaluate((table) => {
+      const pane = document.querySelector('#right-pane')!;
+      pane.scrollTop += table.getBoundingClientRect().top - pane.getBoundingClientRect().top - 30;
+    });
+    await expect.poll(() => rightTable.locator('thead').evaluate((head) => Math.abs(head.getBoundingClientRect().top - document.querySelector('#right-title')!.getBoundingClientRect().bottom))).toBeLessThan(2);
+    await page.locator('#right-content .table-wrap-toggle').first().click();
+    await expect(content.locator('.table-nowrap')).toHaveCount(0);
+    await expect(page.locator('#right-content .table-nowrap')).toHaveCount(0);
+    await writeFile(join(directory, filename), markdown + '\n## Updated document\n');
+    await page.locator('#reload').click();
+    await expect(content.locator('h2')).toHaveCount(251);
+    await expect(page.locator('#right-content h2')).toHaveCount(251);
+    await page.locator('#file-title').getByRole('button', { name: 'Print / Save as PDF' }).click();
+    await expect(page.locator('#print-submit')).toBeEnabled();
+    const print = page.frameLocator('#print-view iframe');
+    await expect(print.locator('table')).toHaveCount(100); await expect(print.locator('h2')).toHaveCount(251);
+    await page.locator('#print-close').click();
+  });
+}
