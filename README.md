@@ -359,6 +359,8 @@ flowchart LR
 
 Development requires Go 1.27, Node.js 24, npm, and Make. The devcontainer forwards ports 3000 and 5173.
 
+The web build and type checks use TypeScript 7 through the `@typescript/native` npm alias, which provides `tsc`. The `typescript` dependency aliases `@typescript/typescript6` to provide the compiler API required by `typescript-eslint`.
+
 ```sh
 make setup                 # Download Go modules and install npm dependencies
 make dev DIR=./testdata    # Start the Go API and Vite at localhost:5173

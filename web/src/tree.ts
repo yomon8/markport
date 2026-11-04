@@ -215,9 +215,9 @@ export class TreeView {
           else next = rows[index + 1] && details.contains(rows[index + 1]) ? rows[index + 1] : undefined;
         }
       } else if (vimMatches('treeCollapse')) {
-        if (row.matches('summary') && (row.parentElement as HTMLDetailsElement).open) this.toggleFolder(row);
+        if (row.localName === 'summary' && (row.parentElement as HTMLDetailsElement).open) this.toggleFolder(row);
         else {
-          const parent = row.matches('summary') ? row.parentElement?.parentElement : row.parentElement;
+          const parent = row.localName === 'summary' ? row.parentElement?.parentElement : row.parentElement;
           next = parent?.closest('details')?.querySelector<HTMLElement>(':scope > summary') ?? undefined;
         }
       } else if (vimMatches('treeOpen')) {
