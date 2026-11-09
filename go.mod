@@ -5,7 +5,7 @@ go 1.27
 require (
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/fsnotify/fsnotify v1.10.1
-	github.com/yuin/goldmark v1.8.6
+	github.com/yuin/goldmark v1.8.7
 	golang.org/x/sys v0.49.0
 )
 
