@@ -124,9 +124,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rootID := sha256.Sum256([]byte(s.Files.Path))
 		w.Header().Set("Cache-Control", "no-store")
 		jsonReply(w, http.StatusOK, struct {
-			Title  string `json:"title"`
-			RootID string `json:"rootId"`
-		}{s.Title, hex.EncodeToString(rootID[:])})
+			Title    string `json:"title"`
+			RootID   string `json:"rootId"`
+			RootPath string `json:"rootPath"`
+			Branch   string `json:"branch"`
+		}{s.Title, hex.EncodeToString(rootID[:]), s.Files.Path, gitdiff.Branch(r.Context(), s.Files.Path)})
 	case "/api/tree":
 		s.tree(w, r)
 	case "/api/search-index":

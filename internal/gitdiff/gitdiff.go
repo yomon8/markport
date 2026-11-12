@@ -762,3 +762,14 @@ func deletedPatch(name, content string) string {
 	}
 	return b.String()
 }
+
+// Branch returns the current branch, or a short commit identifier for detached HEAD.
+func Branch(ctx context.Context, dir string) string {
+	if out, err := run(ctx, dir, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil {
+		return strings.TrimSpace(string(out))
+	}
+	if out, err := run(ctx, dir, "rev-parse", "--short", "HEAD"); err == nil {
+		return "detached @ " + strings.TrimSpace(string(out))
+	}
+	return ""
+}

@@ -85,7 +85,13 @@ const headerExtras = document.querySelector<HTMLElement>('#header-extras')!;
 const tabTitleButton = document.createElement('button'); tabTitleButton.id = 'tab-title-toggle'; tabTitleButton.type = 'button';
 tabTitleButton.textContent = 'Title'; tabTitleButton.setAttribute('aria-label', 'Title'); tabTitleButton.title = 'Set tab title';
 headerExtras.append(tabTitleButton);
-const tabTitle = new TabTitle(tabTitleButton);
+const tabTitle = new TabTitle(tabTitleButton, (path, branch) => {
+  const label = document.querySelector<HTMLElement>('#root-name')!;
+  if (!path) return;
+  label.textContent = `${path}${branch ? ` · ${branch}` : ''}`;
+  label.title = label.textContent;
+  label.dataset.context = 'true';
+});
 void tabTitle.reload();
 const main = document.querySelector<HTMLElement>('#main')!;
 const layout = document.querySelector<HTMLElement>('.layout')!;
@@ -158,7 +164,7 @@ const decoration = createContentDecoration({
 const { decorateContent, highlightCodeLines } = decoration;
 const directoryBrowser = createDirectoryBrowser({
   view, getRevision: () => refresh.revision, syncPreviewInstance,
-  onRoot: (name) => { rootName = name || rootName; document.querySelector('#root-name')!.textContent = rootName; },
+  onRoot: (name) => { rootName = name || rootName; const label = document.querySelector<HTMLElement>('#root-name')!; if (!label.dataset.context) label.textContent = rootName; },
   onError: () => status('Refresh failed. Please try again.', 'error'),
 });
 const { ensureSelectedPath, loadOpenDirectories, refreshDirectories } = directoryBrowser;
@@ -340,6 +346,7 @@ function manualRefresh(): void {
 }
 
 async function refreshLoop({ revision: current, foreground }: { revision: number; foreground: boolean }): Promise<void> {
+  void tabTitle.reload();
   const path = selected(); const source = sourceMode; const mode = selectedMode(); const commitID = new URL(location.href).searchParams.get('commit') ?? ''; const base = selectedBase(); const knownHistoryHead = changesView.historyPage?.head; const preserveTabFocus = keepTabFocus; keepTabFocus = false;
   if (mode === 'changes' || mode === 'diff') rememberedBase = base;
   void refreshRight();
