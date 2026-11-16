@@ -7,7 +7,7 @@ const flush = async (): Promise<void> => { await new Promise((resolve) => setTim
 const svg = (label: string): { svg: string } => ({ svg: `<svg><text>${label}</text></svg>` });
 const colors = { '--surface': '#345678', '--text': '#eeeeee', '--text-muted': '#aabbcc', '--accent-soft': '#234567', '--sidebar': '#456789' };
 const common = {
-  securityLevel: 'strict', startOnLoad: false, fontFamily: '"Noto Sans JP", sans-serif', fontSize: 16, look: 'classic',
+  securityLevel: 'strict', startOnLoad: false, fontFamily: 'Noto Sans JP, sans-serif', fontSize: 16, look: 'classic',
   flowchart: { nodeSpacing: 48, rankSpacing: 64, padding: 16, diagramPadding: 12, curve: 'rounded' },
   gantt: { fontSize: 16, sectionFontSize: 16 },
 };
@@ -16,7 +16,8 @@ beforeEach(() => {
   vi.resetModules(); vi.clearAllMocks(); localStorage.clear();
   document.body.innerHTML = '<article><div data-mermaid="true">flowchart LR; A --> B</div></article>';
   document.documentElement.removeAttribute('style');
-  document.documentElement.style.fontFamily = common.fontFamily;
+  // jsdom 31 serializes this quoted family without quotes in computed styles.
+  document.documentElement.style.fontFamily = '"Noto Sans JP", sans-serif';
   for (const [name, value] of Object.entries(colors)) document.documentElement.style.setProperty(name, value);
   mermaid.render.mockResolvedValue(svg('diagram'));
 });
