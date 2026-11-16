@@ -21,6 +21,18 @@ beforeEach(() => {
 afterEach(() => { controller.dispose(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('tab title settings', () => {
+  it('includes folder and branch and refreshes after checkout', async () => {
+    let branch = 'main';
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ title: '', rootId, rootPath: '/work/project', branch }) })));
+    controller.setFallback('README.md — markport');
+    await controller.reload();
+    expect(document.title).toBe('project [main] — README.md — markport');
+    branch = 'feature/example'; await controller.reload();
+    expect(document.title).toContain('project [feature/example]');
+    branch = ''; await controller.reload();
+    expect(document.title).toBe('project — README.md — markport');
+  });
+
   it('keeps a startup title fixed across screen changes and resets to it', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => response('作業ノート')));
     await controller.reload();

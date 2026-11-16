@@ -1,4 +1,4 @@
-type Config = { title: string; rootId: string };
+type Config = { title: string; rootId: string; rootPath?: string; branch?: string };
 
 export class TabTitle {
   private config: Config | undefined;
@@ -17,7 +17,7 @@ export class TabTitle {
     this.readOverride(); this.apply();
   };
 
-  constructor(private readonly button: HTMLButtonElement) {
+  constructor(private readonly button: HTMLButtonElement, private readonly onContext?: (path: string, branch: string) => void) {
     this.dialog.id = 'tab-title-dialog'; this.dialog.setAttribute('aria-labelledby', 'tab-title-heading');
     const heading = document.createElement('h2'); heading.id = 'tab-title-heading'; heading.textContent = 'Tab title';
     const form = document.createElement('form');
@@ -59,6 +59,7 @@ export class TabTitle {
       if (this.disposed || request !== this.request) return;
       const changed = config.rootId !== this.config?.rootId;
       this.config = config;
+      this.onContext?.(config.rootPath ?? '', config.branch ?? '');
       if (changed) this.readOverride();
       this.message.textContent = ''; this.apply(); this.updateControls();
       if (this.dialog.open) this.input.focus();
@@ -76,7 +77,12 @@ export class TabTitle {
     try { this.override = localStorage.getItem(this.key())?.trim() ?? ''; }
     catch { this.override = ''; }
   }
-  private apply(): void { document.title = this.override || this.config?.title || this.fallback; }
+  private apply(): void {
+    const path = this.config?.rootPath;
+    const folder = path?.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+    const context = folder ? `${folder}${this.config?.branch ? ` [${this.config.branch}]` : ''}` : '';
+    document.title = this.override || this.config?.title || (context ? `${context} — ${this.fallback}` : this.fallback);
+  }
   private updateControls(): void {
     this.input.disabled = this.save.disabled = this.reset.disabled = !this.config;
     this.input.value = this.override;

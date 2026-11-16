@@ -746,18 +746,19 @@ func TestInfoAPI(t *testing.T) {
 }
 
 func TestConfigAPI(t *testing.T) {
-	app, dir := newTestServer(t)
+	app, _ := newTestServer(t)
 	readConfig := func(app *Server) (string, string) {
 		t.Helper()
 		response := request(app, "localhost:3000", "/api/config")
 		var config struct {
-			Title  string `json:"title"`
-			RootID string `json:"rootId"`
+			Title    string `json:"title"`
+			RootID   string `json:"rootId"`
+			RootPath string `json:"rootPath"`
 		}
 		if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" || json.Unmarshal(response.Body.Bytes(), &config) != nil {
 			t.Fatalf("config: %d %s", response.Code, response.Body.String())
 		}
-		if len(config.RootID) != 64 || strings.Contains(response.Body.String(), dir) {
+		if len(config.RootID) != 64 || config.RootPath != app.Files.Path {
 			t.Fatalf("root identity: %s", response.Body.String())
 		}
 		return config.Title, config.RootID

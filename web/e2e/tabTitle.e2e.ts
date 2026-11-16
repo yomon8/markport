@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { createServer } from 'node:net';
 
 let directory: string;
@@ -84,13 +84,13 @@ test('restores folder-specific titles after a restart or a different folder on t
 
 test('offers mobile keyboard controls and returns to existing titles when unset', async ({ page }) => {
   await startServer(directory, ''); await page.setViewportSize({ width: 390, height: 844 }); await page.goto(url());
-  await expect(page).toHaveTitle('README.md — markport');
+  await expect(page).toHaveTitle(`${basename(directory)} — README.md — markport`);
   await page.getByRole('button', { name: 'App settings', exact: true }).click();
   await page.getByRole('button', { name: 'Title', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Tab title', exact: true });
   const input = dialog.getByLabel('Browser tab title'); await expect(input).toBeFocused();
   await input.fill('Mobile notes'); await input.press('Enter'); await expect(page).toHaveTitle('Mobile notes');
   await page.getByRole('button', { name: 'Title', exact: true }).click(); await input.fill('  '); await input.press('Enter');
-  await expect(page).toHaveTitle('README.md — markport');
-  await page.goto(url() + '?path=code.py'); await expect(page).toHaveTitle('code.py — markport');
+  await expect(page).toHaveTitle(`${basename(directory)} — README.md — markport`);
+  await page.goto(url() + '?path=code.py'); await expect(page).toHaveTitle(`${basename(directory)} — code.py — markport`);
 });

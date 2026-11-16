@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, realpath, rename, writeFile, unlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { createServer } from 'node:net';
 
 let directory: string;
@@ -2048,7 +2048,7 @@ test('desktop and mobile views in both themes', async ({ page }, testInfo) => {
 test('opens README, switches source, searches by keyboard, and follows code lines', async ({ page, context }) => {
   await page.goto(`http://127.0.0.1:${port}/`);
   await expect(page).toHaveURL(/path=README.md/);
-  await expect(page).toHaveTitle('README.md — markport');
+  await expect(page).toHaveTitle(`${basename(directory)} — README.md — markport`);
   await page.getByRole('button', { name: 'Source', exact: true }).click();
   await expect(page.locator('article .lntd:last-child pre')).toContainText('# Demo');
   await page.getByRole('button', { name: 'Preview' }).click();
