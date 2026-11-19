@@ -65,8 +65,8 @@ describe('server info', () => {
   });
 
   it('renders server links safely and refreshes the list on demand', async () => {
-    const first = { rootPath: '/notes/<script>', version: 'v1.0.0', url: 'http://127.0.0.1:4000/', current: false };
-    const current = { rootPath: '/work', version: 'dev', url: 'http://127.0.0.1:3000/', current: true };
+    const first = { rootPath: '/notes/<script>', version: 'v1.0.0', url: 'http://127.0.0.1:4000/', current: false, branch: 'feature/<script>' };
+    const current = { rootPath: '/work', version: 'dev', url: 'http://127.0.0.1:3000/', current: true, branch: 'detached @ abc1234' };
     const local = { rootPath: '/private', version: 'dev', url: '', current: false, unavailableReason: 'Local access only' };
     const fetch = vi.fn().mockResolvedValueOnce(response({ ...info, instances: [current, first, local] }))
       .mockResolvedValue(response({ ...info, instances: [current] }));
@@ -78,8 +78,11 @@ describe('server info', () => {
     expect(links[1].textContent).toBe(first.rootPath);
     expect(links[1].hasAttribute('target')).toBe(false);
     expect(section.querySelector('script')).toBeNull();
-    expect(section.textContent).toContain('Current'); expect(section.textContent).toContain('Local access only');
-    expect(section.querySelectorAll('li')).toHaveLength(3);
+    expect([...section.querySelectorAll('.server-info-instance-details')].map((item) => item.textContent)).toEqual([
+      `${current.url} · dev · Git detached @ abc1234 · Current`,
+      `${first.url} · v1.0.0 · Git feature/<script>`,
+      'Local access only · dev',
+    ]);
     click('Refresh'); await flush();
     expect(section.querySelectorAll('li')).toHaveLength(1); expect(fetch).toHaveBeenCalledTimes(2);
   });

@@ -53,7 +53,11 @@ func TestListChecksIdentityAndLiveness(t *testing.T) {
 				responseID = 99
 			}
 			w.Header().Set("X-Markport-Instance", fmt.Sprintf("%032x", responseID))
-			_ = json.NewEncoder(w).Encode(Info{RootPath: root, Version: "v1.0.0"})
+			details := Info{RootPath: root, Version: "v1.0.0"}
+			if root == "/z" && r.URL.Query().Get("branch") == "1" {
+				details.Branch = "feature/docs"
+			}
+			_ = json.NewEncoder(w).Encode(details)
 		}))
 		t.Cleanup(server.Close)
 		register(t, registry, recordFor(t, id, server))
@@ -77,12 +81,17 @@ func TestListChecksIdentityAndLiveness(t *testing.T) {
 			t.Fatalf("unexpected metadata: %+v", item)
 		}
 	}
+	if list[1].Branch != "" || list[2].Branch != "" || list[3].Branch != "feature/docs" {
+		t.Fatalf("unexpected branch metadata: %+v", list)
+	}
 	discovered, err := registry.Discover(context.Background())
 	if err != nil || len(discovered) != 3 {
 		t.Fatalf("discovered: %+v %v", discovered, err)
 	}
 	for i, item := range discovered {
-		if item.Current || item != list[i+1] {
+		browserItem := list[i+1]
+		browserItem.Branch = ""
+		if item.Current || item != browserItem {
 			t.Fatalf("CLI and browser disagree: %+v %+v", item, list[i+1])
 		}
 	}

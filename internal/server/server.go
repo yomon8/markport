@@ -117,7 +117,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.URL.Path {
 	case "/api/instance":
 		w.Header().Set("Cache-Control", "no-store")
-		jsonReply(w, http.StatusOK, discovery.Info{RootPath: s.Files.Path, Version: s.Version})
+		jsonReply(w, http.StatusOK, s.instanceInfo(r.Context(), r.URL.Query().Get("branch") == "1"))
 	case "/api/info":
 		s.serverInfo(w, r)
 	case "/api/config":

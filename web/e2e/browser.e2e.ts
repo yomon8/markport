@@ -730,11 +730,15 @@ test('server info shows actual startup details and returns keyboard focus', asyn
   await dialog.getByRole('button', { name: 'Close', exact: true }).click(); await expect(button).toBeFocused();
 });
 
-test('server info navigates to another running server and refreshes after shutdown', async ({ page }, testInfo) => {
+test('server info updates another server after a branch switch and shutdown', async ({ page }, testInfo) => {
   const otherDirectory = await mkdtemp(join(tmpdir(), 'markport-other-'));
   const otherRoot = await realpath(otherDirectory);
   const otherPort = await freePort();
+  const git = (...args: string[]): void => { execFileSync('git', ['-C', otherDirectory, ...args]); };
   await writeFile(join(otherDirectory, 'README.md'), '# Other server');
+  git('init', '-q', '-b', 'feature/server-info');
+  git('add', 'README.md');
+  git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'initial', '--no-gpg-sign');
   const other = spawn(resolve('../dist/markport'), [otherDirectory, '--host', '0.0.0.0', '--port', String(otherPort)], {
     stdio: 'ignore', env: { ...process.env, XDG_CACHE_HOME: cacheDirectory, LOCALAPPDATA: cacheDirectory },
   });
@@ -751,6 +755,8 @@ test('server info navigates to another running server and refreshes after shutdo
     const dialog = page.getByRole('dialog', { name: 'Server info', exact: true });
     const link = dialog.getByRole('link', { name: otherRoot, exact: true });
     await expect(link).toHaveAttribute('href', `http://127.0.0.1:${otherPort}/`);
+    const otherRow = dialog.getByRole('listitem').filter({ has: page.getByRole('link', { name: otherRoot, exact: true }) });
+    await expect(otherRow).toContainText('Git feature/server-info');
     await page.screenshot({ path: testInfo.outputPath('running-servers.png') });
     const currentLink = dialog.getByRole('link', { name: await realpath(directory), exact: true });
     await expect(dialog.getByRole('searchbox', { name: 'Filter by directory' })).toBeFocused();
@@ -769,11 +775,17 @@ test('server info navigates to another running server and refreshes after shutdo
     await expect(link).toHaveAttribute('aria-current', 'true');
     await expect(filter).toBeFocused();
     await page.screenshot({ path: testInfo.outputPath('running-servers-filtered.png') });
+    git('switch', '-qc', 'feature/switched');
+    await dialog.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await expect(otherRow).toContainText('Git feature/switched');
+    await expect(currentLink).toHaveCount(0);
+    await filter.focus();
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL((url) => url.origin === `http://127.0.0.1:${otherPort}`);
     await expect(page.locator('#content h1')).toHaveText('Other server');
     await page.getByRole('button', { name: 'Server info', exact: true }).click();
     await expect(dialog.locator('dd').first()).toHaveText(otherRoot);
+    await expect(otherRow).toContainText('Git feature/switched · Current');
     await page.goBack();
     await page.getByRole('button', { name: 'Server info', exact: true }).click();
     await expect(link).toBeVisible();

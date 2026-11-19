@@ -28,6 +28,7 @@ type Record struct {
 type Info struct {
 	RootPath string `json:"rootPath"`
 	Version  string `json:"version"`
+	Branch   string `json:"branch,omitempty"`
 }
 
 type Instance struct {
@@ -118,17 +119,17 @@ func Link(record Record, info Info, current bool, requestHost string) Instance {
 
 // List includes the current server first and links servers for the browser's host.
 func (r *Registry) List(ctx context.Context, self Record, info Info, requestHost string) ([]Instance, error) {
-	others, err := r.discover(ctx, self.ID, requestHost)
+	others, err := r.discover(ctx, self.ID, requestHost, true)
 	return append([]Instance{Link(self, info, true, requestHost)}, others...), err
 }
 
 // Discover lists running servers for a local client without a current server.
 func (r *Registry) Discover(ctx context.Context) ([]Instance, error) {
-	return r.discover(ctx, "", "127.0.0.1")
+	return r.discover(ctx, "", "127.0.0.1", false)
 }
 
 // discover only probes registered local addresses; it never follows redirects or proxies.
-func (r *Registry) discover(ctx context.Context, skipID, requestHost string) ([]Instance, error) {
+func (r *Registry) discover(ctx context.Context, skipID, requestHost string, includeBranch bool) ([]Instance, error) {
 	result := make([]Instance, 0)
 	directory, err := os.Stat(r.Directory)
 	if err != nil {
@@ -162,6 +163,10 @@ func (r *Registry) discover(ctx context.Context, skipID, requestHost string) ([]
 	transport := &http.Transport{DialContext: (&net.Dialer{Timeout: 500 * time.Millisecond}).DialContext}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, Timeout: 500 * time.Millisecond, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	instancePath := "/api/instance"
+	if includeBranch {
+		instancePath += "?branch=1"
+	}
 	jobs := make(chan Record)
 	var mu sync.Mutex
 	var workers sync.WaitGroup
@@ -177,7 +182,7 @@ func (r *Registry) discover(ctx context.Context, skipID, requestHost string) ([]
 				if host == "0.0.0.0" {
 					host = "127.0.0.1"
 				}
-				request, err := http.NewRequestWithContext(ctx, "GET", "http://"+net.JoinHostPort(host, strconv.Itoa(record.Port))+"/api/instance", nil)
+				request, err := http.NewRequestWithContext(ctx, "GET", "http://"+net.JoinHostPort(host, strconv.Itoa(record.Port))+instancePath, nil)
 				if err != nil {
 					continue
 				}

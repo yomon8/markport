@@ -1,12 +1,13 @@
 import { editingShortcutTarget, matchesShortcut } from './shortcuts';
 
-type InstanceInfo = { rootPath: string; version: string; url: string; current: boolean; unavailableReason?: string };
+type InstanceInfo = { rootPath: string; version: string; url: string; current: boolean; branch?: string; unavailableReason?: string };
 type ServerInfoReply = { rootPath: string; workingDirectory: string; version: string; instances?: InstanceInfo[]; instancesError?: string };
 
 function isInstance(value: unknown): value is InstanceInfo {
   if (!value || typeof value !== 'object' || !('rootPath' in value) || typeof value.rootPath !== 'string'
     || !('version' in value) || typeof value.version !== 'string' || !('current' in value) || typeof value.current !== 'boolean'
     || !('url' in value) || typeof value.url !== 'string'
+    || ('branch' in value && typeof value.branch !== 'string')
     || ('unavailableReason' in value && typeof value.unavailableReason !== 'string')) return false;
   if (value.url === '') return 'unavailableReason' in value && typeof value.unavailableReason === 'string';
   try {
@@ -177,7 +178,12 @@ export class ServerInfo {
       const name = document.createElement(instance.url ? 'a' : 'span'); name.textContent = instance.rootPath;
       if (name instanceof HTMLAnchorElement) name.href = instance.url;
       const details = document.createElement('span'); details.className = 'server-info-instance-details';
-      details.textContent = [instance.url || instance.unavailableReason, instance.version, instance.current ? 'Current' : ''].filter(Boolean).join(' · ');
+      details.textContent = [
+        instance.url || instance.unavailableReason,
+        instance.version,
+        instance.branch ? `Git ${instance.branch}` : '',
+        instance.current ? 'Current' : '',
+      ].filter(Boolean).join(' · ');
       row.append(name, details); this.list.append(row);
     }
     const links = [...this.list.querySelectorAll('a')];
