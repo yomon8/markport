@@ -650,28 +650,7 @@ func countChange(ctx context.Context, store *files.Store, repo repository, chang
 		return cached
 	}
 	statsCache.Unlock()
-	var counts lineCounts
-	diff, err := changeDiff(ctx, store, repo, change.Path, change.Status)
-	if err == nil && diff.Kind == "text" {
-		added, deleted := 0, 0
-		inHunk := false
-		for _, line := range strings.Split(diff.Patch, "\n") {
-			if strings.HasPrefix(line, "@@ ") {
-				inHunk = true
-				continue
-			}
-			if !inHunk {
-				continue
-			}
-			if strings.HasPrefix(line, "+") {
-				added++
-			}
-			if strings.HasPrefix(line, "-") {
-				deleted++
-			}
-		}
-		counts = lineCounts{&added, &deleted}
-	}
+	counts, err := computeLineCounts(ctx, store, repo, change)
 	if err != nil && !errors.Is(err, ErrTooLarge) {
 		return counts
 	}
@@ -682,6 +661,124 @@ func countChange(ctx context.Context, store *files.Store, repo repository, chang
 	statsCache.values[key] = counts
 	statsCache.Unlock()
 	return counts
+}
+
+func splitDiffLines(content string) []string {
+	if content == "" {
+		return nil
+	}
+	lines := strings.SplitAfter(content, "\n")
+	if len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
+}
+
+// myersLineCounts computes exact added/deleted line counts in memory using Myers'
+// O(ND) shortest edit script algorithm. Returns ok=false if the edit distance
+// exceeds maxEditDistance so callers can fall back to git diff.
+func myersLineCounts(oldLines, newLines []string) (added, deleted int, ok bool) {
+	for len(oldLines) > 0 && len(newLines) > 0 && oldLines[0] == newLines[0] {
+		oldLines = oldLines[1:]
+		newLines = newLines[1:]
+	}
+	for len(oldLines) > 0 && len(newLines) > 0 && oldLines[len(oldLines)-1] == newLines[len(newLines)-1] {
+		oldLines = oldLines[:len(oldLines)-1]
+		newLines = newLines[:len(newLines)-1]
+	}
+	n, m := len(oldLines), len(newLines)
+	if n == 0 || m == 0 {
+		return m, n, true
+	}
+	const maxEditDistance = 2000
+	limit := min(n+m, maxEditDistance)
+	offset := limit
+	v := make([]int, 2*limit+1)
+	for d := 0; d <= limit; d++ {
+		for k := -d; k <= d; k += 2 {
+			var x int
+			if k == -d || (k != d && v[offset+k-1] < v[offset+k+1]) {
+				x = v[offset+k+1]
+			} else {
+				x = v[offset+k-1] + 1
+			}
+			y := x - k
+			for x < n && y < m && oldLines[x] == newLines[y] {
+				x++
+				y++
+			}
+			v[offset+k] = x
+			if x >= n && y >= m {
+				return (d + m - n) / 2, (d - m + n) / 2, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+func computeLineCounts(ctx context.Context, store *files.Store, repo repository, change Change) (lineCounts, error) {
+	var oldContent []byte
+	var err error
+	if !repo.unborn && change.Status != "added" {
+		oldContent, err = run(ctx, repo.root, "cat-file", "blob", repo.head+":"+repo.path(change.Path))
+		if err != nil {
+			return lineCounts{}, err
+		}
+	}
+	var newContent []byte
+	if change.Status != "deleted" {
+		current, readErr := store.ReadText(change.Path)
+		if errors.Is(readErr, files.ErrBinary) {
+			return lineCounts{}, nil
+		}
+		if readErr != nil {
+			return lineCounts{}, readErr
+		}
+		newContent = []byte(current)
+	}
+	if !validText(oldContent) {
+		return lineCounts{}, nil
+	}
+	if change.Status == "added" {
+		added, deleted := len(splitDiffLines(string(newContent))), 0
+		return lineCounts{&added, &deleted}, nil
+	}
+	if change.Status == "deleted" {
+		added, deleted := 0, len(splitDiffLines(string(oldContent)))
+		return lineCounts{&added, &deleted}, nil
+	}
+	if bytes.Equal(oldContent, newContent) {
+		added, deleted := 0, 0
+		return lineCounts{&added, &deleted}, nil
+	}
+	if added, deleted, ok := myersLineCounts(splitDiffLines(string(oldContent)), splitDiffLines(string(newContent))); ok {
+		return lineCounts{&added, &deleted}, nil
+	}
+	patch, err := compareSnapshots(ctx, repo.root, change.Path, oldContent, newContent)
+	if err != nil {
+		return lineCounts{}, err
+	}
+	if len(patch) > maxOutput {
+		return lineCounts{}, ErrTooLarge
+	}
+	added, deleted := 0, 0
+	inHunk := false
+	for _, line := range strings.Split(patch, "\n") {
+		if strings.HasPrefix(line, "@@ ") {
+			inHunk = true
+			continue
+		}
+		if !inHunk {
+			continue
+		}
+		if strings.HasPrefix(line, "+") {
+			added++
+		}
+		if strings.HasPrefix(line, "-") {
+			deleted++
+		}
+	}
+	return lineCounts{&added, &deleted}, nil
 }
 
 func validText(content []byte) bool {

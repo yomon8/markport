@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/markport/markport/internal/files"
@@ -73,5 +74,51 @@ func TestWatchDirsWithoutRepositoryAndCanceled(t *testing.T) {
 	cancel()
 	if _, err := WatchDirs(ctx, store); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled discovery: %v", err)
+	}
+}
+
+func TestWatchDirsNestedBranchDirectoriesAndSymlinks(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("Git is unavailable")
+	}
+	root := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		command := exec.Command("git", append([]string{"-C", root}, args...)...)
+		command.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+		if output, err := command.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, output)
+		}
+	}
+	git("init", "-q")
+	git("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-qm", "initial")
+	git("branch", "feat/nested/topic")
+	canonical, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		outside := t.TempDir()
+		if err := os.Symlink(outside, filepath.Join(canonical, ".git", "refs", "heads", "linked")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store, err := files.New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	dirs, err := WatchDirs(t.Context(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		filepath.Join(canonical, ".git"),
+		filepath.Join(canonical, ".git", "refs", "heads"),
+		filepath.Join(canonical, ".git", "refs", "heads", "feat"),
+		filepath.Join(canonical, ".git", "refs", "heads", "feat", "nested"),
+	}
+	if !reflect.DeepEqual(dirs, want) {
+		t.Fatalf("nested branch watch dirs = %v, want %v", dirs, want)
 	}
 }

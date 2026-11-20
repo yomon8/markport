@@ -64,3 +64,27 @@ func TestListLineCounts(t *testing.T) {
 		}
 	}
 }
+
+func TestMyersLineCounts(t *testing.T) {
+	cases := []struct {
+		name             string
+		oldText          string
+		newText          string
+		wantAdd, wantDel int
+	}{
+		{"identical", "a\nb\n", "a\nb\n", 0, 0},
+		{"insert middle", "a\nc\n", "a\nb\nc\n", 1, 0},
+		{"delete middle", "a\nb\nc\n", "a\nc\n", 0, 1},
+		{"replace line", "a\nold\nc\n", "a\nnew\nc\n", 1, 1},
+		{"trailing newline removed", "a\nb\n", "a\nb", 1, 1},
+		{"empty to non-empty", "", "x\ny\n", 2, 0},
+		{"non-empty to empty", "x\ny\n", "", 0, 2},
+		{"crlf to lf", "a\r\nb\r\n", "a\nb\n", 2, 2},
+	}
+	for _, tc := range cases {
+		added, deleted, ok := myersLineCounts(splitDiffLines(tc.oldText), splitDiffLines(tc.newText))
+		if !ok || added != tc.wantAdd || deleted != tc.wantDel {
+			t.Errorf("%s: got (%d, %d, %v), want (%d, %d, true)", tc.name, added, deleted, ok, tc.wantAdd, tc.wantDel)
+		}
+	}
+}
