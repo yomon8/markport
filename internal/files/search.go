@@ -9,6 +9,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -20,11 +21,13 @@ const (
 )
 
 type ContentMatch struct {
-	Path   string `json:"path"`
-	Line   int    `json:"line"`
-	Before string `json:"before"`
-	Text   string `json:"text"`
-	After  string `json:"after"`
+	Path       string `json:"path"`
+	Line       int    `json:"line"`
+	Before     string `json:"before"`
+	Text       string `json:"text"`
+	After      string `json:"after"`
+	MatchStart int    `json:"matchStart,omitempty"`
+	MatchEnd   int    `json:"matchEnd,omitempty"`
 }
 
 type ContentSearch struct {
@@ -47,7 +50,7 @@ func (r contextReader) Read(p []byte) (int, error) {
 	return r.r.Read(p)
 }
 
-func searchSnippet(line string, start, end int) string {
+func searchSnippet(line string, start, end int) (string, int, int) {
 	left := []rune(line[:start])
 	middle := []rune(line[start:end])
 	right := []rune(line[end:])
@@ -60,9 +63,78 @@ func searchSnippet(line string, start, end int) string {
 	if len(right) > 100 {
 		right = right[:100]
 	}
-	return strings.TrimSpace(string(left) + string(middle) + string(right))
+	combined := string(left) + string(middle) + string(right)
+	trimmedLeft := strings.TrimLeftFunc(combined, unicode.IsSpace)
+	leadingTrimmed := utf8.RuneCountInString(combined) - utf8.RuneCountInString(trimmedLeft)
+	text := strings.TrimRightFunc(trimmedLeft, unicode.IsSpace)
+	textRunes := utf8.RuneCountInString(text)
+	matchStart := max(0, len(left)-leadingTrimmed)
+	matchEnd := min(textRunes, max(matchStart, len(left)+len(middle)-leadingTrimmed))
+	return text, matchStart, matchEnd
 }
 
+func hasDisallowedControlByte(data []byte) bool {
+	for _, b := range data {
+		if b < 0x20 && b != '\n' && b != '\r' && b != '\t' && b != '\f' {
+			return true
+		}
+	}
+	return false
+}
+
+// isTextProbe validates a leading file chunk without misclassifying a valid
+// multi-byte UTF-8 rune split across the probe boundary.
+func isTextProbe(probe []byte, eof bool) bool {
+	if hasDisallowedControlByte(probe) {
+		return false
+	}
+	check := probe
+	if !eof && len(check) > 0 {
+		start := len(check) - 1
+		for start > 0 && len(check)-start < utf8.UTFMax && !utf8.RuneStart(check[start]) {
+			start--
+		}
+		if utf8.RuneStart(check[start]) && !utf8.FullRune(check[start:]) {
+			check = check[:start]
+		}
+	}
+	return utf8.Valid(check)
+}
+
+func readTextForSearch(ctx context.Context, file io.Reader, size, maxRemaining int64) ([]byte, bool, error) {
+	const probeSize = 8192
+	var probeBuf [probeSize]byte
+	n, err := io.ReadFull(contextReader{ctx, file}, probeBuf[:])
+	eof := errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF)
+	if err != nil && !eof {
+		return nil, false, err
+	}
+	probe := probeBuf[:n]
+	if !isTextProbe(probe, eof) {
+		return nil, true, nil
+	}
+	if eof {
+		if int64(len(probe)) > maxRemaining {
+			return nil, false, ErrTooLarge
+		}
+		return probe, false, nil
+	}
+	if size > maxRemaining {
+		return nil, false, ErrTooLarge
+	}
+	restLimit := maxRemaining - int64(len(probe))
+	rest, err := readBounded(contextReader{ctx, file}, max(0, size-int64(len(probe))), restLimit)
+	if err != nil {
+		return nil, false, err
+	}
+	data := make([]byte, len(probe)+len(rest))
+	copy(data, probe)
+	copy(data[len(probe):], rest)
+	if !utf8.Valid(data) || hasDisallowedControlByte(data) {
+		return nil, true, nil
+	}
+	return data, false, nil
+}
 func contextLine(line string) string {
 	line = strings.TrimSpace(line)
 	runes := []rune(line)
@@ -150,8 +222,8 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 			return nil
 		}
 		switch strings.ToLower(path.Ext(rel)) {
-		case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg":
-			return nil // These files open as images, without a source-line view.
+		case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".pdf":
+			return nil // These files open as images or PDFs, without a source-line view.
 		}
 		if result.FilesScanned >= MaxSearchFiles {
 			result.Limit = "files"
@@ -159,10 +231,6 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 		}
 		result.FilesScanned++
 		if info.Size() > MaxTextSize {
-			return nil
-		}
-		if info.Size() > MaxSearchBytes-result.BytesRead {
-			result.Limit = "bytes"
 			return nil
 		}
 		file, err := s.Open(rel)
@@ -175,12 +243,7 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 			return nil
 		}
 		remaining := int64(MaxSearchBytes) - result.BytesRead
-		if current.Size() > remaining {
-			_ = file.Close()
-			result.Limit = "bytes"
-			return nil
-		}
-		data, err := readBounded(contextReader{ctx, file}, current.Size(), min(remaining, int64(MaxTextSize)))
+		data, binary, err := readTextForSearch(ctx, file, current.Size(), min(remaining, int64(MaxTextSize)))
 		_ = file.Close()
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return err
@@ -189,13 +252,10 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 			result.Limit = "bytes"
 			return nil
 		}
-		if err != nil {
+		if err != nil || binary {
 			return nil
 		}
 		result.BytesRead += int64(len(data))
-		if !utf8.Valid(data) || bytes.IndexFunc(data, func(r rune) bool { return r < 0x20 && r != '\n' && r != '\r' && r != '\t' && r != '\f' }) >= 0 {
-			return nil
-		}
 		// Fold the file only as a filter: Unicode folding may change byte
 		// offsets, so line numbers and snippets always use the original data.
 		if !opts.Regex {
@@ -218,12 +278,13 @@ func (s *Store) Search(ctx context.Context, opts SearchOptions) (ContentSearch, 
 			}
 			line := string(data[start:end])
 			if index, matchEnd, ok := matchLine.find(line); ok {
-				text := searchSnippet(line, index, matchEnd)
+				text, spanStart, spanEnd := searchSnippet(line, index, matchEnd)
 				// Preserve the original snippet policy for width-changing folds.
 				if !opts.Regex && !opts.CaseSensitive && !opts.WholeWord && len(strings.ToLower(line)) != len(line) {
 					text = contextLine(line)
+					spanStart, spanEnd = 0, 0
 				}
-				match := ContentMatch{Path: rel, Line: number, Text: text}
+				match := ContentMatch{Path: rel, Line: number, Text: text, MatchStart: spanStart, MatchEnd: spanEnd}
 				if number > 1 {
 					match.Before = contextLine(string(data[previousStart:previousEnd]))
 				}

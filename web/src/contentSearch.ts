@@ -1,4 +1,4 @@
-type Match = { path: string; line: number; before: string; text: string; after: string };
+type Match = { path: string; line: number; before: string; text: string; after: string; matchStart?: number; matchEnd?: number };
 type SearchReply = { matches: Match[]; filesScanned: number; bytesRead: number; ignoredSkipped: number; limit?: 'files' | 'entries' | 'bytes' | 'matches' | 'timeout' };
 
 type SearchOptions = { caseSensitive: boolean; wholeWord: boolean; regex: boolean; include: string; exclude: string; ignored: boolean };
@@ -16,6 +16,19 @@ function loadOptions(): SearchOptions {
     }
     return options;
   } catch { return { ...memoryOptions }; }
+}
+
+function renderMatchText(target: HTMLElement, text: string, start?: number, end?: number): void {
+  const chars = [...text];
+  if (typeof start === 'number' && typeof end === 'number' && Number.isInteger(start) && Number.isInteger(end) && start >= 0 && end > start && end <= chars.length) {
+    if (start > 0) target.append(document.createTextNode(chars.slice(0, start).join('')));
+    const mark = document.createElement('mark');
+    mark.textContent = chars.slice(start, end).join('');
+    target.append(mark);
+    if (end < chars.length) target.append(document.createTextNode(chars.slice(end).join('')));
+    return;
+  }
+  target.textContent = text;
 }
 
 export function initContentSearch(container: HTMLElement, navigate: (url: string) => void): void {
@@ -106,7 +119,8 @@ export function initContentSearch(container: HTMLElement, navigate: (url: string
           });
           const heading = document.createElement('strong'); heading.textContent = `${match.path}:${match.line}`;
           const before = document.createElement('span'); before.textContent = match.before;
-          const text = document.createElement('span'); text.className = 'match-line'; text.textContent = match.text;
+          const text = document.createElement('span'); text.className = 'match-line';
+          renderMatchText(text, match.text, match.matchStart, match.matchEnd);
           const after = document.createElement('span'); after.textContent = match.after;
           link.append(heading, before, text, after); item.append(link); list.append(item);
         }

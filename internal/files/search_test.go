@@ -147,3 +147,83 @@ func TestSearchContentReadLimitAndLargeFile(t *testing.T) {
 		t.Fatalf("read limit: %+v %v", result, err)
 	}
 }
+
+func TestSearchSkipsPDFAndEarlySniffsBinary(t *testing.T) {
+	root := t.TempDir()
+	// Create a PDF containing the query string plus large binary files whose total
+	// size exceeds MaxSearchBytes; none should prevent searching the text file.
+	if err := os.WriteFile(filepath.Join(root, "doc.pdf"), []byte("%PDF-1.4\nneedle\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	bin := make([]byte, 9<<20)
+	copy(bin, []byte("needle\x00binary"))
+	for i := range 8 {
+		if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("a_bin%02d.dat", i)), bin, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Multi-byte UTF-8 rune ("あ" = 3 bytes) spanning the 8192-byte probe boundary.
+	boundary := strings.Repeat("a", 8191) + "あ" + "\nneedle here\n"
+	if err := os.WriteFile(filepath.Join(root, "z_utf8.txt"), []byte(boundary), 0644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	result, err := store.SearchContent(context.Background(), "", "needle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Limit != "" {
+		t.Fatalf("unexpected limit %q: %+v", result.Limit, result)
+	}
+	if len(result.Matches) != 1 || result.Matches[0].Path != "z_utf8.txt" || result.Matches[0].Line != 2 {
+		t.Fatalf("expected only z_utf8.txt match, got %+v", result.Matches)
+	}
+	if result.BytesRead != int64(len(boundary)) {
+		t.Fatalf("expected BytesRead=%d, got %d", len(boundary), result.BytesRead)
+	}
+}
+
+func TestSearchMatchOffsets(t *testing.T) {
+	root := t.TempDir()
+	longLine := "   " + strings.Repeat("a", 120) + "日本語ターゲット" + strings.Repeat("b", 120) + "   \n"
+	content := "  hello Needle world  \n" + longLine + "code bug-42 end\n"
+	if err := os.WriteFile(filepath.Join(root, "notes.md"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	store, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	res, err := store.Search(context.Background(), SearchOptions{Query: "needle"})
+	if err != nil || len(res.Matches) != 1 {
+		t.Fatalf("ascii match: %+v, %v", res, err)
+	}
+	m := res.Matches[0]
+	if got := string([]rune(m.Text)[m.MatchStart:m.MatchEnd]); got != "Needle" {
+		t.Fatalf("ascii slice = %q (text=%q, %d:%d)", got, m.Text, m.MatchStart, m.MatchEnd)
+	}
+
+	res, err = store.Search(context.Background(), SearchOptions{Query: "ターゲット"})
+	if err != nil || len(res.Matches) != 1 {
+		t.Fatalf("japanese trimmed match: %+v, %v", res, err)
+	}
+	m = res.Matches[0]
+	if got := string([]rune(m.Text)[m.MatchStart:m.MatchEnd]); got != "ターゲット" {
+		t.Fatalf("japanese slice = %q (text=%q, %d:%d)", got, m.Text, m.MatchStart, m.MatchEnd)
+	}
+
+	res, err = store.Search(context.Background(), SearchOptions{Query: `bug-\d+`, Regex: true})
+	if err != nil || len(res.Matches) != 1 {
+		t.Fatalf("regex match: %+v, %v", res, err)
+	}
+	m = res.Matches[0]
+	if got := string([]rune(m.Text)[m.MatchStart:m.MatchEnd]); got != "bug-42" {
+		t.Fatalf("regex slice = %q (text=%q, %d:%d)", got, m.Text, m.MatchStart, m.MatchEnd)
+	}
+}

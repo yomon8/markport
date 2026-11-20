@@ -68,3 +68,20 @@ it('displays invalid-query messages and restores the submit button', async () =>
   await vi.waitFor(() => expect(container.querySelector('[role=status]')?.textContent).toContain('missing closing ]'));
   expect(container.querySelector<HTMLButtonElement>('button[type=submit]')?.disabled).toBe(false);
 });
+
+it('highlights matching text safely with mark elements including multibyte characters', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({
+    matches: [
+      { path: 'docs/a.md', line: 1, before: '', text: '😀 <b>Needle</b> end', after: '', matchStart: 5, matchEnd: 11 },
+    ],
+    filesScanned: 1, ignoredSkipped: 0,
+  })));
+  const { container } = await mount();
+  input(container, 'query', 'needle');
+  container.querySelector('form')!.dispatchEvent(new Event('submit', { cancelable: true }));
+  await vi.waitFor(() => expect(container.querySelector('.match-line mark')).not.toBeNull());
+  const line = container.querySelector('.match-line')!;
+  expect(line.textContent).toBe('😀 <b>Needle</b> end');
+  expect(line.querySelector('mark')?.textContent).toBe('Needle');
+  expect(line.querySelector('b')).toBeNull();
+});

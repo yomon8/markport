@@ -15,11 +15,11 @@ func TestSearchContentLineBoundariesAndUnicode(t *testing.T) {
 		name, content, query string
 		want                 []ContentMatch
 	}{
-		{"first", "NEEDLE\nfollowing\n", "needle", []ContentMatch{{Path: "file.txt", Line: 1, Text: "NEEDLE", After: "following"}}},
-		{"last", "before\nNeEdLe", "NEEDLE", []ContentMatch{{Path: "file.txt", Line: 2, Text: "NeEdLe", Before: "before"}}},
-		{"single", "needle", "needle", []ContentMatch{{Path: "file.txt", Line: 1, Text: "needle"}}},
-		{"unicode-context", "İ filler\nNEEDLE\nİ context", "needle", []ContentMatch{{Path: "file.txt", Line: 2, Text: "NEEDLE", Before: "İ filler", After: "İ context"}}},
-		{"crlf", "before\r\nNeedle\r\nafter\r\n", "needle", []ContentMatch{{Path: "file.txt", Line: 2, Text: "Needle", Before: "before", After: "after"}}},
+		{"first", "NEEDLE\nfollowing\n", "needle", []ContentMatch{{Path: "file.txt", Line: 1, Text: "NEEDLE", After: "following", MatchStart: 0, MatchEnd: 6}}},
+		{"last", "before\nNeEdLe", "NEEDLE", []ContentMatch{{Path: "file.txt", Line: 2, Text: "NeEdLe", Before: "before", MatchStart: 0, MatchEnd: 6}}},
+		{"single", "needle", "needle", []ContentMatch{{Path: "file.txt", Line: 1, Text: "needle", MatchStart: 0, MatchEnd: 6}}},
+		{"unicode-context", "İ filler\nNEEDLE\nİ context", "needle", []ContentMatch{{Path: "file.txt", Line: 2, Text: "NEEDLE", Before: "İ filler", After: "İ context", MatchStart: 0, MatchEnd: 6}}},
+		{"crlf", "before\r\nNeedle\r\nafter\r\n", "needle", []ContentMatch{{Path: "file.txt", Line: 2, Text: "Needle", Before: "before", After: "after", MatchStart: 0, MatchEnd: 6}}},
 		{"folded-offset", "İ start NEEDLE\n", "needle", []ContentMatch{{Path: "file.txt", Line: 1, Text: "İ start NEEDLE"}}},
 		{"folded-query", "İ\n", "i", []ContentMatch{{Path: "file.txt", Line: 1, Text: "İ"}}},
 		{"full-context", "İ" + strings.Repeat("x", 120) + "NEEDLE" + strings.Repeat("y", 20), "needle", []ContentMatch{{Path: "file.txt", Line: 1, Text: "İ" + strings.Repeat("x", 120) + "NEEDLE" + strings.Repeat("y", 20)}}},
