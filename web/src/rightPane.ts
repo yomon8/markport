@@ -207,7 +207,7 @@ export function createRightPane(deps: RightPaneOptions) {
         if (request !== rightRequest || path !== rightSelected() || fileView(new URL(location.href), 'right') !== mode) return;
         const key = JSON.stringify(diff);
         if (rightShownKey !== key || rightContent.dataset.kind !== 'diff') { const scroll = rightPane.scrollTop; rightContent.dataset.kind = 'diff'; renderDiff(rightContent, diff); rightShownKey = key; rightPane.scrollTop = scroll; }
-        showRightTitle(path, 'diff'); rightShownPath = path;
+        showRightTitle(path, 'diff'); rightShownPath = path; rightTag = '';
         rightDownload.hidden = true; rightPrint.hidden = true; rightOpenPDF.hidden = true; rightInteractive.hidden = true; rightOutline.hidden = true; rightContents.hidden = true;
         if (pendingRightScroll !== undefined) { rightPane.scrollTop = pendingRightScroll; pendingRightScroll = undefined; }
         return;
@@ -216,9 +216,7 @@ export function createRightPane(deps: RightPaneOptions) {
       if (rightShownPath === path && rightTag && Date.now() - rightTagCheckedAt < 60000) headers['If-None-Match'] = rightTag;
       const response = await fetch(`/api/file?path=${encodeURIComponent(path)}${rightSourceMode ? '&source=1' : ''}`, { cache: 'no-store', headers });
       if (request !== rightRequest || path !== rightSelected()) return;
-      rightTag = response.headers.get('ETag') ?? '';
-      rightTagCheckedAt = Date.now();
-      if (response.status === 304) { applyLine(); return; }
+      if (response.status === 304) { rightTagCheckedAt = Date.now(); applyLine(); return; }
       const file = await response.json() as FileReply & ApiError;
       if (!response.ok) throw new RequestError(file.error ?? 'network', file.message ?? `HTTP ${response.status}`);
       if (request !== rightRequest || path !== rightSelected()) return;
@@ -249,6 +247,9 @@ export function createRightPane(deps: RightPaneOptions) {
       rightInteractive.textContent = preview.hasInteractive(path) ? 'Disable JavaScript' : 'Enable JavaScript';
       rightInteractive.setAttribute('aria-pressed', String(preview.hasInteractive(path)));
       rightShownPath = path;
+      // Revalidate only content that survived the request check and reached the pane.
+      rightTag = response.headers.get('ETag') ?? '';
+      rightTagCheckedAt = Date.now();
       if (pendingRightScroll !== undefined) { rightPane.scrollTop = pendingRightScroll; pendingRightScroll = undefined; }
       applyLine();
     } catch (error) {
@@ -260,7 +261,7 @@ export function createRightPane(deps: RightPaneOptions) {
       rightContent.replaceChildren(); const message = document.createElement('div'); message.className = 'file-error'; message.setAttribute('role', 'alert');
       message.textContent = error instanceof RequestError && error.code === 'not_found' ? 'File not found.' : 'Cannot display file. Please try again.'; rightContent.append(message);
       rightInteractive.hidden = true; rightViews.hidden = true; rightOutline.hidden = true; rightContents.hidden = true;
-      rightShownPath = path; rightShownKey = '';
+      rightShownPath = path; rightShownKey = ''; rightTag = '';
     } finally { if (request === rightRequest) rightContent.setAttribute('aria-busy', 'false'); }
   }
   document.querySelector('#right-close')!.addEventListener('click', closeRight);

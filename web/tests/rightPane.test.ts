@@ -54,6 +54,31 @@ it('keeps the right document and scroll on conditional refresh', async () => {
   preview.dispose();
 });
 
+it('revalidates the displayed document when a refresh supersedes an unread response', async () => {
+  const updated = { path: 'right.md', type: 'markdown', html: '<h1>Updated file</h1>' };
+  let finish!: (file: typeof updated) => void;
+  const body = new Promise<typeof updated>((resolve) => { finish = resolve; });
+  const json = vi.fn(() => body);
+  const next = { ...reply(), headers: new Headers({ ETag: 'v2' }) };
+  const fetch = vi.fn(async (_url: string, options: { headers: Record<string, string> }) => (
+    options.headers['If-None-Match'] === 'v2' ? { ...next, status: 304 } : { ...next, json: async () => updated }
+  )).mockResolvedValueOnce(reply()).mockResolvedValueOnce({ ...next, json });
+  vi.stubGlobal('fetch', fetch);
+  const { controller, preview, rightContent } = setup();
+  await controller.refreshRight();
+  const pending = controller.refreshRight();
+  await Promise.resolve();
+  expect(json).toHaveBeenCalledOnce();
+  await controller.refreshRight();
+  finish(updated);
+  await pending;
+  expect(fetch.mock.calls[2][1].headers['If-None-Match']).toBe('v1');
+  expect(rightContent.querySelector('h1')?.textContent).toBe('Updated file');
+  await controller.refreshRight();
+  expect(fetch.mock.calls[3][1].headers['If-None-Match']).toBe('v2');
+  preview.dispose();
+});
+
 it('discards a pending response when the pane closes', async () => {
   let finish: ((response: Response) => void) | undefined;
   vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; })));
