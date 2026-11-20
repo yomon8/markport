@@ -129,7 +129,7 @@ Use the arrow beside a file in the sidebar or a search result to open it on the 
 
 ### Markdown content width
 
-Use the **Content width** icon in a Markdown title bar to choose **Standard** (46em), **Wide** (64em), or **Full** (the available pane width, the default). Existing saved choices are retained. Press `w` to cycle Full → Standard → Wide → Full while the width control is visible, outside text entry, dialogs, and menus. The choice is saved in this browser per host and port and applies to both split panes and the Rendered/Split previews in **Paste Markdown**. The width control is hidden on screens 700px wide or narrower; your saved choice is retained. Paste's text editor width is a separate setting.
+Use the **Content width** icon in a Markdown title bar to choose **Standard** (46em), **Wide** (64em), or **Full** (the available pane width, the default). Existing saved choices are retained. Press `Shift+W` to cycle Full → Standard → Wide → Full while the width control is visible, outside text entry, dialogs, and menus. The choice is saved in this browser per host and port and applies to both split panes and the Rendered/Split previews in **Paste Markdown**. The width control is hidden on screens 700px wide or narrower; your saved choice is retained. Paste's text editor width is a separate setting.
 
 Wide top-level tables, code blocks, and Mermaid diagrams automatically use the available space beyond the prose width, leaving room for the sidebar and Contents outline. Smaller blocks stay aligned with the text. Blocks inside lists, quotes, or details stay within their parent. Content that still does not fit scrolls inside its own block; existing wrapping and Expand controls remain available. Source views and print layouts keep their existing widths.
 
@@ -281,6 +281,8 @@ In Files and filename search results, arrow keys move focus without changing the
 
 Global shortcuts do not interrupt text entry or IME composition.
 
+Vim navigation is always enabled: `j`/`k` scroll the active reading pane by 40px, `Ctrl+D`/`Ctrl+U` by half a page, and `gg`/`G` jump to the start/end. In the focused file tree, `h`/`j`/`k`/`l` navigate folders and rows, `gg`/`G` select the first/last row, and Enter opens. Type `gg` within 800ms. These keys are inactive in inputs, menus, dialogs, and Paste Markdown. Half-page keys use Ctrl on macOS too. `/` still searches files.
+
 ## Updating
 
 Versions that support self-update can update themselves:
@@ -329,8 +331,6 @@ Markport does not edit files, add comments, read from standard input, or provide
 
 ## Development
 
-Vim navigation is always enabled: `j`/`k` scroll the active reading pane by 40px, `Ctrl+D`/`Ctrl+U` by half a page, and `gg`/`G` jump to the start/end. In the focused file tree, `h`/`j`/`k`/`l` navigate folders and rows, `gg`/`G` select the first/last row, and Enter opens. Type `gg` within 800ms. These keys are inactive in inputs, menus, dialogs, and Paste Markdown. Half-page keys use Ctrl on macOS too. `/` still searches files.
-
 ### Architecture
 
 The Go executable serves the embedded browser UI and a read-only API on the configured IPv4 address. It renders files on demand and lists one folder at a time.
@@ -338,7 +338,7 @@ The Go executable serves the embedded browser UI and a read-only API on the conf
 ```mermaid
 flowchart LR
     user["User"] -->|"Opens local URL"| browser["Browser UI"]
-    browser <-->|"HTTP polling"| server["Markport (Go)"]
+    browser <-->|"HTTP / SSE (with polling fallback)"| server["Markport (Go)"]
     server -->|"Read selected files and folders"| directory["Selected directory"]
 ```
 
