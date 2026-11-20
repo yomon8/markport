@@ -1,0 +1,397 @@
+/* Modal dialogs and fullscreen overlays: print, diagram, table, shortcuts, tab title, server info. */
+.overlay-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* Print view dialog. */
+#print-view {
+  width: min(1000px, calc(100vw - 24px));
+  height: calc(100dvh - 32px);
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+#print-view[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+#print-view::backdrop {
+  background: #0008;
+}
+
+#print-view .print-title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#print-view .print-status,
+#print-view .print-help {
+  margin: 6px 14px;
+  font-size: 13px;
+  flex: none;
+}
+
+#print-view .print-help {
+  color: var(--text-muted);
+}
+
+#print-view .print-document {
+  flex: 1;
+  min-height: 0;
+  margin: 8px 14px 14px;
+}
+
+#print-view iframe {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+
+/* Expanded Mermaid diagram overlay. */
+#diagram-overlay:not([open]) {
+  display: none !important;
+}
+
+#diagram-overlay[open] {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#diagram-overlay::backdrop {
+  background: #0009;
+}
+
+#overlay-close {
+  margin-right: auto;
+}
+
+#overlay-zoom-status {
+  min-width: 48px;
+  text-align: right;
+  font: 12px var(--mono);
+  color: var(--text-muted);
+}
+
+#overlay-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+}
+
+#overlay-viewport:active {
+  cursor: grabbing;
+}
+
+#overlay-content {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: block;
+  overflow: visible;
+  transform-origin: center center;
+  will-change: transform;
+}
+
+#overlay-content svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+}
+
+/* Expanded table overlay. */
+#table-overlay:not([open]) {
+  display: none !important;
+}
+
+#table-overlay[open] {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#table-overlay::backdrop {
+  background: #0009;
+}
+
+#table-overlay-close {
+  margin-right: auto;
+}
+
+#table-overlay-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+#table-overlay-viewport:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+#table-overlay article {
+  max-width: none;
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+#table-overlay article:not(.table-nowrap) {
+  width: auto;
+}
+
+#table-overlay thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* Keyboard shortcuts dialog. */
+#shortcuts-dialog[open] {
+  width: min(520px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 15px 55px #0005;
+  overflow: auto;
+}
+
+#shortcuts-dialog::backdrop {
+  background: #0008;
+}
+
+#shortcuts-dialog h2 {
+  display: inline-block;
+  margin: 0 16px 12px 0;
+  font-size: 20px;
+}
+
+#shortcuts-dialog > button {
+  float: right;
+}
+
+#shortcuts-dialog h3 {
+  margin: 18px 0 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+#shortcuts-dialog dl {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) 1fr;
+  gap: 8px 16px;
+  margin: 0;
+}
+
+#shortcuts-dialog dt,
+#shortcuts-dialog dd {
+  margin: 0;
+  font-size: 13px;
+}
+
+#shortcuts-dialog kbd {
+  display: inline-block;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--code-bg);
+  font: 12px var(--mono);
+}
+
+/* Tab title dialog. */
+#tab-title-dialog[open] {
+  width: min(440px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 15px 55px #0005;
+}
+
+#tab-title-dialog::backdrop {
+  background: #0008;
+}
+
+#tab-title-dialog h2 {
+  margin: 0 0 18px;
+  font-size: 20px;
+}
+
+#tab-title-dialog label {
+  display: block;
+  margin-bottom: 8px;
+}
+
+#tab-title-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+#tab-title-hint {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.tab-title-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Server info dialog. */
+#server-info-dialog[open] {
+  box-sizing: border-box;
+  width: min(600px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 15px 55px #0005;
+}
+
+#server-info-dialog::backdrop {
+  background: #0008;
+}
+
+#server-info-dialog h2 {
+  margin: 0 0 18px;
+  font-size: 20px;
+}
+
+#server-info-dialog dl {
+  margin: 0 0 20px;
+}
+
+#server-info-dialog dt {
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+#server-info-dialog dd {
+  margin: 5px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--mono);
+}
+
+.server-info-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.server-info-servers {
+  margin: 0 0 20px;
+}
+
+.server-info-servers h3 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.server-info-servers label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+#server-info-filter {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 36px;
+}
+
+#server-info-filter-status {
+  font-size: 13px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.server-info-servers a.server-info-selected {
+  background: var(--hover);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.server-info-servers ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.server-info-servers li {
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+
+.server-info-servers a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.server-info-servers a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.server-info-instance-details {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}

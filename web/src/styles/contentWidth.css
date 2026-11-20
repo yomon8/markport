@@ -1,0 +1,58 @@
+/* Markdown prose keeps its chosen measure; wide blocks can use the whole pane.
+   Imported after paste.css so .markdown-layout overrides .paste-preview's base max-width. */
+:is(article[data-kind="markdown"], .paste-preview).markdown-layout {
+  max-width: none;
+  min-width: 0;
+  display: flow-root;
+}
+
+:is(article[data-kind="markdown"], .paste-preview).markdown-layout > * {
+  width: 100%;
+  max-width: var(--reading-width);
+  margin-inline: auto;
+  min-width: 0;
+}
+
+:is(article[data-kind="markdown"], .paste-preview).markdown-layout > .wide-content {
+  max-width: none;
+}
+
+:is(article[data-kind="markdown"], .paste-preview).markdown-layout > img {
+  width: auto;
+}
+
+.content-width-menu {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  z-index: 90;
+  width: 170px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 8px 24px #0004;
+}
+
+.content-width-menu[hidden] {
+  display: none;
+}
+
+.content-width-menu button {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+}
+
+.content-width-menu button[aria-checked="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 650;
+}

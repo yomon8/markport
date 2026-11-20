@@ -1,0 +1,186 @@
+/* Top application header, connection status, and theme menu. */
+header {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+.brand-symbol {
+  display: block;
+  width: 35px;
+  height: 35px;
+}
+
+#root-name {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-right: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#connection {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+#connection:before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+}
+
+#connection[data-state="ok"]:before {
+  background: var(--success);
+}
+
+#connection[data-state="error"]:before {
+  background: var(--danger);
+}
+
+#connection[data-state="ok"] .connection-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+header button {
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  font-size: 13px;
+  line-height: 1.2;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+header #reload,
+header #help-toggle,
+header #server-info-toggle,
+header #theme-toggle,
+header #paste-toggle,
+header #header-more,
+header #drawer-toggle,
+header #sidebar-toggle {
+  width: 32px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+header button > .icon {
+  display: block;
+  margin: auto;
+}
+
+#drawer-toggle,
+#header-more {
+  display: none;
+}
+
+header #header-more {
+  place-items: center;
+}
+
+#header-extras {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+#theme-toggle {
+  min-width: 32px;
+  font-size: 17px;
+}
+
+#paste-toggle {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+#help-toggle {
+  min-width: 34px;
+  font-weight: 700;
+}
+
+#server-info-toggle {
+  display: inline-grid;
+  place-items: center;
+}
+
+#theme-toggle .icon,
+#header-more .icon,
+#drawer-toggle .icon,
+#sidebar-toggle .icon,
+.reload-icon .icon {
+  display: block;
+}
+
+header #reload .reload-icon {
+  display: grid;
+  place-items: center;
+  font-size: 0;
+  line-height: 0;
+}
+
+#reload:disabled .reload-icon {
+  animation: spin 1s linear infinite;
+}
+
+#theme-menu:not([hidden]) {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 35;
+  display: grid;
+  min-width: 130px;
+  max-height: calc(100dvh - 100px);
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 8px 24px #0004;
+}
+
+#theme-menu button {
+  text-align: left;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+}
+
+#theme-menu button:hover,
+#theme-menu button:focus-visible {
+  background: var(--hover);
+}
+
+#theme-menu [aria-checked="true"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 700;
+}

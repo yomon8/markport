@@ -35,9 +35,9 @@ export const shortcuts: Shortcut[] = [
   { id: 'treeLast', description: 'Last file or folder', group: 'File tree', bindings: [{ key: 'End' }] },
   { id: 'treeOpen', description: 'Open file, toggle folder, or load more items', group: 'File tree', bindings: [{ key: 'Enter' }] },
   { id: 'treeClear', description: 'Clear file search and return to the search field', group: 'File tree', bindings: [{ key: 'Escape' }] },
-  { id: 'tabSwitch', description: 'Switch Files and Changes tabs', group: 'Sidebar tabs', bindings: [{ key: 'ArrowLeft' }, { key: 'ArrowRight' }] },
+  { id: 'tabSwitch', description: 'Switch Files, Changes, and History tabs', group: 'Sidebar tabs', bindings: [{ key: 'ArrowLeft' }, { key: 'ArrowRight' }] },
   { id: 'tabFirst', description: 'Select Files tab', group: 'Sidebar tabs', bindings: [{ key: 'Home' }] },
-  { id: 'tabLast', description: 'Select Changes tab', group: 'Sidebar tabs', bindings: [{ key: 'End' }] },
+  { id: 'tabLast', description: 'Select History tab', group: 'Sidebar tabs', bindings: [{ key: 'End' }] },
 ];
 
 export function onMac(): boolean { return /Mac|iPhone|iPad/.test(navigator.platform); }
@@ -64,4 +64,16 @@ export function matchesShortcut(event: KeyboardEvent, id: ShortcutId): boolean {
 
 export function editingShortcutTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, [contenteditable]') !== null);
+}
+
+export type SidebarTab = 'file' | 'changes' | 'history';
+const sidebarTabs: readonly SidebarTab[] = ['file', 'changes', 'history'];
+export function nextSidebarTab(current: SidebarTab, key: string): SidebarTab | undefined {
+  if (key === 'Home') return 'file';
+  if (key === 'End') return 'history';
+  if (key === 'ArrowLeft' || key === 'ArrowRight') {
+    const index = sidebarTabs.indexOf(current);
+    return sidebarTabs[(index + (key === 'ArrowLeft' ? sidebarTabs.length - 1 : 1)) % sidebarTabs.length];
+  }
+  return undefined;
 }

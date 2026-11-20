@@ -1,10 +1,11 @@
-import { createLiveUpdates } from './liveUpdates';
+import { createLiveUpdates, type ChangeBatch } from './liveUpdates';
 
 type RefreshOptions = {
   run: (request: { revision: number; foreground: boolean }) => Promise<void>;
   interval: number;
   onVisible?: () => void;
   onIndexChange?: () => void;
+  onChange?: (batch: ChangeBatch) => void;
   onModeChange?: (mode: 'watch' | 'poll') => void;
 };
 
@@ -77,6 +78,7 @@ export function createRefreshScheduler(options: RefreshOptions) {
       if (recovered) { requestPushed(); options.onIndexChange?.(); }
     },
     onChange: (batch) => {
+      options.onChange?.(batch);
       requestPushed();
       if (batch.created || batch.overflow) options.onIndexChange?.();
     },

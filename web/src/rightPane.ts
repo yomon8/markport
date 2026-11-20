@@ -4,6 +4,7 @@ import { renderDiff, type DiffReply } from './diff';
 import { drawMermaid } from './mermaid';
 import { drawMath } from './math';
 import { copyWithFeedback } from './copyControls';
+import { bindDropdownMenu } from './dropdownMenu';
 import { RequestError, type FileReply, type ApiError } from './api';
 import type { createContentWidth } from './contentWidth';
 import type { createActivePane } from './activePane';
@@ -89,7 +90,7 @@ export function createRightPane(deps: RightPaneOptions) {
   setIcon(rightMore, 'more'); rightMore.setAttribute('aria-label', 'File actions'); rightMore.title = 'File actions'; rightMore.setAttribute('aria-haspopup', 'menu'); rightMore.setAttribute('aria-expanded', 'false');
   const rightMenu = document.createElement('div'); rightMenu.className = 'right-menu title-menu'; rightMenu.setAttribute('role', 'menu'); rightMenu.hidden = true;
   document.querySelector('#right-title .right-actions')!.append(rightMore, rightMenu);
-  function closeRightMenu(): void { rightMenu.hidden = true; rightMore.setAttribute('aria-expanded', 'false'); rightMore.focus(); }
+  const lifetime = new window.AbortController();
   function updateRightMenu(): void {
     if (!rightMenu.hidden) return;
     rightMenu.replaceChildren();
@@ -101,16 +102,8 @@ export function createRightPane(deps: RightPaneOptions) {
       item.addEventListener('click', () => { closeRightMenu(); control.click(); }); rightMenu.append(item);
     }
   }
-  rightMore.addEventListener('click', () => {
-    if (!rightMenu.hidden) { closeRightMenu(); return; }
-    updateRightMenu(); rightMenu.hidden = false; rightMore.setAttribute('aria-expanded', 'true'); rightMenu.querySelector<HTMLButtonElement>('button')?.focus();
-  });
-  rightMenu.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') { event.preventDefault(); closeRightMenu(); return; }
-    if (!['ArrowDown', 'ArrowUp'].includes(event.key)) return;
-    event.preventDefault(); const items = [...rightMenu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]; const index = items.indexOf(document.activeElement as HTMLButtonElement);
-    items[(index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
-  });
+  const rightDropdown = bindDropdownMenu({ button: rightMore, menu: rightMenu, onBeforeOpen: updateRightMenu, signal: lifetime.signal });
+  function closeRightMenu(): void { rightDropdown.close(true); }
   function rightSelected(): string { return ['file', 'diff', 'file-history', 'blame'].includes(selectedMode()) ? new URL(location.href).searchParams.get('right') ?? '' : ''; }
   function openRight(path: string, line?: number, keepTreeFocus = false): void {
     const source = Boolean(line) && /\.(md|markdown|html|htm)$/i.test(path);
@@ -285,5 +278,6 @@ export function createRightPane(deps: RightPaneOptions) {
       pendingRightScroll = history.state?.rightScroll ?? 0; rightPane.scrollTop = pendingRightScroll ?? 0;
       rightShownKey = ''; rightTag = '';
     },
+    dispose: () => { lifetime.abort(); },
   };
 }

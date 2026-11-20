@@ -28,13 +28,16 @@ function compareNames(a: string, b: string): number {
   const natural = nameCollator.compare(a, b);
   return natural || (a < b ? -1 : a > b ? 1 : 0);
 }
+type FileKind = 'markdown' | 'image' | 'pdf' | 'code' | 'other';
+function fileKind(name: string): FileKind {
+  if (/\.(md|markdown)$/i.test(name)) return 'markdown';
+  if (/\.(png|jpe?g|gif|webp|svg)$/i.test(name)) return 'image';
+  if (/\.pdf$/i.test(name)) return 'pdf';
+  if (/\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html?|json|ya?ml)$/i.test(name)) return 'code';
+  return 'other';
+}
 function icon(name: string, directory = false): string {
-  if (directory) return icons.directory;
-  if (/\.md|\.markdown$/i.test(name)) return icons.markdown;
-  if (/\.(png|jpe?g|gif|webp|svg)$/i.test(name)) return icons.image;
-  if (/\.pdf$/i.test(name)) return icons.pdf;
-  if (/\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html?|json|ya?ml)$/i.test(name)) return icons.code;
-  return icons.other;
+  return directory ? icons.directory : icons[fileKind(name)];
 }
 function score(path: string, query: string, ignored = false): { rank: number; positions: number[] } | null {
   const target = path.toLocaleLowerCase();
@@ -107,7 +110,7 @@ function highlighted(label: string, positions: number[], offset: number): Docume
   fragment.append(document.createTextNode(label.slice(index)));
   return fragment;
 }
-function fileLink(node: Node, selected: string, positions?: number[], line?: number, ignored = false): DocumentFragment {
+function fileLink(node: Node, selected: string, positions?: number[], line?: number, ignored = false, recentlyUpdated = false): DocumentFragment {
   const row = document.createDocumentFragment();
   const link = document.createElement('a');
   link.dataset.nodePath = node.path;
@@ -119,7 +122,8 @@ function fileLink(node: Node, selected: string, positions?: number[], line?: num
   }
   link.title = ignored ? `${destination} (ignored by Git)` : destination;
   if (ignored) link.dataset.ignored = 'true';
-  link.className = `file file-${/\.(md|markdown)$/i.test(node.name) ? 'markdown' : /\.(png|jpe?g|gif|webp|svg)$/i.test(node.name) ? 'image' : /\.pdf$/i.test(node.name) ? 'pdf' : /\.(py|go|[cm]?js|tsx?|rs|java|sh|css|html?|json|ya?ml)$/i.test(node.name) ? 'code' : 'other'}`;
+  if (recentlyUpdated) link.dataset.recentlyUpdated = 'true';
+  link.className = `file file-${fileKind(node.name)}`;
   link.innerHTML = icon(node.name);
   const label = document.createElement('span'); label.className = 'node-label';
   if (positions) {
@@ -150,6 +154,7 @@ export class TreeView {
   keyboardOpening = false;
   private currentSelection: string;
   private collapsedSelection: string | null;
+  private recentUpdates = new Map<string, ReturnType<typeof setTimeout>>();
   constructor(private tree: HTMLElement, private search: HTMLInputElement, private count: HTMLElement, private collapseButton: HTMLButtonElement, private selected: () => string,
     private onOpen: (path: string) => void, private onPage: (path: string, offset: number) => void,
     private onSearch: (query: string) => void) {
@@ -283,8 +288,37 @@ export class TreeView {
   }
   private syncSelection(): string {
     const selected = this.selected();
-    if (selected !== this.currentSelection) { this.currentSelection = selected; this.clearCollapsedSelection(); }
+    if (selected !== this.currentSelection) {
+      this.currentSelection = selected;
+      this.clearCollapsedSelection();
+      if (selected) this.clearUpdated(selected);
+    }
     return selected;
+  }
+  markUpdated(paths: string[], durationMs = 8000): void {
+    for (const path of paths) {
+      if (!path) continue;
+      const previous = this.recentUpdates.get(path);
+      if (previous !== undefined) clearTimeout(previous);
+      this.recentUpdates.set(path, setTimeout(() => this.clearUpdated(path), durationMs));
+      this.syncUpdatedAttribute(path, true);
+    }
+  }
+  private clearUpdated(path: string): void {
+    const timer = this.recentUpdates.get(path);
+    if (timer !== undefined) clearTimeout(timer);
+    if (this.recentUpdates.delete(path)) this.syncUpdatedAttribute(path, false);
+  }
+  private syncUpdatedAttribute(path: string, updated: boolean): void {
+    for (const link of this.tree.querySelectorAll<HTMLAnchorElement>('a[data-node-path]')) {
+      if (link.dataset.nodePath !== path) continue;
+      if (updated) link.dataset.recentlyUpdated = 'true';
+      else delete link.dataset.recentlyUpdated;
+    }
+  }
+  dispose(): void {
+    for (const timer of this.recentUpdates.values()) clearTimeout(timer);
+    this.recentUpdates.clear();
   }
   shouldLoadSelectedPath(path: string): boolean { return Boolean(path) && this.syncSelection() === path && this.collapsedSelection !== path; }
   isActive(path: string): boolean {
@@ -384,7 +418,7 @@ export class TreeView {
           details.append(summary);
           if (details.open) this.appendNodes(details, node.path);
           item.append(details);
-        } else item.append(fileLink(node, this.selected()));
+        } else item.append(fileLink(node, this.selected(), undefined, undefined, false, this.recentUpdates.has(node.path)));
         list.append(item);
       }
       const next = directory.next.get(offset);
@@ -446,7 +480,7 @@ export class TreeView {
         const list = document.createElement('ul'); list.className = 'search-results';
         for (const { path, positions, ignored } of matches) {
           const item = document.createElement('li');
-          item.append(fileLink({ name: path.split('/').at(-1)!, path, type: 'file' }, this.selected(), positions, line, ignored)); list.append(item);
+          item.append(fileLink({ name: path.split('/').at(-1)!, path, type: 'file' }, this.selected(), positions, line, ignored, this.recentUpdates.has(path))); list.append(item);
         }
         this.tree.append(list);
       }

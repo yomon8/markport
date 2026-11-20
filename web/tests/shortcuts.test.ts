@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { matchesShortcut, shortcutText } from '../src/shortcuts';
+import { matchesShortcut, nextSidebarTab, shortcuts, shortcutText } from '../src/shortcuts';
 
 describe('server info shortcut', () => {
   it('opens with Ctrl+I or Command+I, but not unmodified or modified text keys', () => {
@@ -45,5 +45,24 @@ describe.each([['pasteMode', 'M'], ['themeMenu', 'T'], ['contentWidth', 'W']] as
     for (const options of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { isComposing: true }, { keyCode: 229 }]) {
       expect(matchesShortcut(new KeyboardEvent('keydown', { key, shiftKey: true, ...options }), id)).toBe(false);
     }
+  });
+});
+
+describe('sidebar tab navigation', () => {
+  it('moves backward on ArrowLeft, forward on ArrowRight, and jumps on Home/End', () => {
+    expect(nextSidebarTab('file', 'ArrowRight')).toBe('changes');
+    expect(nextSidebarTab('changes', 'ArrowRight')).toBe('history');
+    expect(nextSidebarTab('history', 'ArrowRight')).toBe('file');
+    expect(nextSidebarTab('file', 'ArrowLeft')).toBe('history');
+    expect(nextSidebarTab('history', 'ArrowLeft')).toBe('changes');
+    expect(nextSidebarTab('changes', 'ArrowLeft')).toBe('file');
+    expect(nextSidebarTab('changes', 'Home')).toBe('file');
+    expect(nextSidebarTab('file', 'End')).toBe('history');
+    expect(nextSidebarTab('file', 'Enter')).toBeUndefined();
+  });
+
+  it('describes all three sidebar tabs in shortcut help', () => {
+    expect(shortcuts.find((entry) => entry.id === 'tabSwitch')?.description).toContain('History');
+    expect(shortcuts.find((entry) => entry.id === 'tabLast')?.description).toContain('History');
   });
 });

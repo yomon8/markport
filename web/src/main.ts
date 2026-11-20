@@ -7,8 +7,7 @@ import { createRefreshScheduler } from './refresh';
 import { createFileSearch } from './fileSearch';
 import { createOutline } from './outline';
 import { createContentDecoration } from './contentDecorate';
-import { createVimKeys, scrollVim, vimBlocked } from './vimNavigation';
-import { FileGitView, fileView, fileViewURL, type FileView } from './fileGit';
+import { FileGitView, fileViewURL, type FileView } from './fileGit';
 import { iconSVG, setIcon } from './icons';
 import './style.css';
 import { createActivePane } from './activePane';
@@ -17,7 +16,7 @@ import { drawMermaid } from './mermaid';
 import { drawMath } from './math';
 import { TreeView } from './tree';
 import { effectiveTheme, initTheme } from './theme';
-import { renderDiff, diffURL, type ChangesReply, type DiffReply } from './diff';
+import { renderDiff, type ChangesReply, type DiffReply } from './diff';
 import { comparisonURL, historyURL, type HistoryPage } from './history';
 import { initContentSearch } from './contentSearch';
 import { setToolButton } from './toolButtons';
@@ -29,7 +28,13 @@ import { createDiagramOverlay } from './diagramOverlay';
 import { createShortcutHelp } from './shortcutHelp';
 import { createTableOverlay } from './tableOverlay';
 import { createPrintView, printFile } from './printView';
-import { editingShortcutTarget, matchesShortcut, shortcutText } from './shortcuts';
+import { matchesShortcut, nextSidebarTab, shortcutText } from './shortcuts';
+import { bindDropdownMenu } from './dropdownMenu';
+import {
+  buildNavigationTarget, classifyInAppLink, fileURL, isLineHash, pdfFileURL,
+  selectedBase, selectedMode, selectedPath as selected, sidebarPanelForMode, type AppMode,
+} from './navigation';
+import { registerGlobalShortcuts } from './globalShortcuts';
 import symbolLight from '../../logo/markport-symbol-light.svg';
 import symbolDark from '../../logo/markport-symbol-dark.svg';
 import favicon from '../../logo/markport-favicon.svg';
@@ -114,8 +119,8 @@ const view = new TreeView(tree, search, count, collapseAll, selectedFile,
   (path, offset) => { void directoryBrowser.openDirectory(path, offset).catch(() => status('Refresh failed. Please try again.', 'error')); },
   (query) => onSearchChange(query));
 let displayedPath = ''; let displayedHTML = ''; let displayedSource = false; let sourceMode = new URL(location.href).searchParams.get('source') === '1';
-let displayedMode: FileView | 'changes' | 'paste' | 'history' = 'file'; let lastFilePath = '';
-let sidebarPanel: 'file' | 'changes' | 'history' = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file';
+let displayedMode: AppMode = 'file'; let lastFilePath = '';
+let sidebarPanel: 'file' | 'changes' | 'history' = sidebarPanelForMode(selectedMode());
 let keepTabFocus = false;
 let keyboardTreePath = '';
 let rememberedBase = new URL(location.href).searchParams.get('base') ?? '';
@@ -127,18 +132,33 @@ let refreshPastedPreview: (() => void) | undefined;
 let pasteEditor: ReturnType<typeof createPasteEditor> | undefined;
 let loadingTimer: ReturnType<typeof setTimeout> | undefined;
 let updatedTimer: ReturnType<typeof setTimeout> | undefined;
+let liveMode: 'watch' | 'poll' = 'poll';
+let configDirty = true;
+let gitChangesDirty = true;
+let lastGitChangesBase = '';
+const gitCache = new Map<string, { tag: string; value: unknown }>();
 const fileSearch = createFileSearch({ getQuery: () => search.value, view });
 const { loadSearchIndex, onSearchChange } = fileSearch;
 const refresh = createRefreshScheduler({
-  run: refreshLoop, interval: 3000, onVisible: fileSearch.refreshIfStale,
+  run: refreshLoop, interval: 3000,
+  onVisible: () => { configDirty = true; gitChangesDirty = true; fileSearch.refreshIfStale(); },
   onIndexChange: () => { if (search.value.trim()) void loadSearchIndex(true); },
-  onModeChange: fileSearch.setMode,
+  onChange: (batch) => {
+    if (batch.git || batch.overflow) configDirty = true;
+    if (batch.git || batch.overflow || batch.paths.length > 0) gitChangesDirty = true;
+    if (!batch.overflow && batch.paths.length > 0) view.markUpdated(batch.paths);
+  },
+  onModeChange: (mode) => {
+    liveMode = mode;
+    configDirty = true; gitChangesDirty = true;
+    fileSearch.setMode(mode);
+  },
 });
 const preview = createPreview({
   content, rightContent, selected: (pane) => pane === 'left' ? selected() : rightSelected(),
   navigate, openRight: (path) => openRight(path), requestRefresh, refreshRight: () => { void refreshRight(); },
   invalidate: () => { displayedHTML = ''; displayedTag = ''; rightController.invalidate(); },
-  onInstance: () => { void tabTitle.reload(true); void serverInfo.reloadIfOpen(); },
+  onInstance: () => { gitCache.clear(); configDirty = true; gitChangesDirty = true; void tabTitle.reload(true); void serverInfo.reloadIfOpen(); },
 });
 const { syncPreviewInstance, createPreviewFrame, createPDFFrame, filePreviewKey } = preview;
 const rightController = createRightPane({
@@ -182,7 +202,6 @@ const { showTitle, syncComparisonControls, diffNeighbor, markReviewedAndNext } =
 const savedWidth = Number(localStorage.getItem('markport-sidebar-width'));
 if (savedWidth >= 200 && savedWidth <= 480) document.documentElement.style.setProperty('--sidebar-width', `${savedWidth}px`);
 
-function selected(): string { return new URL(location.href).searchParams.get('path') ?? ''; }
 function selectedFile(): string { return activePane.current() === 'right' && rightSelected() ? rightSelected() : selected(); }
 async function syncSelectedFile(): Promise<void> {
   const version = ++fileSelectionVersion; const path = selectedFile(); const current = refresh.revision;
@@ -203,15 +222,12 @@ function openSelectedFile(href: string, keepTreeFocus = false): void {
     openRight(path, line ? Number(line[1]) : undefined, keepTreeFocus);
   } else { activePane.select('left'); navigate(href, keepTreeFocus); }
 }
-function selectedBase(): string { return new URL(location.href).searchParams.get('base') ?? ''; }
-function fileURL(path: string): string { return `/?path=${encodeURIComponent(path)}`; }
 function downloadFile(path: string): void {
   const link = document.createElement('a');
   link.href = `/api/download?path=${encodeURIComponent(path)}`;
   link.download = path.split('/').at(-1) ?? path;
   document.body.append(link); link.click(); link.remove();
 }
-function pdfFileURL(path: string): string { return `/api/pdf?path=${encodeURIComponent(path)}`; }
 function openPDF(path: string): void { window.open(pdfFileURL(path), '_blank', 'noopener,noreferrer'); }
 const leftFileGit = new FileGitView(content, 'left', getGit, (url) => navigate(url.href));
 function selectFileView(mode: FileView): void {
@@ -219,10 +235,6 @@ function selectFileView(mode: FileView): void {
   if (mode === 'diff' && rememberedBase) url.searchParams.set('base', rememberedBase);
   if (sourceMode) url.searchParams.set('source', '1');
   navigate(url.href);
-}
-function selectedMode(): FileView | 'changes' | 'paste' | 'history' {
-  const view = new URL(location.href).searchParams.get('view');
-  return view === 'history' ? 'history' : view === 'paste' ? 'paste' : view === 'changes' ? 'changes' : selected() ? fileView(new URL(location.href), 'left') : 'file';
 }
 function showSidebar(mode: 'file' | 'changes' | 'history'): void {
   filesPanel.hidden = mode !== 'file'; changesTree.hidden = mode !== 'changes'; historyTree.hidden = mode !== 'history';
@@ -232,18 +244,12 @@ function showSidebar(mode: 'file' | 'changes' | 'history'): void {
 }
 function saveScroll(): void { history.replaceState({ ...history.state, scroll: main.scrollTop, rightScroll: rightPane.scrollTop }, '', location.href); }
 function navigate(url: string, keepTreeFocus = false): void {
-  const target = new URL(url, location.href);
+  const target = buildNavigationTarget(url);
   keyboardTreePath = keepTreeFocus ? target.searchParams.get('path') ?? '' : '';
-  const right = new URL(location.href).searchParams.get('right');
-  if (right && target.searchParams.has('path') && !['history', 'changes', 'paste'].includes(target.searchParams.get('view') ?? '')) {
-    const previous = new URL(location.href);
-    target.searchParams.set('right', right);
-    for (const [key, value] of previous.searchParams) if (key.startsWith('right-') && !target.searchParams.has(key)) target.searchParams.set(key, value);
-  }
   if (target.href === location.href) { highlightCodeLines(true); return; }
-  pendingLineJump = /^#L\d+(?:-L\d+)?$/.test(target.hash);
+  pendingLineJump = isLineHash(target.hash);
   if (target.searchParams.get('view') === 'changes' || target.searchParams.get('view') === 'diff') rememberedBase = target.searchParams.get('base') ?? '';
-  saveScroll(); pasteVersion++; lineRangeAnchor = 0; history.pushState({ scroll: 0, rightScroll: rightPane.scrollTop }, '', target); sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = target.searchParams.get('source') === '1'; if (!keepTreeFocus) sidebar.classList.remove('open'); requestRefresh();
+  saveScroll(); pasteVersion++; lineRangeAnchor = 0; history.pushState({ scroll: 0, rightScroll: rightPane.scrollTop }, '', target); sidebarPanel = sidebarPanelForMode(selectedMode()); sourceMode = target.searchParams.get('source') === '1'; if (!keepTreeFocus) sidebar.classList.remove('open'); requestRefresh();
 }
 const liveMessage = 'Live · auto-refresh on';
 function status(message: string, state: 'ok' | 'connecting' | 'error'): void {
@@ -271,11 +277,22 @@ async function getFile(path: string, source: boolean, expectedRevision: number):
   return body;
 }
 async function getGit<T>(url: string): Promise<T> {
+  const cached = gitCache.get(url);
+  const headers: Record<string, string> = {};
+  if (cached?.tag) headers['If-None-Match'] = cached.tag;
   let response: Response;
-  try { response = await fetch(url, { cache: 'no-store' }); }
+  try { response = await fetch(url, { cache: 'no-store', headers }); }
   catch { throw new RequestError('network', 'Cannot connect'); }
+  if (response.status === 304 && cached) return cached.value as T;
   const body = await response.json() as T & ApiError;
   if (!response.ok) throw new RequestError(body.error ?? 'network', body.message ?? `HTTP ${response.status}`);
+  const tag = response.headers?.get('ETag') ?? '';
+  if (tag) {
+    if (gitCache.size >= 50) gitCache.clear();
+    gitCache.set(url, { tag, value: body });
+  } else {
+    gitCache.delete(url);
+  }
   return body;
 }
 function showEmpty(): void {
@@ -338,6 +355,7 @@ function beginLoading(): void { content.setAttribute('aria-busy', 'true'); reloa
 function endLoading(): void { clearTimeout(loadingTimer); progress.hidden = true; reload.disabled = false; content.setAttribute('aria-busy', 'false'); }
 function requestRefresh(foreground = true): void { refresh.request(foreground); }
 function manualRefresh(): void {
+  gitCache.clear(); configDirty = true; gitChangesDirty = true;
   void tabTitle.reload();
   void serverInfo.reloadIfOpen();
   displayedTag = ''; rightController.invalidateTag(); directoryBrowser.clearTags(); preview.reload(); requestRefresh();
@@ -346,7 +364,10 @@ function manualRefresh(): void {
 }
 
 async function refreshLoop({ revision: current, foreground }: { revision: number; foreground: boolean }): Promise<void> {
-  void tabTitle.reload();
+  if (!foreground || liveMode !== 'watch' || configDirty) {
+    configDirty = false;
+    void tabTitle.reload();
+  }
   const path = selected(); const source = sourceMode; const mode = selectedMode(); const commitID = new URL(location.href).searchParams.get('commit') ?? ''; const base = selectedBase(); const knownHistoryHead = changesView.historyPage?.head; const preserveTabFocus = keepTabFocus; keepTabFocus = false;
   if (mode === 'changes' || mode === 'diff') rememberedBase = base;
   void refreshRight();
@@ -355,8 +376,12 @@ async function refreshLoop({ revision: current, foreground }: { revision: number
   if (path !== displayedPath || mode !== displayedMode) displayedTag = '';
   if (foreground) { beginLoading(); }
   const treePromise = refreshDirectories(mode === 'changes' || mode === 'paste' || mode === 'history' ? '' : selectedFile(), current);
-  const gitPromise = mode === 'changes' || mode === 'diff' ? getGit<ChangesReply>(`/api/git/changes${base ? `?base=${encodeURIComponent(base)}` : ''}`)
-    : ['file', 'file-history', 'blame'].includes(mode) ? getGit<ChangesReply>(`/api/git/changes${rememberedBase ? `?base=${encodeURIComponent(rememberedBase)}` : ''}`).catch(() => undefined) : Promise.resolve(undefined);
+  const fetchFileChanges = !foreground || liveMode !== 'watch' || gitChangesDirty || rememberedBase !== lastGitChangesBase || !changesView.currentChanges;
+  const gitPromise = mode === 'changes' || mode === 'diff'
+    ? (gitChangesDirty = false, lastGitChangesBase = base, getGit<ChangesReply>(`/api/git/changes${base ? `?base=${encodeURIComponent(base)}` : ''}`))
+    : ['file', 'file-history', 'blame'].includes(mode) && fetchFileChanges
+      ? (gitChangesDirty = false, lastGitChangesBase = rememberedBase, getGit<ChangesReply>(`/api/git/changes${rememberedBase ? `?base=${encodeURIComponent(rememberedBase)}` : ''}`).catch(() => undefined))
+      : Promise.resolve(undefined);
   const historyPromise = mode === 'history' ? getGit<HistoryPage>('/api/git/history') : Promise.resolve(undefined);
   const commitPromise = mode === 'history' && commitID ? changesView.getCommit(commitID, knownHistoryHead) : Promise.resolve(undefined);
   const historicalDiffPromise = mode === 'history' && commitID && path ? changesView.getHistoricalDiff(commitID, path, knownHistoryHead) : Promise.resolve(undefined);
@@ -484,19 +509,21 @@ changesTab.addEventListener('click', () => selectSidebarTab('changes'));
 historyTab.addEventListener('click', () => selectSidebarTab('history'));
 document.querySelector<HTMLElement>('.sidebar-tabs')!.addEventListener('keydown', (event) => {
   if (!matchesShortcut(event, 'tabSwitch') && !matchesShortcut(event, 'tabFirst') && !matchesShortcut(event, 'tabLast')) return;
+  const current = document.activeElement === changesTab ? 'changes' : document.activeElement === historyTab ? 'history' : 'file';
+  const mode = nextSidebarTab(current, event.key);
+  if (!mode) return;
   event.preventDefault();
-  const mode = matchesShortcut(event, 'tabFirst') ? 'file' : matchesShortcut(event, 'tabLast') ? 'history' : document.activeElement === filesTab ? 'changes' : document.activeElement === changesTab ? 'history' : 'file';
   selectSidebarTab(mode);
 });
-pasteToggle.addEventListener('click', () => { headerExtras.classList.remove('open'); headerMore.setAttribute('aria-expanded', 'false'); navigate('/?view=paste'); });
-headerMore.addEventListener('click', () => {
-  const open = headerExtras.classList.toggle('open'); headerMore.setAttribute('aria-expanded', String(open));
-  if (open) headerExtras.querySelector<HTMLButtonElement>('button')?.focus();
+const headerMenuLifetime = new window.AbortController();
+const headerMenu = bindDropdownMenu({
+  button: headerMore,
+  menu: headerExtras,
+  isOpen: () => headerExtras.classList.contains('open'),
+  setOpen: (open) => { headerExtras.classList.toggle('open', open); },
+  signal: headerMenuLifetime.signal,
 });
-headerExtras.addEventListener('keydown', (event) => {
-  if (event.key !== 'Escape' || !headerExtras.classList.contains('open') || !document.querySelector<HTMLElement>('#theme-menu')?.hidden) return;
-  event.preventDefault(); headerExtras.classList.remove('open'); headerMore.setAttribute('aria-expanded', 'false'); headerMore.focus();
-});
+pasteToggle.addEventListener('click', () => { headerMenu.close(false); navigate('/?view=paste'); });
 function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
   if (event.defaultPrevented) return;
   const target = event.target as HTMLElement;
@@ -529,60 +556,27 @@ function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
     return;
   }
   const link = target.closest<HTMLAnchorElement>('a[href]');
-  if (!link || event.metaKey || event.ctrlKey || event.shiftKey || link.origin !== location.origin || link.pathname !== '/' || !(new URL(link.href).searchParams.has('path') || ['history', 'changes'].includes(new URL(link.href).searchParams.get('view') ?? ''))) return;
-  if (link.pathname === location.pathname && link.search === location.search && link.hash) return;
-  event.preventDefault(); if (pane === 'right' && new URL(link.href).searchParams.has('path')) openRight(new URL(link.href).searchParams.get('path')!); else navigate(link.href);
+  if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
+  if (classifyInAppLink(link) !== 'navigate') return;
+  event.preventDefault();
+  const nextPath = new URL(link.href).searchParams.get('path');
+  if (pane === 'right' && nextPath) openRight(nextPath); else navigate(link.href);
 }
 content.addEventListener('click', (event) => onContentClick(event, 'left'));
 rightContent.addEventListener('click', (event) => onContentClick(event, 'right'));
-window.addEventListener('popstate', () => { keyboardTreePath = ''; rightController.restoreScroll(); pasteVersion++; sidebarPanel = selectedMode() === 'history' ? 'history' : selectedMode() === 'changes' || selectedMode() === 'diff' ? 'changes' : 'file'; sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); void syncSelectedFile(); });
+window.addEventListener('popstate', () => { keyboardTreePath = ''; rightController.restoreScroll(); pasteVersion++; sidebarPanel = sidebarPanelForMode(selectedMode()); sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); void syncSelectedFile(); });
 window.addEventListener('hashchange', () => { highlightCodeLines(true); });
-const vimKeys = createVimKeys();
-document.addEventListener('focusin', vimKeys.reset);
-window.addEventListener('blur', vimKeys.reset);
-window.addEventListener('popstate', vimKeys.reset);
-window.addEventListener('keydown', (event) => {
-  const target = event.target;
-  if (selectedMode() === 'paste' || vimBlocked() || (target instanceof Element && target.closest('#sidebar, #sidebar-resize, #split-resize'))) vimKeys.reset();
-  else if (scrollVim(activePane.current() === 'right' ? rightPane : main, vimKeys.read(event))) { event.preventDefault(); return; }
-  if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
-  if (editingShortcutTarget(event.target)) return;
-  if (matchesShortcut(event, 'pasteMode') || matchesShortcut(event, 'themeMenu')) {
-    if (event.repeat || document.querySelector('dialog[open]')) return;
-    if ([...document.querySelectorAll<HTMLElement>('[role="menu"]')].some((menu) => menu.getClientRects().length > 0)) return;
-    event.preventDefault();
-    if (matchesShortcut(event, 'pasteMode')) { if (selectedMode() !== 'paste') pasteToggle.click(); }
-    else {
-      if (window.innerWidth <= 700) { headerExtras.classList.add('open'); headerMore.setAttribute('aria-expanded', 'true'); }
-      document.querySelector<HTMLButtonElement>('#theme-toggle')!.click();
-    }
-    return;
-  }
-  if (matchesShortcut(event, 'contentWidth')) {
-    if (event.repeat || window.innerWidth <= 700 || document.querySelector('dialog[open]')) return;
-    if ([...document.querySelectorAll<HTMLElement>('[role="menu"]')].some((menu) => menu.getClientRects().length > 0)) return;
-    if (![...document.querySelectorAll<HTMLButtonElement>('.content-width-toggle')].some((button) => !button.hidden && button.getClientRects().length > 0)) return;
-    event.preventDefault(); contentWidth.cycle(); return;
-  }
-  if (selectedMode() === 'diff' && !event.ctrlKey && !event.metaKey && !event.altKey) {
-    if (matchesShortcut(event, 'nextChange') || matchesShortcut(event, 'previousChange')) {
-      const next = diffNeighbor(selected(), matchesShortcut(event, 'nextChange') ? 1 : -1, changesView.onlyUnreviewed);
-      if (next) { event.preventDefault(); navigate(diffURL(next.path, selectedBase())); }
-      return;
-    }
-    if (matchesShortcut(event, 'reviewNext')) { event.preventDefault(); markReviewedAndNext(); return; }
-  }
-  if (matchesShortcut(event, 'search')) {
-    event.preventDefault(); sidebarPanel = 'file'; showSidebar('file');
-    sidebar.classList.remove('collapsed'); sidebarToggle.setAttribute('aria-expanded', 'true');
-    sidebarToggle.setAttribute('aria-label', 'Collapse sidebar'); sidebarToggle.title = `Collapse sidebar (${shortcutText('sidebar')})`;
-    if (window.innerWidth <= 700) sidebar.classList.add('open');
-    search.focus();
-  }
-  if (matchesShortcut(event, 'sidebar')) { event.preventDefault(); if (window.innerWidth <= 700) drawerToggle.click(); else sidebarToggle.click(); }
-  if (matchesShortcut(event, 'serverInfo')) { event.preventDefault(); serverInfo.open(); }
-  if (matchesShortcut(event, 'help')) { event.preventDefault(); shortcutHelp.open(); }
-  if (matchesShortcut(event, 'close')) { sidebar.classList.remove('open'); outline.classList.remove('open'); diagramOverlay.close(); tableOverlay.close(); shortcutHelp.close(); }
+const disposeGlobalShortcuts = registerGlobalShortcuts({
+  main, rightPane, sidebar, outline, search, drawerToggle, sidebarToggle, pasteToggle, headerMore, headerExtras,
+  activePane: () => activePane.current(),
+  selected, selectedMode, selectedBase,
+  onlyUnreviewed: () => changesView.onlyUnreviewed,
+  diffNeighbor, markReviewedAndNext, navigate,
+  showFilesSidebar: () => { sidebarPanel = 'file'; showSidebar('file'); },
+  cycleContentWidth: () => contentWidth.cycle(),
+  openServerInfo: () => serverInfo.open(),
+  openShortcutHelp: () => shortcutHelp.open(),
+  closeOverlays: () => { diagramOverlay.close(); tableOverlay.close(); shortcutHelp.close(); },
 });
 reload.addEventListener('click', manualRefresh);
 drawerToggle.addEventListener('click', () => { const open = sidebar.classList.toggle('open'); drawerToggle.title = `${open ? 'Close' : 'Open'} file list (${shortcutText('sidebar')})`; drawerToggle.setAttribute('aria-label', `${open ? 'Close' : 'Open'} file list`); });
@@ -603,4 +597,4 @@ initTheme(document.querySelector<HTMLButtonElement>('#theme-toggle')!, () => {
 updateBrand();
 status(liveMessage, 'ok');
 requestRefresh();
-window.addEventListener('pagehide', () => { preview.dispose(); outlineController.dispose(); decoration.dispose(); contentWidth.dispose(); activePane.dispose(); splitResize.dispose(); printView.close(); pasteEditor?.dispose(); refresh.dispose(); fileSearch.dispose(); tabTitle.dispose(); serverInfo.dispose(); });
+window.addEventListener('pagehide', () => { disposeGlobalShortcuts(); headerMenuLifetime.abort(); view.dispose(); changesView.dispose(); rightController.dispose(); preview.dispose(); outlineController.dispose(); decoration.dispose(); contentWidth.dispose(); activePane.dispose(); splitResize.dispose(); printView.close(); pasteEditor?.dispose(); refresh.dispose(); fileSearch.dispose(); tabTitle.dispose(); serverInfo.dispose(); });

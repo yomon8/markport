@@ -1,0 +1,230 @@
+/* Split view panes, resize handles, and active pane indicators. */
+.layout.split {
+  grid-template-columns: var(--sidebar-width) 8px minmax(0, var(--split-left, 1fr)) 8px minmax(0, var(--split-right, 1fr));
+}
+
+.layout.split:has(aside.collapsed) {
+  grid-template-columns: minmax(0, var(--split-left, 1fr)) 8px minmax(0, var(--split-right, 1fr));
+}
+
+#right-pane {
+  overflow: auto;
+  min-width: 0;
+  padding: 0 24px 80px;
+}
+
+#right-title {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: var(--titlebar-h);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+#right-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.right-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.right-actions button {
+  font-size: 12px;
+}
+
+#right-content[data-kind="html"],
+#right-content[data-kind="image"] {
+  max-width: none;
+}
+
+.right-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 12;
+  min-width: 170px;
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 8px 24px #0004;
+}
+
+.right-menu:not([hidden]) {
+  display: grid;
+}
+
+.right-menu button {
+  text-align: left;
+  border: 0;
+  background: transparent;
+}
+
+.right-menu button:hover,
+.right-menu button:focus-visible {
+  background: var(--hover);
+}
+
+/* Split panes keep the filename readable and place contents over the article. */
+.layout.split #file-title,
+.layout.split #right-title {
+  flex-wrap: wrap;
+  align-content: center;
+  gap: 5px 8px;
+  padding: 8px 0;
+}
+
+.layout.split .breadcrumbs {
+  display: flex;
+  align-items: baseline;
+  flex-basis: 100%;
+  width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  min-width: 0;
+}
+
+.layout.split .breadcrumbs strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.layout.split #file-title .title-actions,
+.layout.split #right-title .right-actions {
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.layout.split #right-title .breadcrumb-parent {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.layout.split .content-layout {
+  display: block;
+}
+
+.layout.split #outline,
+.layout.split #right-outline {
+  display: none;
+  position: fixed;
+  top: 120px;
+  z-index: 12;
+  max-height: calc(100vh - 145px);
+  width: min(240px, 45vw);
+  overflow: auto;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 8px 28px #0004;
+  font-size: 12px;
+}
+
+.layout.split #outline.open {
+  display: block;
+  right: calc(50% + 12px);
+}
+
+.layout.split #right-outline.open {
+  display: block;
+  right: 20px;
+}
+
+.layout.split #outline a,
+.layout.split #right-outline a {
+  display: block;
+  text-decoration: none;
+  color: var(--text-muted);
+  padding: 4px 8px;
+  border-left: 2px solid var(--border);
+}
+
+.layout.split #right-outline .outline-h3,
+.layout.split #right-outline .outline-h4,
+.layout.split #right-outline .outline-h5,
+.layout.split #right-outline .outline-h6 {
+  padding-left: 20px;
+}
+
+.layout.split #right-content {
+  margin-top: 24px;
+}
+
+/* Shared file and Paste split handles. */
+.split-resize {
+  position: relative;
+  min-height: 0;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.split-resize:before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--border);
+}
+
+.split-resize:hover:before,
+.split-resize.dragging:before,
+.split-resize:focus-visible:before {
+  width: 2px;
+  background: var(--accent);
+}
+
+.split-resize:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.split-resize-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+/* Active pane selection indicator. */
+.layout.split .pane-active #file-title,
+.layout.split .pane-active #right-title {
+  border-bottom-color: var(--accent);
+}
+
+.active-pane-badge {
+  flex: none;
+  margin-left: 8px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent);
+  white-space: nowrap;
+}

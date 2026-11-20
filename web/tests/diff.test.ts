@@ -83,4 +83,37 @@ describe('changes overview', () => {
     expect(compact.textContent).toBe(''); expect(compact.title).toBe('Mark reviewed');
     expect(reviewButton(changes[0], false, () => {}).textContent).toBe('');
   });
+
+  it('highlights inline word and character changes safely and falls back on long or completely different lines', () => {
+    const target = document.createElement('div');
+    const longPrefix = 'x'.repeat(2100);
+    renderDiff(target, {
+      path: 'a.md',
+      kind: 'text',
+      patch: [
+        '@@ -1,4 +1,4 @@',
+        '-const value = oldName + <script>1</script>;',
+        '+const value = newName + <script>2</script>;',
+        '-これは古い文章です。',
+        '+これは新しい文章です。',
+        '-alpha',
+        '+beta',
+        `-${longPrefix}old`,
+        `+${longPrefix}new`,
+      ].join('\n'),
+    });
+    expect(target.querySelector('script')).toBeNull();
+    const deletedRows = [...target.querySelectorAll('.diff-deleted .diff-code')];
+    const addedRows = [...target.querySelectorAll('.diff-added .diff-code')];
+    expect([...deletedRows[0].querySelectorAll('.diff-inline-del')].map((el) => el.textContent)).toEqual(['oldName', '1']);
+    expect([...addedRows[0].querySelectorAll('.diff-inline-add')].map((el) => el.textContent)).toEqual(['newName', '2']);
+    expect(deletedRows[0].textContent).toBe('-const value = oldName + <script>1</script>;');
+    expect([...deletedRows[1].querySelectorAll('.diff-inline-del')].map((el) => el.textContent)).toEqual(['古']);
+    expect([...addedRows[1].querySelectorAll('.diff-inline-add')].map((el) => el.textContent)).toEqual(['新し']);
+    // Completely different line and >2000 char line fall back without inline spans.
+    expect(deletedRows[2].querySelector('.diff-inline-del')).toBeNull();
+    expect(addedRows[2].querySelector('.diff-inline-add')).toBeNull();
+    expect(deletedRows[3].querySelector('.diff-inline-del')).toBeNull();
+    expect(addedRows[3].querySelector('.diff-inline-add')).toBeNull();
+  });
 });

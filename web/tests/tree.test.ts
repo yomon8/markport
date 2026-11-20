@@ -140,3 +140,40 @@ it('supports Vim tree navigation without opening files or intercepting search ty
   for (const letter of 'hjklg') key(letter);
   expect(document.activeElement).toBe(search);
 });
+
+it('matches only .md and .markdown extensions for markdown file icons and classes', () => {
+  view.setPage('', page([node('readme.md'), node('guide.markdown'), node('component.mdx'), node('notes.md.bak'), node('checksum.md5')], 'icons'));
+  const byPath = (path: string) => tree.querySelector<HTMLAnchorElement>(`a[data-node-path="${path}"]`)!;
+  const mdIcon = byPath('readme.md').querySelector('svg')!.outerHTML;
+  expect(byPath('readme.md').classList.contains('file-markdown')).toBe(true);
+  expect(byPath('guide.markdown').classList.contains('file-markdown')).toBe(true);
+  expect(byPath('guide.markdown').querySelector('svg')!.outerHTML).toBe(mdIcon);
+  for (const name of ['component.mdx', 'notes.md.bak', 'checksum.md5']) {
+    expect(byPath(name).classList.contains('file-markdown')).toBe(false);
+    expect(byPath(name).classList.contains('file-other')).toBe(true);
+    expect(byPath(name).querySelector('svg')!.outerHTML).not.toBe(mdIcon);
+  }
+});
+
+it('marks recently updated files and clears on selection or timeout', () => {
+  vi.useFakeTimers();
+  try {
+    view.markUpdated(['a.md', 'b.md'], 5000);
+    expect(tree.querySelector<HTMLAnchorElement>('a[data-node-path="a.md"]')?.dataset.recentlyUpdated).toBe('true');
+    expect(tree.querySelector<HTMLAnchorElement>('a[data-node-path="b.md"]')?.dataset.recentlyUpdated).toBe('true');
+    // Preserves badge across re-render.
+    view.render();
+    expect(tree.querySelector<HTMLAnchorElement>('a[data-node-path="a.md"]')?.dataset.recentlyUpdated).toBe('true');
+    // Selecting a file clears its badge.
+    selected = 'a.md';
+    view.render();
+    expect(tree.querySelector<HTMLAnchorElement>('a[data-node-path="a.md"]')?.dataset.recentlyUpdated).toBeUndefined();
+    expect(tree.querySelector<HTMLAnchorElement>('a[data-node-path="b.md"]')?.dataset.recentlyUpdated).toBe('true');
+    // Remaining badge clears after timeout.
+    vi.advanceTimersByTime(5000);
+    expect(tree.querySelector<HTMLAnchorElement>('a[data-node-path="b.md"]')?.dataset.recentlyUpdated).toBeUndefined();
+    view.dispose();
+  } finally {
+    vi.useRealTimers();
+  }
+});

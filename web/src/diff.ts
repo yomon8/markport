@@ -174,6 +174,92 @@ export function renderChanges(target: HTMLElement, reply: ChangesReply, reviewed
   target.append(list);
 }
 
+type InlineSegment = { text: string; changed: boolean };
+
+function tokenizeInline(text: string): string[] {
+  return text.match(/\s+|[A-Za-z0-9_]+|./gu) ?? [];
+}
+
+function coalesceSegments(segments: InlineSegment[]): InlineSegment[] {
+  const merged: InlineSegment[] = [];
+  for (const segment of segments) {
+    if (!segment.text) continue;
+    const last = merged.at(-1);
+    if (last && last.changed === segment.changed) last.text += segment.text;
+    else merged.push({ ...segment });
+  }
+  return merged;
+}
+
+function inlineDiffPair(oldBody: string, newBody: string): { oldSegments: InlineSegment[]; newSegments: InlineSegment[] } | null {
+  if (!oldBody || !newBody || oldBody === newBody || oldBody.length > 2000 || newBody.length > 2000) return null;
+  const a = tokenizeInline(oldBody);
+  const b = tokenizeInline(newBody);
+  let prefix = 0;
+  while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix++;
+  let suffix = 0;
+  while (suffix < a.length - prefix && suffix < b.length - prefix && a[a.length - 1 - suffix] === b[b.length - 1 - suffix]) suffix++;
+  const aMid = a.slice(prefix, a.length - suffix);
+  const bMid = b.slice(prefix, b.length - suffix);
+  const prefixText = a.slice(0, prefix).join('');
+  const suffixText = suffix ? a.slice(a.length - suffix).join('') : '';
+
+  const oldSegments: InlineSegment[] = prefixText ? [{ text: prefixText, changed: false }] : [];
+  const newSegments: InlineSegment[] = prefixText ? [{ text: prefixText, changed: false }] : [];
+  let hasEqual = prefix > 0 || suffix > 0;
+
+  if (aMid.length > 0 && bMid.length > 0 && aMid.length * bMid.length <= 10000) {
+    const n = aMid.length; const m = bMid.length;
+    const dp = new Int32Array((n + 1) * (m + 1));
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        dp[i * (m + 1) + j] = aMid[i] === bMid[j]
+          ? dp[(i + 1) * (m + 1) + (j + 1)] + 1
+          : Math.max(dp[(i + 1) * (m + 1) + j], dp[i * (m + 1) + (j + 1)]);
+      }
+    }
+    let i = 0; let j = 0;
+    while (i < n && j < m) {
+      if (aMid[i] === bMid[j]) {
+        hasEqual = true;
+        oldSegments.push({ text: aMid[i], changed: false });
+        newSegments.push({ text: bMid[j], changed: false });
+        i++; j++;
+      } else if (dp[(i + 1) * (m + 1) + j] >= dp[i * (m + 1) + (j + 1)]) {
+        oldSegments.push({ text: aMid[i++], changed: true });
+      } else {
+        newSegments.push({ text: bMid[j++], changed: true });
+      }
+    }
+    while (i < n) oldSegments.push({ text: aMid[i++], changed: true });
+    while (j < m) newSegments.push({ text: bMid[j++], changed: true });
+  } else {
+    if (aMid.length) oldSegments.push({ text: aMid.join(''), changed: true });
+    if (bMid.length) newSegments.push({ text: bMid.join(''), changed: true });
+  }
+
+  if (suffixText) {
+    oldSegments.push({ text: suffixText, changed: false });
+    newSegments.push({ text: suffixText, changed: false });
+  }
+  if (!hasEqual) return null;
+  return { oldSegments: coalesceSegments(oldSegments), newSegments: coalesceSegments(newSegments) };
+}
+
+function appendInlineDiff(code: HTMLElement, prefix: string, segments: InlineSegment[], className: string): void {
+  code.append(document.createTextNode(prefix));
+  for (const segment of segments) {
+    if (segment.changed) {
+      const span = document.createElement('span');
+      span.className = className;
+      span.textContent = segment.text;
+      code.append(span);
+    } else {
+      code.append(document.createTextNode(segment.text));
+    }
+  }
+}
+
 export function renderDiff(target: HTMLElement, reply: DiffReply): void {
   target.replaceChildren();
   if (reply.kind === 'binary') {
@@ -185,24 +271,53 @@ export function renderDiff(target: HTMLElement, reply: DiffReply): void {
     target.append(message); return;
   }
   const frame = document.createElement('div'); frame.className = 'diff-frame';
+  type ParsedRow = { kind: 'hunk' | 'added' | 'deleted' | 'context' | 'meta'; oldNumber: string; newNumber: string; line: string; segments?: InlineSegment[] };
+  const rows: ParsedRow[] = [];
   let oldLine = 0; let newLine = 0;
   for (const line of reply.patch.split('\n')) {
-    if (!line && frame.childElementCount) continue;
-    const row = document.createElement('div'); row.className = 'diff-row';
-    const oldNumber = document.createElement('span'); oldNumber.className = 'diff-number';
-    const newNumber = document.createElement('span'); newNumber.className = 'diff-number';
-    const code = document.createElement('span'); code.className = 'diff-code'; code.textContent = line;
+    if (!line && rows.length) continue;
     const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
     if (hunk) {
-      oldLine = Number(hunk[1]); newLine = Number(hunk[2]); row.classList.add('diff-hunk');
+      oldLine = Number(hunk[1]); newLine = Number(hunk[2]);
+      rows.push({ kind: 'hunk', oldNumber: '', newNumber: '', line });
     } else if (line.startsWith('+') && !line.startsWith('+++')) {
-      row.classList.add('diff-added'); newNumber.textContent = String(newLine++);
+      rows.push({ kind: 'added', oldNumber: '', newNumber: String(newLine++), line });
     } else if (line.startsWith('-') && !line.startsWith('---')) {
-      row.classList.add('diff-deleted'); oldNumber.textContent = String(oldLine++);
+      rows.push({ kind: 'deleted', oldNumber: String(oldLine++), newNumber: '', line });
     } else if (line.startsWith(' ')) {
-      row.classList.add('diff-context'); oldNumber.textContent = String(oldLine++); newNumber.textContent = String(newLine++);
+      rows.push({ kind: 'context', oldNumber: String(oldLine++), newNumber: String(newLine++), line });
     } else {
-      row.classList.add('diff-meta');
+      rows.push({ kind: 'meta', oldNumber: '', newNumber: '', line });
+    }
+  }
+  for (let i = 0; i < rows.length;) {
+    if (rows[i].kind !== 'deleted') { i++; continue; }
+    const delStart = i;
+    while (i < rows.length && rows[i].kind === 'deleted') i++;
+    const addStart = i;
+    while (i < rows.length && rows[i].kind === 'added') i++;
+    const delCount = addStart - delStart;
+    const addCount = i - addStart;
+    if (delCount > 0 && addCount > 0 && delCount <= 50 && addCount <= 50) {
+      const pairs = Math.min(delCount, addCount);
+      for (let offset = 0; offset < pairs; offset++) {
+        const diff = inlineDiffPair(rows[delStart + offset].line.slice(1), rows[addStart + offset].line.slice(1));
+        if (diff) {
+          rows[delStart + offset].segments = diff.oldSegments;
+          rows[addStart + offset].segments = diff.newSegments;
+        }
+      }
+    }
+  }
+  for (const parsed of rows) {
+    const row = document.createElement('div'); row.className = `diff-row diff-${parsed.kind}`;
+    const oldNumber = document.createElement('span'); oldNumber.className = 'diff-number'; oldNumber.textContent = parsed.oldNumber;
+    const newNumber = document.createElement('span'); newNumber.className = 'diff-number'; newNumber.textContent = parsed.newNumber;
+    const code = document.createElement('span'); code.className = 'diff-code';
+    if (parsed.segments) {
+      appendInlineDiff(code, parsed.line[0], parsed.segments, parsed.kind === 'deleted' ? 'diff-inline-del' : 'diff-inline-add');
+    } else {
+      code.textContent = parsed.line;
     }
     row.append(oldNumber, newNumber, code); frame.append(row);
   }

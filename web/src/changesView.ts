@@ -4,6 +4,7 @@ import { ReviewState } from './review';
 import { setIcon, type IconName } from './icons';
 import { copyWithFeedback } from './copyControls';
 import { shortcutText } from './shortcuts';
+import { bindDropdownMenu } from './dropdownMenu';
 import { printFile, type createPrintView } from './printView';
 import type { FileView } from './fileGit';
 import type { TreeView } from './tree';
@@ -62,6 +63,7 @@ export function createChangesView(deps: ChangesViewOptions) {
   let changeRootId = '';
   let shownBase: string | undefined;
   let lastRevealedDiff = '';
+  let titleMenuLifetime: AbortController | undefined;
   function syncComparisonControls(): void {
     const mode = selectedMode(); const active = mode === 'changes' || mode === 'diff';
     comparisonControls.hidden = !active;
@@ -112,6 +114,8 @@ export function createChangesView(deps: ChangesViewOptions) {
     if (button) applyDiffAvailability(button, path);
   }
   function showTitle(path: string, kind = '', missing = false, canDownload = true): void {
+    titleMenuLifetime?.abort();
+    titleMenuLifetime = undefined;
     title.replaceChildren();
     if (selectedMode() === 'history') {
       const heading = document.createElement('strong'); heading.textContent = `Git history${new URL(location.href).searchParams.get('commit') ? ` · ${new URL(location.href).searchParams.get('commit')!.slice(0, 7)}` : ''}`;
@@ -197,18 +201,13 @@ export function createChangesView(deps: ChangesViewOptions) {
     if (kind === 'markdown' && content.dataset.kind === 'markdown' && selectedMode() === 'file' && !missing) actions.append(contentWidth.createButton());
     const menuButton = document.createElement('button'); menuButton.type = 'button'; menuButton.className = 'title-more'; setIcon(menuButton, 'more'); menuButton.title = 'File actions'; menuButton.setAttribute('aria-label', 'File actions'); menuButton.setAttribute('aria-expanded', 'false'); menuButton.setAttribute('aria-haspopup', 'menu');
     const menu = document.createElement('div'); menu.className = 'title-menu'; menu.setAttribute('role', 'menu'); menu.hidden = true;
-    const closeMenu = (): void => { menu.hidden = true; menuButton.setAttribute('aria-expanded', 'false'); menuButton.focus(); };
-    menuButton.addEventListener('click', () => { menu.hidden = !menu.hidden; menuButton.setAttribute('aria-expanded', String(!menu.hidden)); if (!menu.hidden) menu.querySelector<HTMLButtonElement>('button')?.focus(); });
-    menu.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') { event.preventDefault(); closeMenu(); return; }
-      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-      event.preventDefault(); const items = [...menu.querySelectorAll<HTMLButtonElement>('button')]; const index = items.indexOf(document.activeElement as HTMLButtonElement);
-      items[(index + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus();
-    });
+    titleMenuLifetime = new window.AbortController();
+    const titleMenu = bindDropdownMenu({ button: menuButton, menu, signal: titleMenuLifetime.signal });
+    const closeMenu = (): void => titleMenu.close(true);
     const addAux = (label: string, icon: IconName, action: (button: HTMLButtonElement) => void, visible = true): void => {
       if (!visible) return;
       const desktop = document.createElement('button'); desktop.type = 'button'; desktop.className = 'title-icon'; setIcon(desktop, icon); desktop.title = label; desktop.setAttribute('aria-label', label); desktop.addEventListener('click', () => action(desktop)); auxiliary.append(desktop);
-      const mobile = document.createElement('button'); mobile.type = 'button'; mobile.setAttribute('role', 'menuitem'); mobile.textContent = label; mobile.addEventListener('click', () => { action(mobile); closeMenu(); }); menu.append(mobile);
+      const mobile = document.createElement('button'); mobile.type = 'button'; mobile.setAttribute('role', 'menuitem'); mobile.textContent = label; mobile.addEventListener('click', () => { closeMenu(); action(mobile); }); menu.append(mobile);
     };
     addAux('Open on right', 'panelRight', () => openRight(path), selectedMode() === 'file');
     addAux('Open PDF in new tab', 'external', () => openPDF(path), kind === 'pdf');
@@ -400,5 +399,6 @@ export function createChangesView(deps: ChangesViewOptions) {
     get onlyUnreviewed() { return onlyUnreviewed; },
     getCommit: (id: string, knownHead?: string) => cachedCommit?.id === id && knownHead ? Promise.resolve(cachedCommit) : getGit<CommitDetail>(`/api/git/commit?id=${encodeURIComponent(id)}`),
     getHistoricalDiff: (id: string, path: string, knownHead?: string) => cachedHistoricalDiff?.id === id && cachedHistoricalDiff.path === path && knownHead ? Promise.resolve(cachedHistoricalDiff.value) : getGit<DiffReply>(`/api/git/commit-diff?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`),
+    dispose: () => { titleMenuLifetime?.abort(); titleMenuLifetime = undefined; },
   };
 }

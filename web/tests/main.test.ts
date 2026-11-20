@@ -1042,4 +1042,27 @@ describe('per-file history and blame navigation', () => {
     expect(only.searchParams.get('view')).toBe('file-history'); expect(only.searchParams.get('revision-path')).toBe('old.go'); expect(only.searchParams.has('right')).toBe(false);
     expect(document.querySelector('#content .diff-frame')).not.toBeNull();
   });
+
+  it('sends If-None-Match for Git requests, reuses cached responses on 304, and resets on manual refresh', async () => {
+    history.replaceState(null, '', '/?view=changes');
+    let version = 1;
+    const fetch = vi.fn(async (url: string, options?: RequestInit) => {
+      if (url === '/api/tree') return reply(page([entry('a.md')]));
+      if (url === '/api/git/changes') {
+        const tag = `"git-v${version}"`;
+        if ((options?.headers as Record<string, string> | undefined)?.['If-None-Match'] === tag) return reply(null, 304, tag);
+        return reply({ available: true, rootId: 'etag-root', changes: [{ path: `v${version}.md`, status: 'modified', revision: `r${version}` }] }, 200, tag);
+      }
+      return reply({ error: 'not_found' }, 404);
+    });
+    stubFetch(fetch);
+    await import('../src/main'); await flush();
+    expect(document.querySelector('#content .change-path')?.textContent).toBe('v1.md');
+    document.dispatchEvent(new Event('visibilitychange')); await flush();
+    expect(fetch.mock.calls.some(([url, options]) => url === '/api/git/changes' && (options?.headers as Record<string, string> | undefined)?.['If-None-Match'] === '"git-v1"')).toBe(true);
+    expect(document.querySelector('#content .change-path')?.textContent).toBe('v1.md');
+    version = 2;
+    document.querySelector<HTMLButtonElement>('#reload')!.click(); await flush();
+    expect(document.querySelector('#content .change-path')?.textContent).toBe('v2.md');
+  });
 });
