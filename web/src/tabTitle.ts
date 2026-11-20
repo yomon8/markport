@@ -49,8 +49,9 @@ export class TabTitle {
 
   async reload(invalidate = false): Promise<void> {
     const request = ++this.request;
+    const wasReady = Boolean(this.config);
     if (invalidate) { this.config = undefined; this.override = ''; this.apply(); }
-    this.updateControls();
+    this.updateControls(!this.dialog.open || !wasReady || invalidate);
     try {
       const response = await fetch('/api/config', { cache: 'no-store' });
       if (!response.ok) throw new Error('Cannot load settings');
@@ -58,15 +59,17 @@ export class TabTitle {
       if (typeof config.title !== 'string' || typeof config.rootId !== 'string' || !/^[a-f0-9]{64}$/.test(config.rootId)) throw new Error('Invalid settings');
       if (this.disposed || request !== this.request) return;
       const changed = config.rootId !== this.config?.rootId;
+      const becameReady = !this.config;
       this.config = config;
       this.onContext?.(config.rootPath ?? '', config.branch ?? '');
       if (changed) this.readOverride();
-      this.message.textContent = ''; this.apply(); this.updateControls();
-      if (this.dialog.open) this.input.focus();
+      this.message.textContent = ''; this.apply();
+      this.updateControls(!this.dialog.open || becameReady || changed);
+      if (this.dialog.open && becameReady) this.input.focus();
     } catch {
       if (this.disposed || request !== this.request) return;
       this.message.textContent = 'Cannot load title settings. Close and reopen to retry.';
-      this.updateControls();
+      this.updateControls(!this.dialog.open);
     }
   }
 
@@ -83,9 +86,9 @@ export class TabTitle {
     const context = folder ? `${folder}${this.config?.branch ? ` [${this.config.branch}]` : ''}` : '';
     document.title = this.override || this.config?.title || (context ? `${context} — ${this.fallback}` : this.fallback);
   }
-  private updateControls(): void {
+  private updateControls(syncValue = true): void {
     this.input.disabled = this.save.disabled = this.reset.disabled = !this.config;
-    this.input.value = this.override;
+    if (syncValue) this.input.value = this.override;
     this.input.placeholder = this.config?.title || 'Use the current file or screen name';
     this.hint.textContent = 'Saved in this browser for this folder and connection. Leave blank or reset to use the startup title, or the current file or screen name when no startup title is set.';
   }

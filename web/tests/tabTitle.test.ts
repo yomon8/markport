@@ -98,4 +98,19 @@ describe('tab title settings', () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ title: 'Bad', rootId: '' }) })));
     await controller.reload(true); expect(input().disabled).toBe(true); expect(document.title).toBe('markport');
   });
+
+  it('preserves draft input and button focus during background reloads', async () => {
+    let branch = 'main';
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ title: '', rootId, rootPath: '/work/project', branch }) })));
+    await controller.reload();
+    button.click();
+    input().value = 'Typing in progress';
+    const cancel = [...dialog().querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!;
+    cancel.focus();
+    branch = 'feature/next';
+    await controller.reload();
+    expect(input().value).toBe('Typing in progress');
+    expect(document.activeElement).toBe(cancel);
+    expect(document.title).toContain('project [feature/next]');
+  });
 });
