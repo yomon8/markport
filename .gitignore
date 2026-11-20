@@ -5,3 +5,4 @@
 /web/test-results/
 /web/playwright-report/
 *.test
+.tasks/
