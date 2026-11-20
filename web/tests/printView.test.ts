@@ -35,6 +35,7 @@ describe('print preparation', () => {
     view.open({ title: '日本語.md', load: async () => '<h1>日本語</h1><details><summary>More</summary>Included</details>' }, opener);
     await flush(); expect(submit().disabled).toBe(true);
     expect(frameDocument().title).toBe('日本語.md');
+    expect(frameDocument().documentElement.dataset.colorScheme).toBe('light');
     expect(renders.diagram).toHaveBeenCalledWith(expect.anything(), expect.any(Function), undefined, true);
     diagramDone(); await flush(); expect(submit().disabled).toBe(true);
     mathDone(); await flush(); expect(submit().disabled).toBe(true);

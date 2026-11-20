@@ -64,7 +64,7 @@ export function createPrintView(): { open: (input: PrintInput, opener: HTMLButto
       documentHost.append(preview); frame = preview;
       const doc = preview.contentDocument;
       if (!doc) throw new Error('Cannot open print document.');
-      doc.open(); doc.write('<!doctype html><html lang="en"><head></head><body><article></article></body></html>'); doc.close();
+      doc.open(); doc.write('<!doctype html><html lang="en" data-color-scheme="light"><head></head><body><article></article></body></html>'); doc.close();
       doc.title = snapshot.title;
       const base = doc.createElement('base'); base.href = `${location.origin}/`; doc.head.append(base);
       const style = doc.createElement('style'); style.textContent = printCSS; doc.head.append(style);
