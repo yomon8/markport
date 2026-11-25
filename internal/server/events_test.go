@@ -222,6 +222,37 @@ func TestEventsClientCancellationAndWatchStop(t *testing.T) {
 	}
 }
 
+type stopWatchOnFlush struct {
+	*httptest.ResponseRecorder
+	stop func()
+}
+
+func (w *stopWatchOnFlush) Flush() {
+	w.ResponseRecorder.Flush()
+	if w.stop != nil {
+		stop := w.stop
+		w.stop = nil
+		stop()
+	}
+}
+
+func TestEventsWatchStopsDuringInitialModeFlush(t *testing.T) {
+	app, _ := newTestServer(t)
+	requireWatch(t, app)
+	response := &stopWatchOnFlush{ResponseRecorder: httptest.NewRecorder(), stop: app.StopWatch}
+	app.events(response, httptest.NewRequest(http.MethodGet, "/api/events", nil))
+	reader := bufio.NewReader(response.Body)
+	for _, expected := range []string{`{"mode":"watch"}`, `{"mode":"poll"}`} {
+		name, data := readEvent(t, reader)
+		if name != "mode" || string(data) != expected {
+			t.Fatalf("mode: %s %s, want %s", name, data, expected)
+		}
+	}
+	if _, err := reader.ReadByte(); err != io.EOF {
+		t.Fatalf("poll connection did not close: %v", err)
+	}
+}
+
 func TestEventsGitMetadataDoesNotExposePaths(t *testing.T) {
 	app, directory := newTestServer(t)
 	gitCommand(t, directory, "init", "-q")

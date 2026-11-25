@@ -219,7 +219,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 	changes, unsubscribe := s.subscribeEvents()
 	defer unsubscribe()
-	if !mode(watcher.Mode()) || watcher.Mode() != "watch" {
+	initialMode := watcher.Mode()
+	if !mode(initialMode) || initialMode != "watch" {
 		return
 	}
 	ticker := time.NewTicker(25 * time.Second)
