@@ -39,6 +39,60 @@ func TestPastedMarkdown(t *testing.T) {
 		}
 	}
 }
+
+func TestMarkdownExplicitAnchor(t *testing.T) {
+	source := "| 作業 | 手順 |\n| --- | --- |\n| Cognito | [Cognito の PITR](#cognito-pitr) |\n\n" +
+		"<a id=\"cognito-pitr\"></a>\n## Cognito の PITR\n\n" +
+		"Text before the anchor\r\n  <A ID = '復旧.手順_2:開始' > </A>  \r\nNext paragraph.\r\n"
+	for _, render := range []struct {
+		name string
+		run  func(string) (string, error)
+	}{
+		{"file", func(source string) (string, error) { return Markdown("recovery.md", source) }},
+		{"paste", PastedMarkdown},
+	} {
+		t.Run(render.name, func(t *testing.T) {
+			out, err := render.run(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{
+				`<a href="#cognito-pitr">Cognito の PITR</a>`,
+				`<div data-markdown-anchor="cognito-pitr"></div>` + "\n" + `<h2 id="cognito--pitr">`,
+				`<div data-markdown-anchor="復旧.手順_2:開始"></div>` + "\n<p>Next paragraph.</p>",
+			} {
+				if !strings.Contains(out, want) {
+					t.Errorf("missing %q in %s", want, out)
+				}
+			}
+		})
+	}
+}
+
+func TestMarkdownExplicitAnchorIgnoresOtherHTMLAndCode(t *testing.T) {
+	for _, input := range []string{
+		`<a id="x" href="https://example.com"></a>`,
+		`<a id="x" onclick="alert(1)"></a>`,
+		`<a name="x"></a>`,
+		`<a id="x">Nonempty</a>`,
+		`<a id=""></a>`,
+		`<a id="not an id"></a>`,
+		`<a id='x"'></a>`,
+		`Inline <a id="x"></a>`,
+		`<div id="x"></div>`,
+		"<script>\n<a id=\"x\"></a>\n</script>",
+		"<!--\n<a id=\"x\"></a>\n-->",
+		"    <a id=\"x\"></a>",
+		"```html\n<a id=\"x\"></a>\n```",
+		"`<a id=\"x\"></a>`",
+	} {
+		out := mustMarkdown(t, input)
+		if strings.Contains(out, "data-markdown-anchor") || strings.Contains(out, `<a id=`) || strings.Contains(out, "<script>") {
+			t.Errorf("unexpected HTML for %q: %s", input, out)
+		}
+	}
+}
+
 func TestCodeEscapes(t *testing.T) {
 	for _, name := range []string{"file.unknown", "file.py"} {
 		out := Code(name, "<script>alert(1)</script>")

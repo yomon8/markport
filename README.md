@@ -115,6 +115,8 @@ markport ./notes --lan --auto-port
 
 Click a folder in the file's breadcrumb path to reveal it in the sidebar, use **Collapse all** beside **Search files** to close all open folders, and drag the sidebar divider to adjust its width. Markdown files with three or more headings show a **Contents** outline that highlights the current section.
 
+To link to a fixed location in Markdown, put `<a id="recovery"></a>` on its own line and link to it with `[Jump to recovery](#recovery)`. IDs are case-sensitive and can contain letters, marks, numbers, and `-`, `_`, `.`, or `:`. The tag must be empty and have no other attributes. Other raw HTML remains disabled in Markdown previews. In the main pane, links from other Markdown files and direct URLs with the fragment also work. In the right pane and Paste Markdown, these links jump within the same preview. Explicit anchors are not supported in print or PDF output.
+
 **Search files** matches file names and paths, including files inside closed folders. Git-ignored files remain searchable but rank below other matches. Append a positive line number, such as `path/to/file.md:123`, to jump to that line. Markdown and HTML line targets open in **Source** view.
 
 Open **Search contents**, enter **Text to find**, and optionally set **Folder** to a path relative to the browsing directory (leave it empty to search everything). Results show matching lines with context; click one to open that line. Use **Cancel** to stop a search. If a search limit is reached, the message names the limit and notes that results are partial.

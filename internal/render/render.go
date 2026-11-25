@@ -195,7 +195,9 @@ func newMarkdown() goldmark.Markdown {
 		goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 		goldmark.WithParserOptions(parser.WithParagraphTransformers(util.Prioritized(tableSourceTransformer{}, 199))),
 		goldmark.WithParserOptions(parser.WithInlineParsers(util.Prioritized(mathInlineParser{}, 150)), parser.WithBlockParsers(util.Prioritized(mathBlockParser{}, 850))),
+		goldmark.WithParserOptions(parser.WithBlockParsers(util.Prioritized(anchorParser{}, 860))),
 		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(codeRenderer{}, 100))),
 		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(mathRenderer{}, 100))),
+		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(anchorRenderer{}, 100))),
 	)
 }

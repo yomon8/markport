@@ -324,6 +324,10 @@ article :is(h1, h2, h3, h4, h5, h6) {
   scroll-margin-top: calc(var(--titlebar-h) + 12px);
 }
 
+[data-markdown-anchor] {
+  scroll-margin-top: calc(var(--titlebar-h) + 12px);
+}
+
 article h1 {
   font-size: 1.85em;
 }

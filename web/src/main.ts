@@ -6,6 +6,7 @@ import { createPreview } from './preview';
 import { createRefreshScheduler } from './refresh';
 import { createFileSearch } from './fileSearch';
 import { createOutline } from './outline';
+import { findMarkdownAnchor } from './markdownAnchor';
 import { createContentDecoration } from './contentDecorate';
 import { FileGitView, fileViewURL, type FileView } from './fileGit';
 import { iconSVG, setIcon } from './icons';
@@ -107,6 +108,7 @@ const splitResize = createSplitResize({ container: layout, left: main, right: ri
 const rightContent = document.querySelector<HTMLElement>('#right-content')!;
 let lineRangeAnchor = 0;
 let pendingLineJump = false;
+let pendingMarkdownJump = false;
 const progress = document.querySelector<HTMLElement>('#progress')!;
 const outline = document.querySelector<HTMLElement>('#outline')!;
 const sidebar = document.querySelector<HTMLElement>('#sidebar')!;
@@ -242,12 +244,32 @@ function showSidebar(mode: 'file' | 'changes' | 'history'): void {
     tab.setAttribute('aria-selected', String(mode === value)); tab.tabIndex = mode === value ? 0 : -1;
   }
 }
-function saveScroll(): void { history.replaceState({ ...history.state, scroll: main.scrollTop, rightScroll: rightPane.scrollTop }, '', location.href); }
+function saveScroll(markdownAnchorEntry?: string): void {
+  const state = { ...history.state, scroll: main.scrollTop, rightScroll: rightPane.scrollTop };
+  if (markdownAnchorEntry) state.markdownAnchorEntry = markdownAnchorEntry;
+  history.replaceState(state, '', location.href);
+}
+function leftMarkdownAnchor(hash: string): HTMLElement | null {
+  if (content.dataset.kind !== 'markdown' || displayedPath !== selected() || selectedMode() !== 'file' || sourceMode) return null;
+  return findMarkdownAnchor(content, hash);
+}
+function restoreMarkdownAnchorScroll(): void {
+  const href = location.href; const state = history.state;
+  if (state?.markdownAnchorEntry !== href) return;
+  // Restore the scroll container after the browser finishes traversing history.
+  requestAnimationFrame(() => {
+    if (location.href !== href || displayedPath !== selected() || displayedMode !== 'file' || sourceMode) return;
+    const anchor = leftMarkdownAnchor(location.hash);
+    if (anchor) anchor.scrollIntoView();
+    else if (typeof state.scroll === 'number') main.scrollTop = state.scroll;
+  });
+}
 function navigate(url: string, keepTreeFocus = false): void {
   const target = buildNavigationTarget(url);
   keyboardTreePath = keepTreeFocus ? target.searchParams.get('path') ?? '' : '';
-  if (target.href === location.href) { highlightCodeLines(true); return; }
+  if (target.href === location.href) { if (!highlightCodeLines(true)) leftMarkdownAnchor(target.hash)?.scrollIntoView(); return; }
   pendingLineJump = isLineHash(target.hash);
+  pendingMarkdownJump = Boolean(target.hash);
   if (target.searchParams.get('view') === 'changes' || target.searchParams.get('view') === 'diff') rememberedBase = target.searchParams.get('base') ?? '';
   saveScroll(); pasteVersion++; lineRangeAnchor = 0; history.pushState({ scroll: 0, rightScroll: rightPane.scrollTop }, '', target); sidebarPanel = sidebarPanelForMode(selectedMode()); sourceMode = target.searchParams.get('source') === '1'; if (!keepTreeFocus) sidebar.classList.remove('open'); requestRefresh();
 }
@@ -438,7 +460,15 @@ async function refreshLoop({ revision: current, foreground }: { revision: number
     }
     if (fileReply && 'value' in fileReply) {
       const file = fileReply.value as FileReply | null;
-      if (!file) { highlightCodeLines(pendingLineJump); pendingLineJump = false; status(liveMessage, 'ok'); return; }
+      const jumpToAnchor = pathChanged || pendingMarkdownJump;
+      pendingMarkdownJump = false;
+      const jumpForFileFragment = (): boolean => {
+        if (highlightCodeLines(pendingLineJump || pathChanged)) return true;
+        const anchor = jumpToAnchor ? leftMarkdownAnchor(location.hash) : null;
+        anchor?.scrollIntoView();
+        return Boolean(anchor);
+      };
+      if (!file) { jumpForFileFragment(); pendingLineJump = false; status(liveMessage, 'ok'); return; }
       const displayKey = filePreviewKey(file, path);
       const changed = displayedHTML !== displayKey || displayedSource !== source;
       if (changed) {
@@ -455,9 +485,6 @@ async function refreshLoop({ revision: current, foreground }: { revision: number
         } else { content.innerHTML = file.html; decorateContent(); }
         displayedHTML = displayKey; displayedSource = source;
         updateOutline(); showTitle(path, file.type);
-        if (location.hash && file.type !== 'html' && !highlightCodeLines(pathChanged)) {
-          try { if (pathChanged) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ }
-        }
         if (!pathChanged && current > 1) {
           title.classList.add('updated'); const note = document.createElement('span'); note.className = 'update-note'; note.textContent = 'Updated'; title.querySelector('.title-actions')?.prepend(note);
           clearTimeout(updatedTimer); updatedTimer = setTimeout(() => { title.classList.remove('updated'); note.remove(); }, 3500);
@@ -466,7 +493,10 @@ async function refreshLoop({ revision: current, foreground }: { revision: number
         void drawMermaid(content, () => path === selected() && source === sourceMode);
         void drawMath(content, () => selectedMode() === 'file' && path === selected() && !sourceMode);
       }
-      highlightCodeLines(pendingLineJump); pendingLineJump = false;
+      if (!jumpForFileFragment() && pathChanged && location.hash && file.type !== 'html') {
+        try { document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView(); } catch { /* Invalid fragment. */ }
+      }
+      pendingLineJump = false;
       if (pathChanged && activePane.current() === 'left' && keyboardTreePath !== path) view.reveal(path);
       if (pathChanged && !preserveTabFocus && keyboardTreePath !== path) activePane.withoutActivation(() => title.focus({ preventScroll: true }));
     }
@@ -557,6 +587,20 @@ function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
   }
   const link = target.closest<HTMLAnchorElement>('a[href]');
   if (!link || event.metaKey || event.ctrlKey || event.shiftKey) return;
+  if (!event.altKey && link.getAttribute('href')?.startsWith('#')) {
+    const paneContent = pane === 'left' ? content : rightContent;
+    const pastePreview = link.closest<HTMLElement>('.paste-preview');
+    const anchor = findMarkdownAnchor(pastePreview ?? paneContent, link.hash);
+    if (anchor) {
+      event.preventDefault();
+      if (pane === 'left' && !pastePreview && location.hash !== link.hash) {
+        saveScroll(location.href);
+        history.pushState({ ...history.state, markdownAnchorEntry: link.href }, '', link.href);
+      }
+      anchor.scrollIntoView();
+      return;
+    }
+  }
   if (classifyInAppLink(link) !== 'navigate') return;
   event.preventDefault();
   const nextPath = new URL(link.href).searchParams.get('path');
@@ -564,8 +608,8 @@ function onContentClick(event: MouseEvent, pane: 'left' | 'right'): void {
 }
 content.addEventListener('click', (event) => onContentClick(event, 'left'));
 rightContent.addEventListener('click', (event) => onContentClick(event, 'right'));
-window.addEventListener('popstate', () => { keyboardTreePath = ''; rightController.restoreScroll(); pasteVersion++; sidebarPanel = sidebarPanelForMode(selectedMode()); sourceMode = new URL(location.href).searchParams.get('source') === '1'; requestRefresh(); void syncSelectedFile(); });
-window.addEventListener('hashchange', () => { highlightCodeLines(true); });
+window.addEventListener('popstate', () => { keyboardTreePath = ''; rightController.restoreScroll(); pasteVersion++; sidebarPanel = sidebarPanelForMode(selectedMode()); sourceMode = new URL(location.href).searchParams.get('source') === '1'; restoreMarkdownAnchorScroll(); requestRefresh(); void syncSelectedFile(); });
+window.addEventListener('hashchange', () => { if (!highlightCodeLines(true)) leftMarkdownAnchor(location.hash)?.scrollIntoView(); });
 const disposeGlobalShortcuts = registerGlobalShortcuts({
   main, rightPane, sidebar, outline, search, drawerToggle, sidebarToggle, pasteToggle, headerMore, headerExtras,
   activePane: () => activePane.current(),

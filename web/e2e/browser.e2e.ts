@@ -1030,6 +1030,86 @@ test('contents button follows the persistent outline and split view', async ({ p
   await expect(page.locator('#outline')).toBeVisible();
 });
 
+const anchorGap = 'Reading paragraph.\n\n'.repeat(55);
+const recoveryMarkdown = '# 復旧作業の入口\n\n| 作業 | 手順 |\n| --- | --- |\n| 復旧 | [Cognito の PITR](#cognito-pitr) |\n\n' +
+  '[Existing heading](#existing-heading) · [Shared ID](#shared-id)\n\n' +
+  anchorGap + '<a id="cognito-pitr"></a>\n## 復旧手順\n\n' + anchorGap +
+  '<a id="cognito-pitr"></a>\n## Duplicate anchor\n\n<a id="shared-id"></a>\n\n' + anchorGap +
+  '## Shared ID\n\n' + anchorGap + '## Existing heading\n\n' + anchorGap;
+
+test('explicit Markdown anchors jump from a table, direct URL and another file', async ({ page }) => {
+  await writeFile(join(directory, 'recovery-anchors.md'), recoveryMarkdown);
+  await writeFile(join(directory, 'recovery-index.md'), '[Open recovery](recovery-anchors.md#cognito-pitr)\n');
+  const base = `http://127.0.0.1:${port}/?path=recovery-anchors.md`;
+  await page.goto(base);
+  const article = page.locator('#content');
+  const tableLink = article.getByRole('link', { name: 'Cognito の PITR' });
+  const destination = article.getByRole('heading', { name: '復旧手順' });
+  await expect(tableLink).toBeInViewport();
+  await expect(destination).not.toBeInViewport();
+  await expect(page.locator('#cognito-pitr')).toHaveCount(0);
+  await tableLink.click();
+  await expect(page).toHaveURL(base + '#cognito-pitr');
+  await expect(destination).toBeInViewport();
+  await expect(article.getByRole('heading', { name: 'Duplicate anchor' })).not.toBeInViewport();
+  await page.goBack();
+  await expect(page).toHaveURL(base);
+  await expect(tableLink).toBeInViewport();
+  await page.goForward();
+  await expect(page).toHaveURL(base + '#cognito-pitr');
+  await expect(destination).toBeInViewport();
+  await page.reload();
+  await expect(destination).toBeInViewport();
+
+  await page.locator('#main').evaluate((node) => { node.scrollTop = 0; });
+  await writeFile(join(directory, 'recovery-anchors.md'), recoveryMarkdown + 'Updated recovery document.\n');
+  await expect(article).toContainText('Updated recovery document.', { timeout: 15000 });
+  await expect(tableLink).toBeInViewport();
+  await tableLink.click();
+  await expect(destination).toBeInViewport();
+
+  await page.goto(`http://127.0.0.1:${port}/?path=recovery-index.md`);
+  await article.getByRole('link', { name: 'Open recovery' }).click();
+  await expect(page).toHaveURL(base + '#cognito-pitr');
+  await expect(destination).toBeInViewport();
+
+  await page.locator('#main').evaluate((node) => { node.scrollTop = 0; });
+  await article.getByRole('link', { name: 'Shared ID' }).click();
+  await expect(article.getByRole('heading', { name: 'Shared ID' })).toBeInViewport();
+  await page.locator('#main').evaluate((node) => { node.scrollTop = 0; });
+  await article.getByRole('link', { name: 'Existing heading' }).click();
+  await expect(page).toHaveURL(base + '#existing-heading');
+  await expect(article.getByRole('heading', { name: 'Existing heading' })).toBeInViewport();
+});
+
+test('explicit Markdown anchors stay in the right pane when both panes have the same ID', async ({ page }) => {
+  await writeFile(join(directory, 'anchor-split.md'), recoveryMarkdown);
+  const url = `http://127.0.0.1:${port}/?path=anchor-split.md&right=anchor-split.md`;
+  await page.goto(url);
+  const leftDestination = page.locator('#content').getByRole('heading', { name: '復旧手順' });
+  const right = page.locator('#right-content');
+  const rightDestination = right.getByRole('heading', { name: '復旧手順' });
+  await expect(leftDestination).not.toBeInViewport();
+  await expect(rightDestination).not.toBeInViewport();
+  await right.getByRole('link', { name: 'Cognito の PITR' }).click();
+  await expect(rightDestination).toBeInViewport();
+  await expect(leftDestination).not.toBeInViewport();
+  await expect(page).toHaveURL(url);
+});
+
+test('explicit Markdown anchors in Paste Markdown decode Unicode fragments without changing the URL', async ({ page }) => {
+  const url = `http://127.0.0.1:${port}/?view=paste`;
+  await page.goto(url);
+  await page.getByLabel('Markdown Text').fill(`[移動](#${encodeURIComponent('復旧.手順:開始')})\n\n${anchorGap}<a id='復旧.手順:開始'></a>\n## 貼り付けた復旧手順\n\n${anchorGap}`);
+  await page.getByRole('button', { name: 'Rendered', exact: true }).click();
+  const preview = page.locator('.paste-preview');
+  const destination = preview.getByRole('heading', { name: '貼り付けた復旧手順' });
+  await expect(destination).not.toBeInViewport();
+  await preview.getByRole('link', { name: '移動' }).click();
+  await expect(destination).toBeInViewport();
+  await expect(page).toHaveURL(url);
+});
+
 test('mobile title stays one row and keeps reading actions close', async ({ page }, testInfo) => {
   await writeFile(join(directory, 'mobile-title.md'), `# Mobile title\n\n## First\n\n${'Reading line\n\n'.repeat(60)}## Second\n\n## Third\n\n## Fourth\n`);
   await page.setViewportSize({ width: 390, height: 844 });
