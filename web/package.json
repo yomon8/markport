@@ -13,7 +13,7 @@
   "dependencies": {
     "katex": "0.19.1",
     "mermaid": "^12.3.0",
-    "type-fest": "^5.10.0"
+    "type-fest": "^6.0.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
