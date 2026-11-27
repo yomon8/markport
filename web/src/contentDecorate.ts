@@ -1,7 +1,6 @@
 import { copyWithFeedback, createCopyButton } from './copyControls';
 import { createToolButton } from './toolButtons';
-import { measureNaturalWidths } from './layoutMeasurements';
-import type { createContentWidth } from './contentWidth';
+import { measureNaturalTableWidths } from './layoutMeasurements';
 import type { createTableOverlay } from './tableOverlay';
 
 type DecorationOptions = {
@@ -9,7 +8,6 @@ type DecorationOptions = {
   rightContent: HTMLElement;
   main: HTMLElement;
   title: HTMLElement;
-  contentWidth: Pick<ReturnType<typeof createContentWidth>, 'decorate' | 'refresh'>;
   tableOverlay: Pick<ReturnType<typeof createTableOverlay>, 'open'>;
   getPath: () => string;
   getRightHash: () => string;
@@ -17,7 +15,7 @@ type DecorationOptions = {
 };
 
 export function createContentDecoration(deps: DecorationOptions) {
-  const { content, rightContent, main, title, contentWidth, tableOverlay } = deps;
+  const { content, rightContent, main, title, tableOverlay } = deps;
   let wrapCodeLines = false;
   try { wrapCodeLines = localStorage.getItem('markport-wrap-code') === 'true'; } catch { /* Storage may be unavailable. */ }
   let wrapTableCells = false;
@@ -34,6 +32,17 @@ export function createContentDecoration(deps: DecorationOptions) {
   let layoutFrame = 0;
   let headerFrame = 0;
   let disposed = false;
+  const codeSizes = new WeakMap<Element, { frame: HTMLElement; width?: number }>();
+  const codeResize = typeof ResizeObserver === 'function' ? new ResizeObserver((entries) => {
+    for (const { target, contentRect } of entries) {
+      if (!target.isConnected) { codeResize?.unobserve(target); continue; }
+      const state = codeSizes.get(target);
+      if (!state || state.width === contentRect.width) continue;
+      state.width = contentRect.width;
+      pendingCode.set(state.frame, target as HTMLElement);
+    }
+    if (pendingCode.size) scheduleLayout();
+  }) : undefined;
   function scheduleLayout(): void {
     if (disposed || layoutFrame) return;
     layoutFrame = requestAnimationFrame(flushLayout);
@@ -57,8 +66,8 @@ export function createContentDecoration(deps: DecorationOptions) {
     }
     const frames = [...pending].filter((frame) => frame.isConnected); pending.clear();
     // No per-table writes between intrinsic width reads.
-    const measured = measureNaturalWidths(frames).map(({ element, width }) => ({ element, wide: width > element.clientWidth + 1 }));
-    for (const { element, wide } of measured) { element.classList.toggle('wide', wide); overflow.add(element); }
+    const measured = measureNaturalTableWidths(frames).map(({ frame, width }) => ({ frame, wide: width > frame.clientWidth + 1 }));
+    for (const { frame, wide } of measured) { frame.classList.toggle('wide', wide); overflow.add(frame); }
     const states = [...overflow].filter((frame) => frame.isConnected).map(readTableOverflow); overflow.clear();
     const codes = [...pendingCode].filter(([frame]) => frame.isConnected).map(([frame, scroller]) => ({
       frame, overflows: scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 1,
@@ -125,7 +134,6 @@ export function createContentDecoration(deps: DecorationOptions) {
         }
         highlightCodeLines(false);
         highlightCodeLines(false, rightContent, deps.getRightHash());
-        contentWidth.refresh();
         for (const codeFrame of document.querySelectorAll<HTMLElement>('.code-frame')) {
           const scroller = codeFrame.querySelector<HTMLElement>(':scope > .chroma, pre');
           if (scroller) pendingCode.set(codeFrame, scroller);
@@ -141,6 +149,7 @@ export function createContentDecoration(deps: DecorationOptions) {
       }
       toolbar.append(label, controls); element.before(frame); frame.append(toolbar, element); setWrap(frame, wrapCodeLines);
       const scroller = element.classList.contains('chroma') ? element : element.querySelector<HTMLElement>('pre') ?? element;
+      codeSizes.set(scroller, { frame }); codeResize?.observe(scroller);
       const updateOverflow = (): void => { pendingCode.set(frame, scroller); scheduleLayout(); };
       scroller.addEventListener('scroll', updateOverflow, { passive: true }); updateOverflow();
     }
@@ -171,7 +180,6 @@ export function createContentDecoration(deps: DecorationOptions) {
       frames.add(table.closest<HTMLElement>('.table-frame') ?? wrapTable(table));
     }
     const preview = target.dataset.kind === 'paste' ? target.querySelector<HTMLElement>('.paste-preview') : null;
-    contentWidth.decorate(preview ?? target);
     if (!frames.size) return;
     const scroller = preview ?? (target === content ? main : target.parentElement ?? target);
     const state: Tables = {
@@ -225,7 +233,6 @@ export function createContentDecoration(deps: DecorationOptions) {
         other.querySelector('.table-wrap-toggle')?.setAttribute('aria-pressed', String(wrapTableCells));
         pending.add(other);
       }
-      contentWidth.refresh();
       scheduleLayout();
     });
     const expand = createToolButton('maximize', 'Expand'); expand.classList.add('table-expand');
@@ -291,6 +298,7 @@ export function createContentDecoration(deps: DecorationOptions) {
     disposed = true;
     document.fonts?.removeEventListener('loadingdone', refreshTables);
     cancelAnimationFrame(layoutFrame); cancelAnimationFrame(headerFrame);
+    codeResize?.disconnect();
     for (const target of tables.keys()) releaseTables(target);
     pending.clear(); overflow.clear(); pendingCode.clear();
   } };

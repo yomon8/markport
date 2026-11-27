@@ -589,6 +589,10 @@ article summary {
   overflow-wrap: anywhere;
 }
 
+.code-frame.wrapped > pre code {
+  white-space: inherit;
+}
+
 .code-frame.wrapped > .chroma {
   overflow-x: hidden;
 }

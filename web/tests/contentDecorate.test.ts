@@ -11,7 +11,6 @@ it('decorates each code block once and selects requested lines', () => {
   const decoration = createContentDecoration({
     content, rightContent: document.createElement('article'),
     main: document.querySelector('main')!, title: document.querySelector('header')!,
-    contentWidth: { decorate: vi.fn(), refresh: vi.fn() },
     tableOverlay: { open: vi.fn() },
     getPath: () => 'example.go', getRightHash: () => '', onLineStart,
   });
@@ -34,7 +33,7 @@ it('shares table wrapping between panes and supplies table source to copy contro
   const decoration = createContentDecoration({
     content, rightContent, main: document.querySelector('main')!,
     title: document.querySelector('header')!,
-    contentWidth: { decorate: vi.fn(), refresh: vi.fn() }, tableOverlay: { open },
+    tableOverlay: { open },
     getPath: () => 'example.md', getRightHash: () => '', onLineStart: vi.fn(),
   });
   decoration.decorateContent(); decoration.decorateContent(rightContent, 'other.md');
@@ -62,7 +61,7 @@ it('batches table sizing, measures only visible headers on scroll and cancels st
   });
   document.body.innerHTML = '<main><header></header><article>' + '<table><thead><tr><th>Column</th></tr></thead><tbody><tr><td>Data</td></tr></tbody></table>'.repeat(10) + '</article></main>';
   const content = document.querySelector('article')!; const main = document.querySelector('main')!;
-  const decoration = createContentDecoration({ content, rightContent: document.createElement('article'), main, title: document.querySelector('header')!, contentWidth: { decorate: vi.fn(), refresh: vi.fn() }, tableOverlay: { open: vi.fn() }, getPath: () => 'large.md', getRightHash: () => '', onLineStart: vi.fn() });
+  const decoration = createContentDecoration({ content, rightContent: document.createElement('article'), main, title: document.querySelector('header')!, tableOverlay: { open: vi.fn() }, getPath: () => 'large.md', getRightHash: () => '', onLineStart: vi.fn() });
   try {
     decoration.decorateContent();
     const elements = [...content.querySelectorAll('table')];

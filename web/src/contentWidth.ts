@@ -1,28 +1,22 @@
 import { createToolButton, setToolButton } from './toolButtons';
-import { measureNaturalWidths } from './layoutMeasurements';
 
 type Width = 'standard' | 'wide' | 'full';
 const storageKey = 'markport-content-width';
-const choices: { id: Width; label: string; em: number }[] = [
-  { id: 'standard', label: 'Standard', em: 46 },
-  { id: 'wide', label: 'Wide', em: 64 },
-  { id: 'full', label: 'Full', em: Infinity },
+const choices: { id: Width; label: string }[] = [
+  { id: 'standard', label: 'Standard' },
+  { id: 'wide', label: 'Wide' },
+  { id: 'full', label: 'Full' },
 ];
 
 /** One preference and menu shared by every Markdown preview in this tab. */
 export function createContentWidth(): {
   createButton: () => HTMLButtonElement;
   cycle: () => void;
-  decorate: (root: HTMLElement) => void;
-  refresh: () => void;
   dispose: () => void;
 } {
   const lifetime = new window.AbortController(); const { signal } = lifetime;
-  let selected: Width = read(); let frame = 0; let origin: HTMLButtonElement | undefined;
+  let selected: Width = read(); let origin: HTMLButtonElement | undefined;
   const buttons = new Set<HTMLButtonElement>();
-  const roots = new Map<HTMLElement, MutationObserver>();
-  const dirtyRoots = new Set<HTMLElement>();
-  const widths = new WeakMap<Element, number>();
   const menu = document.createElement('div'); menu.id = 'content-width-menu'; menu.className = 'content-width-menu';
   menu.setAttribute('role', 'menu'); menu.setAttribute('aria-label', 'Content width');
   menu.setAttribute('popover', 'manual'); menu.hidden = true; document.body.append(menu);
@@ -34,14 +28,6 @@ export function createContentWidth(): {
     }, { signal });
     menu.append(item); return item;
   });
-  const resize = typeof ResizeObserver === 'function' ? new ResizeObserver((entries) => {
-    // Observe the full preview, not the blocks whose width we change. Ignore height changes.
-    for (const entry of entries) {
-      if (widths.get(entry.target) === entry.contentRect.width) continue;
-      widths.set(entry.target, entry.contentRect.width); schedule();
-    }
-  }) : undefined;
-
   function read(): Width {
     try { const saved = localStorage.getItem(storageKey); return choices.find((choice) => choice.id === saved)?.id ?? 'full'; }
     catch { return 'full'; }
@@ -59,7 +45,6 @@ export function createContentWidth(): {
       setToolButton(button, 'contentWidth', label());
     }
     items.forEach((item, index) => item.setAttribute('aria-checked', String(choices[index].id === selected)));
-    schedule();
   }
   function close(focus = false): void {
     if (menu.hidden) return;
@@ -80,39 +65,6 @@ export function createContentWidth(): {
     button.setAttribute('aria-expanded', 'true'); position();
     items[choices.findIndex((choice) => choice.id === selected)].focus();
   }
-  function schedule(): void {
-    for (const root of roots.keys()) dirtyRoots.add(root);
-    if (frame) return;
-    frame = requestAnimationFrame(() => {
-      frame = 0;
-      const pending = [...dirtyRoots]; dirtyRoots.clear();
-      for (const root of pending) {
-        if (!root.isConnected) { roots.get(root)?.disconnect(); resize?.unobserve(root); roots.delete(root); continue; }
-        layout(root);
-      }
-      position();
-    });
-  }
-  function layout(root: HTMLElement): void {
-    const markdown = root.dataset.kind === 'markdown' || root.classList.contains('paste-preview');
-    root.classList.toggle('markdown-layout', markdown);
-    if (!markdown) return;
-    const children = [...root.children].filter((child): child is HTMLElement => child instanceof HTMLElement);
-    for (const child of children) child.classList.remove('wide-content');
-    // Full width needs no geometry reads, including when diagrams finish rendering.
-    if (selected === 'full') { root.style.setProperty('--reading-width', '100%'); return; }
-    const style = getComputedStyle(root);
-    const measure = choices.find((choice) => choice.id === selected)!.em * parseFloat(style.fontSize);
-    // Resolve em on the preview, so larger heading fonts use the same column as paragraphs.
-    root.style.setProperty('--reading-width', `${measure}px`);
-    if (!root.clientWidth) return;
-    const available = root.clientWidth - parseFloat(style.paddingLeft || '0') - parseFloat(style.paddingRight || '0');
-    const limit = Math.min(available, measure);
-    // Only top-level blocks may extend beyond prose. Keep lists, quotes and details intact.
-    const blocks = measureNaturalWidths(children.filter((child) => child.matches('.table-frame,.code-frame,.mermaid-source,[data-language]')));
-    for (const { element, width } of blocks) element.classList.toggle('wide-content', width > limit + 1);
-  }
-
   menu.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' || event.key === 'Tab') {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); }
@@ -130,11 +82,10 @@ export function createContentWidth(): {
     if (event.target instanceof Node && !menu.contains(event.target) && !origin?.contains(event.target)) close();
   }, { signal });
   document.addEventListener('scroll', position, { capture: true, signal });
-  window.addEventListener('resize', () => { schedule(); position(); }, { signal });
+  window.addEventListener('resize', position, { signal });
   window.addEventListener('storage', (event) => {
     if (event.key === storageKey || event.key === null) { selected = read(); apply(); }
   }, { signal });
-  document.fonts?.addEventListener('loadingdone', schedule, { signal });
   apply();
   return {
     cycle: () => select(choices[(choices.findIndex((choice) => choice.id === selected) + 1) % choices.length].id),
@@ -148,19 +99,8 @@ export function createContentWidth(): {
       }, { signal });
       buttons.add(button); return button;
     },
-    decorate: (root) => {
-      if (!roots.has(root)) {
-        const observer = new MutationObserver(schedule);
-        observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-kind', 'data-rendered'] });
-        roots.set(root, observer); resize?.observe(root);
-      }
-      dirtyRoots.delete(root); layout(root);
-    },
-    refresh: schedule,
     dispose: () => {
-      close(); lifetime.abort(); cancelAnimationFrame(frame); resize?.disconnect();
-      for (const observer of roots.values()) observer.disconnect();
-      roots.clear(); dirtyRoots.clear(); buttons.clear(); menu.remove();
+      close(); lifetime.abort(); buttons.clear(); menu.remove();
     },
   };
 }

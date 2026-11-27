@@ -313,18 +313,16 @@
     display: none !important;
   }
 
-  article[data-kind="markdown"].markdown-layout > .code-frame,
-  article[data-kind="markdown"].markdown-layout > .table-frame {
+  :root[data-content-width="full"] article[data-kind="markdown"] > :is(.code-frame, .table-frame) {
     width: calc(100% + 32px);
     max-width: none;
     margin-inline: -16px;
   }
 
-  .paste-preview.markdown-layout > .code-frame,
-  .paste-preview.markdown-layout > .table-frame {
-    width: calc(100% + 12px);
+  :root[data-content-width="full"] article[data-kind="paste"] .paste-preview > :is(.code-frame, .table-frame) {
+    width: calc(100% + 2 * var(--paste-preview-gutter));
     max-width: none;
-    margin-inline: -6px;
+    margin-inline: calc(-1 * var(--paste-preview-gutter));
   }
 
   .paste-preview .code-frame,
@@ -332,7 +330,8 @@
     margin-inline: 0;
   }
 
-  .markdown-layout :is(blockquote, li, details) :is(.code-frame, .table-frame) {
+  :is(article[data-kind="markdown"], .paste-preview) :is(blockquote, li, details) :is(.code-frame, .table-frame),
+  :root:is([data-content-width="standard"], [data-content-width="wide"]) :is(article[data-kind="markdown"], .paste-preview) :is(.code-frame, .table-frame) {
     margin-inline: 0;
     --table-bleed: 0px;
   }

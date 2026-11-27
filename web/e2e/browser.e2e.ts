@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Locator } from '@playwright/test';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, realpath, rename, writeFile, unlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -132,14 +132,26 @@ function widthMarkdown(): string {
   const table = `| ${columns.join(' | ')} |\n| ${columns.map(() => '---').join(' | ')} |\n| ${columns.map(() => '横長の表セル long value').join(' | ')} |`;
   const nodes = Array.from({ length: 14 }, (_, index) => `N${index}[横長の図 ${index}]`).join(' --> ');
   return '# 幅の確認\n\n日本語の説明文。広い画面でも読みやすい幅を維持します。\n\n## 横長の要素\n\n'
-    + table + '\n\n```typescript\nconst wide = "' + 'long value '.repeat(90) + '";\n```\n\n```mermaid\nflowchart LR\n' + nodes + '\n```\n\n'
+    + table + '\n\n```typescript\nconst wide = "' + 'long value '.repeat(14) + '";\n```\n\n```mermaid\nflowchart LR\n' + nodes + '\n```\n\n'
     + '## 小さな要素\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n```text\nshort code\n```\n\n'
     + '> 引用内の表\n>\n' + table.split('\n').map((line) => '> ' + line).join('\n') + '\n\n'
     + '- リスト内のコード\n\n    ```text\n    ' + 'nested '.repeat(100) + '\n    ```\n\n'
     + '<details><summary>Details</summary>\n\n```text\n' + 'details '.repeat(100) + '\n```\n\n</details>\n';
 }
 
-test('Markdown widths preserve prose and expand only long top-level blocks', async ({ page }, testInfo) => {
+async function expectAlignedMarkdown(root: Locator): Promise<void> {
+  await expect(root.locator(':scope > .mermaid-source .diagram-image svg')).toBeVisible();
+  await expect.poll(() => root.evaluate((preview) => {
+    const prose = preview.querySelector(':scope > p')!.getBoundingClientRect();
+    const blocks = [...preview.querySelectorAll(':scope > :is(h1,h2,.table-frame,.code-frame,.mermaid-source), :scope > [data-language] > .code-frame')];
+    return blocks.length >= 7 && blocks.every((block) => {
+      const bounds = block.getBoundingClientRect();
+      return Math.abs(bounds.left - prose.left) <= 1 && Math.abs(bounds.right - prose.right) <= 1;
+    });
+  })).toBe(true);
+}
+
+test('Markdown blocks share the selected width with prose', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 2560, height: 1100 });
   await writeFile(join(directory, 'width-fixture.md'), widthMarkdown());
   const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.message));
@@ -148,26 +160,37 @@ test('Markdown widths preserve prose and expand only long top-level blocks', asy
   const root = page.locator('#content'); const prose = root.locator(':scope > p').first();
   const width = () => prose.evaluate((element) => element.getBoundingClientRect().width);
   await expect.poll(width).toBe(736);
-  await expect.poll(() => root.locator(':scope > h1').evaluate((element) => element.getBoundingClientRect().width)).toBe(736);
-  await expect.poll(() => root.locator(':scope > h2').first().evaluate((element) => element.getBoundingClientRect().width)).toBe(736);
-  await expect(root.locator(':scope > .table-frame').first()).toHaveClass(/wide-content/);
-  await expect(root.locator(':scope > [data-language]').first()).toHaveClass(/wide-content/);
-  await expect(root.locator(':scope > .mermaid-source')).toHaveClass(/wide-content/);
-  await expect(root.locator(':scope > .table-frame').nth(1)).not.toHaveClass(/wide-content/);
-  await expect(root.locator(':scope > [data-language]').nth(1)).not.toHaveClass(/wide-content/);
-  await expect(root.locator('blockquote .wide-content,li .wide-content,details .wide-content')).toHaveCount(0);
+  await expectAlignedMarkdown(root);
+  await expect(root.locator(':scope > .table-frame').first().locator('.table-wrap')).toHaveAccessibleName('Scrollable table');
+  const code = root.locator('[data-language="typescript"] .code-frame');
+  const wrap = code.getByRole('button', { name: 'Wrap lines' });
+  await expect(code).toHaveClass(/\boverflows\b/);
+  expect(await code.locator('.chroma').first().evaluate((scroller) => {
+    scroller.scrollLeft = 40;
+    return scroller.scrollLeft;
+  })).toBeGreaterThan(0);
+  await wrap.click(); await expect(code).not.toHaveClass(/\boverflows\b/);
+  await wrap.click(); await expect(code).toHaveClass(/\boverflows\b/);
+  const expand = root.locator('.mermaid-source').getByRole('button', { name: 'Expand' });
+  await expand.click(); await expect(page.locator('#diagram-overlay')).toBeVisible();
+  await page.keyboard.press('Escape'); await expect(expand).toBeFocused();
   const geometry = await page.evaluate(() => {
     const block = document.querySelector('#content > .table-frame')!.getBoundingClientRect();
     const outline = document.querySelector('#outline')!.getBoundingClientRect();
     const main = document.querySelector('#main')!;
-    return { blockWidth: block.width, gap: outline.left - block.right, overflow: main.scrollWidth - main.clientWidth };
+    return { gap: outline.left - block.right, overflow: main.scrollWidth - main.clientWidth };
   });
-  expect(geometry.blockWidth).toBeGreaterThan(1024); expect(geometry.gap).toBeGreaterThanOrEqual(24); expect(geometry.overflow).toBeLessThanOrEqual(1);
-  await page.screenshot({ path: testInfo.outputPath('markdown-standard-wide-blocks.png'), fullPage: true });
+  expect(geometry.gap).toBeGreaterThanOrEqual(24); expect(geometry.overflow).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: testInfo.outputPath('markdown-standard-blocks.png'), fullPage: true });
   await page.getByRole('button', { name: 'Content width: Standard', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Wide', exact: true }).click(); await expect.poll(width).toBe(1024);
+  await expectAlignedMarkdown(root);
   await page.getByRole('button', { name: 'Content width: Wide', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Full', exact: true }).click(); await expect.poll(width).toBeGreaterThan(1024);
+  await expectAlignedMarkdown(root); await expect(code).not.toHaveClass(/\boverflows\b/);
+  await page.locator('#file-title .content-width-toggle').focus();
+  await page.keyboard.press('Shift+W'); await expect(code).toHaveClass(/\boverflows\b/);
+  await page.keyboard.press('Shift+W'); await page.keyboard.press('Shift+W');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('markport-content-width'))).toBe('full');
   await page.reload(); await expect(page.getByRole('button', { name: 'Content width: Full', exact: true })).toBeVisible();
   await expect.poll(width).toBeGreaterThan(1024);
@@ -249,6 +272,8 @@ test('width controls synchronize split panes and stay within resized panes', asy
     await page.keyboard.press('Shift+W');
     await expect(page.getByRole('button', { name: `Content width: ${name}`, exact: true })).toHaveCount(2);
     await expect(page.locator('#right-title .content-width-toggle')).toBeFocused();
+    await expectAlignedMarkdown(page.locator('#content'));
+    await expectAlignedMarkdown(page.locator('#right-content'));
   }
   const fits = () => page.evaluate(() => ['#main', '#right-pane'].every((selector) => {
     const pane = document.querySelector(selector)!; const block = pane.querySelector('.table-frame')!;
@@ -256,18 +281,23 @@ test('width controls synchronize split panes and stay within resized panes', asy
   }));
   await expect.poll(fits).toBe(true);
   const handle = page.getByRole('separator', { name: 'Resize file panes', exact: true });
+  await page.keyboard.press('Shift+W');
+  await expect(page.getByRole('button', { name: 'Content width: Standard', exact: true })).toHaveCount(2);
   await handle.focus(); for (let step = 0; step < 20; step++) await handle.press('ArrowRight');
   await expect.poll(fits).toBe(true);
+  await expectAlignedMarkdown(page.locator('#content'));
+  await expectAlignedMarkdown(page.locator('#right-content'));
   await page.screenshot({ path: testInfo.outputPath('markdown-split-widths.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('.content-width-toggle:visible')).toHaveCount(0);
   await expect.poll(fits).toBe(true);
-  await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('.markdown-layout :is(blockquote,li) :is(.table-frame,.code-frame)')].every((element) => {
+  await expectAlignedMarkdown(page.locator('#content'));
+  await expect.poll(() => page.evaluate(() => [...document.querySelectorAll('article[data-kind="markdown"] :is(blockquote,li) :is(.table-frame,.code-frame)')].every((element) => {
     const parent = element.closest('blockquote,li')!.getBoundingClientRect(); const block = element.getBoundingClientRect();
     return block.left >= parent.left - 1 && block.right <= parent.right + 1;
   }))).toBe(true);
   await page.setViewportSize({ width: 2560, height: 1100 });
-  await expect(page.getByRole('button', { name: 'Content width: Full', exact: true })).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Content width: Standard', exact: true })).toHaveCount(2);
 });
 
 test('Paste previews share the width choice without changing the text editor width', async ({ page }) => {
@@ -281,12 +311,14 @@ test('Paste previews share the width choice without changing the text editor wid
   await page.keyboard.press('Shift+W');
   const prose = page.locator('.paste-preview > p').first();
   await expect.poll(() => prose.evaluate((element) => element.getBoundingClientRect().width)).toBe(736);
-  await expect(page.locator('.paste-preview > .table-frame').first()).toHaveClass(/wide-content/);
+  await expectAlignedMarkdown(page.locator('.paste-preview'));
   await page.getByRole('button', { name: 'Content width: Standard', exact: true }).click();
   await page.getByRole('menuitemradio', { name: 'Wide', exact: true }).click();
   await expect.poll(() => prose.evaluate((element) => element.getBoundingClientRect().width)).toBe(1024);
+  await expectAlignedMarkdown(page.locator('.paste-preview'));
   await page.getByRole('button', { name: 'Split', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Content width: Wide', exact: true })).toBeVisible();
+  await expectAlignedMarkdown(page.locator('.paste-preview'));
   await page.getByRole('textbox', { name: 'Markdown Text', exact: true }).press('Shift+W');
   await expect(page.locator('html')).toHaveAttribute('data-content-width', 'wide');
   await page.getByRole('button', { name: 'Content width: Wide', exact: true }).focus();
@@ -302,6 +334,7 @@ test('Paste previews share the width choice without changing the text editor wid
   await page.getByRole('button', { name: 'Rendered', exact: true }).click();
   await expect(page.locator('.content-width-toggle:visible')).toHaveCount(0);
   await expect.poll(() => page.locator('.paste-preview').evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  await expectAlignedMarkdown(page.locator('.paste-preview'));
   await page.setViewportSize({ width: 2560, height: 1100 });
   await expect(page.getByRole('button', { name: 'Content width: Wide', exact: true })).toBeVisible();
 });
@@ -1707,15 +1740,15 @@ test('scrolls large tables, wraps cells on request, and expands them into an ove
   const large = page.locator('#content .table-frame').nth(1);
   await expect(large).toHaveClass(/\bwide\b/);
   await expect(small).not.toHaveClass(/\bwide\b/);
-  const measure = (): Promise<{ article: number; frames: number[]; mainOverflow: number; cellHeight: number; lineHeight: number }> => page.evaluate(() => {
+  const measure = (): Promise<{ frames: number[]; mainOverflow: number; cellHeight: number; lineHeight: number }> => page.evaluate(() => {
     const main = document.querySelector('#main')!;
     const frames = [...document.querySelectorAll('#content .table-frame')].map((frame) => frame.getBoundingClientRect().width);
     const cell = document.querySelector('#content .table-frame:nth-of-type(2) td')!;
-    return { article: document.querySelector('#content')!.getBoundingClientRect().width, frames, mainOverflow: main.scrollWidth - main.clientWidth, cellHeight: cell.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(cell).lineHeight) };
+    return { frames, mainOverflow: main.scrollWidth - main.clientWidth, cellHeight: cell.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(cell).lineHeight) };
   });
   const sizes = await measure();
   expect(Math.abs(sizes.frames[0] - 736)).toBeLessThan(1);
-  expect(Math.abs(sizes.frames[1] - sizes.article)).toBeLessThan(1);
+  expect(Math.abs(sizes.frames[1] - sizes.frames[0])).toBeLessThan(1);
   expect(sizes.mainOverflow).toBeLessThanOrEqual(0);
   expect(sizes.cellHeight).toBeLessThan(sizes.lineHeight * 2);
 

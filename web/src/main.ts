@@ -179,7 +179,7 @@ const rightContents = document.querySelector<HTMLButtonElement>('#right-contents
 const outlineController = createOutline({ content, outline, main, rightContent, rightOutline, rightContents });
 const { updateOutline, updateRightOutline } = outlineController;
 const decoration = createContentDecoration({
-  content, rightContent, main, title, contentWidth, tableOverlay,
+  content, rightContent, main, title, tableOverlay,
   getPath: () => displayedPath, getRightHash: () => rightController.lineHash,
   onLineStart: (line) => { if (!lineRangeAnchor) lineRangeAnchor = line; },
 });

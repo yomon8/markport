@@ -3,11 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createContentWidth } from '../src/contentWidth';
 
 let controller: ReturnType<typeof createContentWidth>;
-let callbacks: Map<number, FrameRequestCallback>;
-let serial: number;
-function flush(): void {
-  const queued = [...callbacks.values()]; callbacks.clear(); queued.forEach((callback) => callback(0));
-}
 function button(): HTMLButtonElement {
   const control = controller.createButton(); document.body.append(control); return control;
 }
@@ -17,10 +12,8 @@ function choose(control: HTMLButtonElement, name: string): void {
 }
 
 beforeEach(() => {
-  localStorage.clear(); document.body.replaceChildren(); serial = 0; callbacks = new Map();
+  localStorage.clear(); document.body.replaceChildren();
   delete document.documentElement.dataset.contentWidth;
-  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callbacks.set(++serial, callback); return serial; });
-  vi.stubGlobal('cancelAnimationFrame', (id: number) => callbacks.delete(id));
   vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList);
 });
 afterEach(async () => {
@@ -94,45 +87,13 @@ describe('Markdown width preference', () => {
     expect(menu.hidden).toBe(true); expect(control.getAttribute('aria-expanded')).toBe('false'); expect(document.activeElement).toBe(control);
   });
 
-  it('dismisses on outside click and disposes its menu and scheduled work', () => {
+  it('dismisses on outside click and disposes its menu and listeners', () => {
     controller = createContentWidth(); const control = button(); control.click();
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     expect(document.querySelector<HTMLElement>('#content-width-menu')!.hidden).toBe(true);
-    controller.dispose(); expect(document.querySelector('#content-width-menu')).toBeNull(); expect(callbacks.size).toBe(0);
+    controller.dispose(); expect(document.querySelector('#content-width-menu')).toBeNull();
+    localStorage.setItem('markport-content-width', 'wide');
+    window.dispatchEvent(new StorageEvent('storage', { key: 'markport-content-width' }));
+    expect(document.documentElement.dataset.contentWidth).toBe('full');
   });
-});
-
-describe('Markdown block widths', () => {
-  it('expands only long top-level blocks, recalculates on width selection, and leaves source structure intact', async () => {
-    localStorage.setItem('markport-content-width', 'standard');
-    controller = createContentWidth(); const control = button();
-    const root = document.createElement('article'); root.dataset.kind = 'markdown'; root.style.fontSize = '16px';
-    root.innerHTML = '<p>日本語の本文</p><div data-language="text"><div class="code-frame wrapped"><pre>long source</pre></div></div><div class="code-frame"><pre>short</pre></div><blockquote><div class="code-frame"><pre>nested</pre></div></blockquote>';
-    document.body.append(root); Object.defineProperty(root, 'clientWidth', { value: 1600 });
-    Object.defineProperty(root.querySelector('pre')!, 'scrollWidth', { value: 900 });
-    controller.decorate(root); flush();
-    expect(root.querySelector('[data-language]')?.classList.contains('wide-content')).toBe(true);
-    expect(root.querySelector('.wrapped')).not.toBeNull();
-    expect(root.querySelector('blockquote .wide-content')).toBeNull();
-    expect(root.querySelectorAll('.wide-content')).toHaveLength(1);
-    expect(root.textContent).toBe('日本語の本文long sourceshortnested');
-    choose(control, 'Wide'); flush(); expect(root.querySelector('.wide-content')).toBeNull();
-    choose(control, 'Standard'); flush(); expect(root.querySelector('[data-language].wide-content')).not.toBeNull();
-    root.dataset.kind = 'code'; await Promise.resolve(); flush(); expect(root.classList.contains('markdown-layout')).toBe(false);
-  });
-});
-
-it('skips intrinsic measurements in Full and merges repeated refresh requests', () => {
-  controller = createContentWidth();
-  const root = document.createElement('article'); root.dataset.kind = 'markdown'; root.style.fontSize = '16px';
-  root.innerHTML = '<div class="table-frame wide-content"><div class="table-wrap"><table></table></div></div>';
-  document.body.append(root); Object.defineProperty(root, 'clientWidth', { value: 1600 });
-  const measure = vi.fn(() => 1200);
-  Object.defineProperty(root.querySelector('table')!, 'offsetWidth', { get: measure });
-  controller.decorate(root); controller.refresh(); controller.refresh(); flush();
-  expect(measure).not.toHaveBeenCalled(); expect(root.querySelector('.wide-content')).toBeNull();
-  controller.cycle(); controller.refresh(); controller.refresh(); flush();
-  expect(measure).toHaveBeenCalledTimes(1); expect(root.querySelector('.wide-content')).not.toBeNull();
-  controller.cycle(); controller.cycle(); flush();
-  expect(measure).toHaveBeenCalledTimes(1); expect(root.querySelector('.wide-content')).toBeNull();
 });

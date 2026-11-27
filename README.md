@@ -133,7 +133,7 @@ Use the arrow beside a file in the sidebar or a search result to open it on the 
 
 Use the **Content width** icon in a Markdown title bar to choose **Standard** (46em), **Wide** (64em), or **Full** (the available pane width, the default). Existing saved choices are retained. Press `Shift+W` to cycle Full → Standard → Wide → Full while the width control is visible, outside text entry, dialogs, and menus. The choice is saved in this browser per host and port and applies to both split panes and the Rendered/Split previews in **Paste Markdown**. The width control is hidden on screens 700px wide or narrower; your saved choice is retained. Paste's text editor width is a separate setting.
 
-Wide top-level tables, code blocks, and Mermaid diagrams automatically use the available space beyond the prose width, leaving room for the sidebar and Contents outline. Smaller blocks stay aligned with the text. Blocks inside lists, quotes, or details stay within their parent. Content that still does not fit scrolls inside its own block; existing wrapping and Expand controls remain available. Source views and print layouts keep their existing widths.
+Tables, code blocks, and Mermaid diagrams stay within the same column as the text. Use **Full** to give them the available pane width. Overflow scrolls inside the block, and the wrapping and Expand controls remain available. Source views and print layouts keep their existing widths.
 
 ### Code, tables, Mermaid diagrams, and LaTeX math
 

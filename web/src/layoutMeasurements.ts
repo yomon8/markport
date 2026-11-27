@@ -1,33 +1,16 @@
-type Block = { element: HTMLElement; width: number };
-
-/** Prepare every block before reading layout, then restore every temporary style. */
-export function measureNaturalWidths(elements: HTMLElement[]): Block[] {
-  const blocks = elements.map((element) => {
-    const table = element.querySelector<HTMLTableElement>('.table-wrap table');
-    const code = element.matches('.code-frame') ? element : element.querySelector<HTMLElement>('.code-frame');
-    const scroller = code?.querySelector<HTMLElement>(':scope > .chroma, pre');
-    return { element, table, code, scroller, previous: table?.style.getPropertyValue('width'), priority: table?.style.getPropertyPriority('width'), wrapped: code?.classList.contains('wrapped'), width: 0 };
+/** Prepare every table before reading layout, then restore every temporary style. */
+export function measureNaturalTableWidths(frames: HTMLElement[]): { frame: HTMLElement; width: number }[] {
+  const tables = frames.map((frame) => {
+    const table = frame.querySelector<HTMLTableElement>('.table-wrap table')!;
+    return { frame, table, previous: table.style.getPropertyValue('width'), priority: table.style.getPropertyPriority('width') };
   });
-  for (const block of blocks) {
-    if (block.table) block.table.style.setProperty('width', 'max-content');
-    else if (block.scroller) block.code!.classList.remove('wrapped');
-  }
+  for (const { table } of tables) table.style.setProperty('width', 'max-content');
   try {
-    for (const block of blocks) {
-      if (block.table) block.width = block.table.offsetWidth;
-      else if (block.scroller) block.width = block.scroller.scrollWidth + Math.max(0, block.code!.clientWidth - block.scroller.clientWidth);
-      else {
-        const svg = block.element.querySelector<SVGSVGElement>('.diagram-image svg');
-        if (svg) block.width = parseFloat(svg.style.maxWidth) || svg.viewBox?.baseVal.width || svg.getBoundingClientRect().width;
-      }
-    }
+    return tables.map(({ frame, table }) => ({ frame, width: table.offsetWidth }));
   } finally {
-    for (const block of blocks) {
-      if (block.table) {
-        if (block.previous) block.table.style.setProperty('width', block.previous, block.priority);
-        else block.table.style.removeProperty('width');
-      } else if (block.scroller) block.code!.classList.toggle('wrapped', block.wrapped!);
+    for (const { table, previous, priority } of tables) {
+      if (previous) table.style.setProperty('width', previous, priority);
+      else table.style.removeProperty('width');
     }
   }
-  return blocks;
 }

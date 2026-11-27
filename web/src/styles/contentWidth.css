@@ -1,23 +1,22 @@
-/* Markdown prose keeps its chosen measure; wide blocks can use the whole pane.
-   Imported after paste.css so .markdown-layout overrides .paste-preview's base max-width. */
-:is(article[data-kind="markdown"], .paste-preview).markdown-layout {
-  max-width: none;
+/* Size the preview, so headings and blocks share a column regardless of font size. */
+:is(article[data-kind="markdown"], article[data-kind="paste"] .paste-preview) {
+  max-width: var(--reading-width);
   min-width: 0;
   display: flow-root;
 }
 
-:is(article[data-kind="markdown"], .paste-preview).markdown-layout > * {
+article[data-kind="paste"] .paste-preview {
+  max-width: min(100%, calc(var(--reading-width) + 2 * var(--paste-preview-gutter)));
+}
+
+:is(article[data-kind="markdown"], article[data-kind="paste"] .paste-preview) > * {
   width: 100%;
-  max-width: var(--reading-width);
+  max-width: 100%;
   margin-inline: auto;
   min-width: 0;
 }
 
-:is(article[data-kind="markdown"], .paste-preview).markdown-layout > .wide-content {
-  max-width: none;
-}
-
-:is(article[data-kind="markdown"], .paste-preview).markdown-layout > img {
+:is(article[data-kind="markdown"], article[data-kind="paste"] .paste-preview) > img {
   width: auto;
 }
 
